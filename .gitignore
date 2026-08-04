@@ -1,0 +1,35 @@
+*.iml
+.kotlin
+.gradle
+**/build/
+xcuserdata
+.idea
+.DS_Store
+captures
+.externalNativeBuild
+.cxx
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+!*.xcworkspace/contents.xcworkspacedata
+**/xcshareddata/WorkspaceSettings.xcsettings
+local.properties
+.android
+node_modules/
+.devenv/
+.devenv.flake.nix
+# Local agent / editor plans (not part of the public app tree)
+docs/plans/
+docs/plan/
+# Secrets & signing
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+google-services.json
+GoogleService-Info.plist
+.env
+.env.*
+!.env.example
+.envrc.old

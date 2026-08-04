@@ -1,0 +1,61 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- GPS track curve (path only) -->
+    <path
+        android:name="track"
+        android:pathData="M8,84 C28,70 40,72 54,78 C68,84 78,82 96,66"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeColor="#1E88E5"
+        android:fillColor="#00000000"/>
+
+    <!-- Car body (modern compact silhouette) -->
+    <group android:translateX="24" android:translateY="46">
+        <!-- Main cabin/body -->
+        <path
+            android:name="car_body"
+            android:pathData="M4,8 h32 a6,6 0 0 1 6,6 v6 h-44 v-4 a8,8 0 0 1 6,-8 z"
+            android:fillColor="#263238"/>
+        <!-- Roof / windshield for a sleeker look -->
+        <path
+            android:name="car_roof"
+            android:pathData="M10,8 c8,-8 24,-8 30,0 v2 h-30 z"
+            android:fillColor="#37474F"/>
+        <!-- Windows strip -->
+        <path
+            android:name="car_windows"
+            android:pathData="M12,10 h24 a2,2 0 0 1 2,2 v2 h-28 v-2 a2,2 0 0 1 2,-2 z"
+            android:fillColor="#90CAF9"/>
+        <!-- Wheels -->
+        <path android:pathData="M12,24 a6,6 0 1,0 0.01,0" android:fillColor="#212121"/>
+        <path android:pathData="M36,24 a6,6 0 1,0 0.01,0" android:fillColor="#212121"/>
+        <!-- Wheel hubs -->
+        <path android:pathData="M12,24 a2.5,2.5 0 1,0 0.01,0" android:fillColor="#B0BEC5"/>
+        <path android:pathData="M36,24 a2.5,2.5 0 1,0 0.01,0" android:fillColor="#B0BEC5"/>
+        <!-- Front light accent -->
+        <path android:pathData="M42,18 h3 v2 h-3 z" android:fillColor="#FFECB3"/>
+    </group>
+
+    <!-- GPS pin above the car -->
+    <group android:translateX="60" android:translateY="20">
+        <!-- Pin shape (teardrop) -->
+        <path
+            android:name="gps_pin"
+            android:pathData="M12,2 C6.48,2 2,6.48 2,12 c0,7 10,16 10,16 s10,-9 10,-16 C22,6.48 17.52,2 12,2 z"
+            android:fillColor="#E53935"/>
+        <!-- Inner circle -->
+        <path
+            android:pathData="M12,7 a5,5 0 1,0 0.01,0"
+            android:fillColor="#FFFFFF"/>
+    </group>
+
+    <!-- Subtle highlight on track end to suggest motion -->
+    <path
+        android:pathData="M88,66 a4,4 0 1,0 0.01,0"
+        android:fillColor="#64B5F6"/>
+
+</vector>

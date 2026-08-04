@@ -1,0 +1,7 @@
+## Copy to local.properties (gitignored) and fill in locally.
+## Do not commit real values.
+
+sdk.dir=/path/to/Android/Sdk
+
+# Optional — only if the AndroidManifest placeholder is used
+MAPS_API_KEY=YOUR_API_KEY_HERE
