@@ -262,7 +262,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 controlModuleVoltage = pidValues["42"],
                 engineOnTime = pidValues["1f"],
                 massAirFlow = pidValues["10"],
-                lambdaCmd = pidValues["44"]
+                lambdaCmd = pidValues["44"],
+                atmosphericPressure = pidValues["33"],
+                intakeAirTemperature = pidValues["0f"],
             )
             // Local enqueue only — never block collection on network.
             runCatching { queueRepo.enqueue(id, sample) }

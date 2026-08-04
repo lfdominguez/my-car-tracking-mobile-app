@@ -237,6 +237,11 @@ data class Sample(
     @SerialName(value="mass_air_flow")
     val massAirFlow: Double? = null,
     @SerialName(value="lambda_cmd")
-    val lambdaCmd: Double? = null
-
+    val lambdaCmd: Double? = null,
+    /** OBD PID 33 barometric pressure (kPa). */
+    @SerialName("atmospheric_pressure")
+    val atmosphericPressure: Double? = null,
+    /** OBD PID 0F intake air temperature (°C). */
+    @SerialName("intake_air_temperature")
+    val intakeAirTemperature: Double? = null,
 )
