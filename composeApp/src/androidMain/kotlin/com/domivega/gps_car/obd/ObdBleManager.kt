@@ -70,6 +70,9 @@ object ObdBleManager {
     private const val ECU_PROBE_TIMEOUT_MS = 8_000L
     private const val SCAN_PERIOD_MS = 12_000L
     private const val RECONNECT_INTERVAL_MS = 7_000L
+    /** Wall-clock interval for VW MQB UDS cluster odometer probes. */
+    private const val VW_ODO_INTERVAL_MS = 45_000L
+    private const val UDS_COMMAND_TIMEOUT_MS = 6_000L
     private const val CHARSET_NAME = "US-ASCII"
 
     /** PIDs map for ForegroundTrackingService. */
@@ -131,6 +134,25 @@ object ObdBleManager {
 
     /** First miss/NO DATA log per PID per session (does not disable or clear values). */
     private val noDataLogged = ConcurrentHashMap.newKeySet<String>()
+
+    /** First successful UDS odometer DID this session (prefer on later probes). */
+    @Volatile
+    private var sessionWinningDid: Int? = null
+
+    /** Last VW UDS odometer attempt wall clock (rate limit). */
+    @Volatile
+    private var lastVwOdoAtMs: Long = 0L
+
+    private val loggedVwUdsStart = AtomicBoolean(false)
+    private val loggedVwUdsSuccess = AtomicBoolean(false)
+    private val loggedVwUdsFail = AtomicBoolean(false)
+
+    /**
+     * Set when header restore after UDS fails critically.
+     * If Mode 01 then times out, force session re-init (avoid permanent bus stuck on 714).
+     */
+    @Volatile
+    private var udsHeaderRestoreFailed = false
 
     private val parser = Elm327Parser()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -893,6 +915,12 @@ object ObdBleManager {
     private fun resetPidDiscoveryState() {
         supportedMode01Pids = emptySet()
         noDataLogged.clear()
+        sessionWinningDid = null
+        lastVwOdoAtMs = 0L
+        loggedVwUdsStart.set(false)
+        loggedVwUdsSuccess.set(false)
+        loggedVwUdsFail.set(false)
+        udsHeaderRestoreFailed = false
     }
 
     /** Log first miss per PID per session; never disable or clear last-good values. */
@@ -1049,6 +1077,18 @@ object ObdBleManager {
                         val raw = sendCommandLogged(cmd, isInit = false)
                         if (raw == null) {
                             if (!sessionReady.get() || gatt == null) break
+                            if (udsHeaderRestoreFailed) {
+                                logE(
+                                    "Mode 01 timeout after UDS header restore failure " +
+                                        "— forcing session re-init",
+                                )
+                                sessionReady.set(false)
+                                _ecuConnected.value = false
+                                setStatus("OBD headers unhealthy — reconnecting")
+                                // Drop GATT so auto-reconnect can re-run full ELM init.
+                                closeGattInternal()
+                                break
+                            }
                             notePidMiss(pid, null)
                             continue
                         }
@@ -1088,6 +1128,10 @@ object ObdBleManager {
                     Log.w(TAG, "Poll cycle error", t)
                 }
 
+                if (sessionReady.get()) {
+                    maybePollVwOdometer()
+                }
+
                 // Light rate log ~every 10s (not per PID)
                 val now = System.currentTimeMillis()
                 if (now - windowStartMs >= 10_000L) {
@@ -1102,6 +1146,121 @@ object ObdBleManager {
                 yield()
             }
         }
+    }
+
+    /**
+     * VW MQB only: rare UDS ReadDID to instrument cluster for dash odometer.
+     * Serialized via [sendCommand] mutex; always restores OBD headers afterward.
+     */
+    private suspend fun maybePollVwOdometer() {
+        if (!sessionReady.get() || gatt == null) return
+        val profile = VehicleObdProfile.fromName(settings.vehicleObdProfile)
+        if (profile != VehicleObdProfile.VwMqb) return
+
+        val now = System.currentTimeMillis()
+        if (lastVwOdoAtMs != 0L && now - lastVwOdoAtMs < VW_ODO_INTERVAL_MS) return
+        lastVwOdoAtMs = now
+
+        pollVwOdometerOnce()
+    }
+
+    private suspend fun pollVwOdometerOnce() {
+        if (loggedVwUdsStart.compareAndSet(false, true)) {
+            logI("VW MQB UDS odometer probe (ATSH714 / service 22)")
+        }
+        var gotReading = false
+        try {
+            // Physical addressing to instrument cluster (11-bit CAN).
+            val sh = sendCommandLogged("ATSH714", COMMAND_TIMEOUT_MS, isInit = false)
+            if (sh == null) {
+                if (loggedVwUdsFail.compareAndSet(false, true)) {
+                    logW("VW UDS: ATSH714 failed/timeout")
+                }
+                return
+            }
+            // Best-effort receive filter / flow control; ignore adapter rejections.
+            sendCommandLogged("ATCRA77E", COMMAND_TIMEOUT_MS, isInit = false)
+            sendCommandLogged("ATFCSM1", COMMAND_TIMEOUT_MS, isInit = false)
+
+            val dids = sessionWinningDid?.let { listOf(it) }
+                ?: UdsReadDid.candidateDids(settings.vwOdometerDid)
+
+            for (did in dids) {
+                if (!sessionReady.get() || gatt == null) break
+                val cmd = "22" + did.toString(16).uppercase().padStart(4, '0')
+                val raw = sendCommandLogged(cmd, UDS_COMMAND_TIMEOUT_MS, isInit = false)
+                    ?: continue
+                val payload = UdsReadDid.parsePositiveReadDid(raw, did) ?: continue
+                val km = UdsReadDid.decodeOdometerKm(payload) ?: continue
+                if (!isValidPidValue(OdometerReading.UDS_KM_KEY, km)) {
+                    logW("VW UDS: invalid odometer decode $km for DID ${did.toString(16)}")
+                    continue
+                }
+
+                val updated = LinkedHashMap(
+                    PidPollPolicy.afterSuccess(
+                        _pidValues.value,
+                        OdometerReading.UDS_KM_KEY,
+                        km,
+                    ),
+                )
+                _pidValues.value = updated.toMap()
+                sessionWinningDid = did
+                gotReading = true
+                if (loggedVwUdsSuccess.compareAndSet(false, true)) {
+                    logI(
+                        "VW UDS odometer OK: DID=${did.toString(16).uppercase().padStart(4, '0')} " +
+                            "km=$km",
+                    )
+                }
+                break
+            }
+
+            if (!gotReading && loggedVwUdsFail.compareAndSet(false, true)) {
+                logW("VW UDS odometer: no positive DID response this session (yet)")
+            }
+        } catch (t: Throwable) {
+            if (loggedVwUdsFail.compareAndSet(false, true)) {
+                logW("VW UDS odometer error: ${t.message}")
+            }
+            Log.w(TAG, "pollVwOdometerOnce", t)
+        } finally {
+            restoreObdHeaders()
+        }
+    }
+
+    /**
+     * Restore functional OBD-II addressing after a UDS cluster probe.
+     * Must always run after [pollVwOdometerOnce] header switch.
+     */
+    private suspend fun restoreObdHeaders() {
+        // Clear any CAN receive address filter, then restore functional header 7DF.
+        val atar = sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = false)
+        val atsh = sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = false)
+
+        val atarOk = atar != null && !isElmErrorResponse(atar)
+        val atshOk = atsh != null && !isElmErrorResponse(atsh)
+
+        if (atarOk || atshOk) {
+            if (udsHeaderRestoreFailed) {
+                udsHeaderRestoreFailed = false
+                logI("OBD headers restored after prior UDS restore failure")
+            }
+            return
+        }
+
+        udsHeaderRestoreFailed = true
+        logE(
+            "UDS header restore failed (ATAR/ATSH7DF) — " +
+                "Mode 01 may be unhealthy until reconnect",
+        )
+    }
+
+    private fun isElmErrorResponse(raw: String): Boolean {
+        val u = raw.uppercase()
+        return u.contains("ERROR") || u.contains("UNABLE") ||
+            u.contains("BUS INIT") || u.contains("STOPPED") ||
+            (u.contains("?") && !u.contains("NO DATA") && !u.contains("OK"))
     }
 
     private fun stopPollLoop() {
@@ -1138,7 +1297,7 @@ object ObdBleManager {
             "10" -> value in 0.0..655.35
             "ff125a" -> value in 0.0..200.0
             "42" -> value in 0.0..20.0
-            "a6" -> value in 0.0..1_000_000.0
+            "a6", OdometerReading.UDS_KM_KEY -> value in 0.0..2_000_000.0
             "31" -> value in 0.0..65535.0
             else -> true
         }
