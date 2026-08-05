@@ -89,6 +89,10 @@ object ObdBleManager {
         "06" to "STFT",
         "07" to "LTFT",
         "2f" to "Fuel Level",
+        VwClusterDids.KEY_FUEL_PCT to "Fuel Level (cluster)",
+        VwClusterDids.KEY_OIL_C to "Oil Temperature",
+        VwClusterDids.KEY_DOORS to "Door Status",
+        OdometerReading.UDS_KM_KEY to "Odometer (cluster)",
         "49" to "Accelerator Pedal",
         "46" to "Ambient Air Temp",
         "a6" to "Odometer",
@@ -166,6 +170,8 @@ object ObdBleManager {
     private val loggedVwUdsStart = AtomicBoolean(false)
     private val loggedVwUdsSuccess = AtomicBoolean(false)
     private val loggedVwUdsFail = AtomicBoolean(false)
+    /** First success log per cluster extra metric key this session. */
+    private val loggedVwClusterExtraOk = ConcurrentHashMap.newKeySet<String>()
 
     /**
      * Set when header restore after UDS fails critically.
@@ -1035,6 +1041,7 @@ object ObdBleManager {
         loggedVwUdsStart.set(false)
         loggedVwUdsSuccess.set(false)
         loggedVwUdsFail.set(false)
+        loggedVwClusterExtraOk.clear()
         udsHeaderRestoreFailed = false
     }
 
@@ -1275,7 +1282,7 @@ object ObdBleManager {
     }
 
     /**
-     * VW MQB only: rare UDS ReadDID to instrument cluster for dash odometer.
+     * VW MQB only: rare UDS ReadDID hop to instrument cluster (odometer + nice-to-haves).
      * Serialized via [sendCommand] mutex; always restores OBD headers afterward.
      */
     private suspend fun maybePollVwOdometer(round: Int) {
@@ -1295,7 +1302,7 @@ object ObdBleManager {
 
     private suspend fun pollVwOdometerOnce() {
         if (loggedVwUdsStart.compareAndSet(false, true)) {
-            logI("VW MQB UDS odometer probe (ATSH714 / service 22, no ATCRA)")
+            logI("VW MQB UDS cluster probe (ATSH714 / service 22, no ATCRA)")
         }
         var gotReading = false
         udsReceiveFilterWasSet = false
@@ -1348,13 +1355,44 @@ object ObdBleManager {
             if (!gotReading && loggedVwUdsFail.compareAndSet(false, true)) {
                 logW("VW UDS odometer: no positive DID response this session (yet)")
             }
+
+            // Same hop: well-known cluster extras (fuel / oil / doors). Best-effort.
+            pollVwClusterExtras()
         } catch (t: Throwable) {
             if (loggedVwUdsFail.compareAndSet(false, true)) {
-                logW("VW UDS odometer error: ${t.message}")
+                logW("VW UDS cluster error: ${t.message}")
             }
             Log.w(TAG, "pollVwOdometerOnce", t)
         } finally {
             restoreObdHeaders()
+        }
+    }
+
+    /**
+     * Read fixed cluster DIDs while still on ATSH714. Misses do not fail the hop.
+     * Call only from [pollVwOdometerOnce] before header restore.
+     */
+    private suspend fun pollVwClusterExtras() {
+        for (did in VwClusterDids.EXTRA_DIDS) {
+            if (!sessionReady.get() || gatt == null) break
+            val key = VwClusterDids.keyForDid(did) ?: continue
+            val cmd = "22" + did.toString(16).uppercase().padStart(4, '0')
+            val raw = sendCommandLogged(cmd, UDS_COMMAND_TIMEOUT_MS, isInit = false)
+                ?: continue
+            val payload = UdsReadDid.parsePositiveReadDid(raw, did) ?: continue
+            val value = VwClusterDids.decodeValue(did, payload) ?: continue
+            if (!isValidPidValue(key, value)) continue
+
+            val updated = LinkedHashMap(
+                PidPollPolicy.afterSuccess(_pidValues.value, key, value),
+            )
+            _pidValues.value = updated.toMap()
+            if (loggedVwClusterExtraOk.add(key)) {
+                logI(
+                    "VW UDS cluster OK: DID=${did.toString(16).uppercase().padStart(4, '0')} " +
+                        "$key=$value",
+                )
+            }
         }
     }
 
@@ -1476,12 +1514,14 @@ object ObdBleManager {
         return when (pid) {
             "0d" -> value in 0.0..400.0
             "0c" -> value in 0.0..16383.0
-            "2f" -> value in 0.0..100.0
+            "2f", VwClusterDids.KEY_FUEL_PCT -> value in 0.0..100.0
             "04", "43", "45", "49" -> value in 0.0..100.0
             "10" -> value in 0.0..655.35
             "ff125a" -> value in 0.0..200.0
             "42" -> value in 0.0..20.0
             "a6", OdometerReading.UDS_KM_KEY -> value in 0.0..2_000_000.0
+            VwClusterDids.KEY_OIL_C -> value in -40.0..200.0
+            VwClusterDids.KEY_DOORS -> value in 0.0..4_294_967_295.0
             "31" -> value in 0.0..65535.0
             else -> true
         }

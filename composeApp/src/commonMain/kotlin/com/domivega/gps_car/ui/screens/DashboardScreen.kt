@@ -45,6 +45,11 @@ fun DashboardScreen(
 
             OdometerBanner(odometerKm = state.odometerKm)
 
+            ClusterExtrasBanner(
+                oilTempC = state.oilTempC,
+                doorsSummary = state.doorsSummary,
+            )
+
             // Primary Metrics (Speed & RPM)
             Row(
                 modifier = Modifier.fillMaxWidth().weight(1.2f),
@@ -160,6 +165,29 @@ fun StatusHeader(isTracking: Boolean, isGpsLocked: Boolean, ecuConnected: Boolea
             )
         }
     }
+}
+
+@Composable
+fun ClusterExtrasBanner(
+    oilTempC: Double?,
+    doorsSummary: String?,
+) {
+    if (oilTempC == null && doorsSummary == null) return
+    val parts = buildList {
+        if (oilTempC != null && oilTempC.isFinite()) {
+            add("Oil ${oilTempC.toInt()}\u00b0C")
+        }
+        if (doorsSummary != null) add(doorsSummary)
+    }
+    if (parts.isEmpty()) return
+    Text(
+        text = parts.joinToString(" \u00b7 "),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+    )
 }
 
 @Composable

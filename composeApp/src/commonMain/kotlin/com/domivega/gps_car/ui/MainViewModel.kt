@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.domivega.gps_car.data.CarMetricSource
 import com.domivega.gps_car.objects.GpsDataSource
+import com.domivega.gps_car.obd.FuelLevelReading
 import com.domivega.gps_car.obd.OdometerReading
+import com.domivega.gps_car.obd.VwClusterDids
 import com.domivega.gps_car.ui.state.DashboardState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,12 +41,14 @@ class MainViewModel(
             val speed = pidValues["0d"] ?: 0.0
             val rpm = pidValues["0c"] ?: 0.0
             val engineLoad = pidValues["04"] ?: 0.0
-            val fuelLevel = pidValues["2f"] ?: 0.0
+            val fuelLevel = FuelLevelReading.fromPidValues(pidValues) ?: 0.0
             val odometerKm = OdometerReading.fromPidValues(pidValues)
-            
+            val oilTempC = pidValues[VwClusterDids.KEY_OIL_C]
+            val doorsSummary = VwClusterDids.doorSummaryFromPidValues(pidValues)
+
             // Heuristic for GPS Lock: if we have valid accuracy
             val isGpsLocked = location.accuracy != -1.0 && location.accuracy < 50.0 // Adjusted threshold
-            
+
             // We preserve the current isTracking state as it is updated separately
             val currentTracking = _uiState.value.isTracking
 
@@ -54,6 +58,8 @@ class MainViewModel(
                 engineLoad = engineLoad,
                 fuelLevel = fuelLevel,
                 odometerKm = odometerKm,
+                oilTempC = oilTempC,
+                doorsSummary = doorsSummary,
                 isTracking = currentTracking,
                 isGpsLocked = isGpsLocked,
                 ecuConnected = ecuConnected,

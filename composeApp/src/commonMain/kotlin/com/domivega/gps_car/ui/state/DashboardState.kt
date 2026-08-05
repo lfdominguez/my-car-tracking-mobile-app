@@ -5,8 +5,12 @@ data class DashboardState(
     val speed: Double = 0.0,
     val engineLoad: Double = 0.0,
     val fuelLevel: Double = 0.0,
-    /** Vehicle odometer km from SAE PID A6 when available. */
+    /** Vehicle odometer km from cluster UDS or SAE PID A6 when available. */
     val odometerKm: Double? = null,
+    /** Oil temp °C from VW cluster UDS when available. */
+    val oilTempC: Double? = null,
+    /** Human door summary from VW cluster UDS, or null if never read. */
+    val doorsSummary: String? = null,
     val isTracking: Boolean = false,
     val isGpsLocked: Boolean = false,
     val ecuConnected: Boolean = false,
