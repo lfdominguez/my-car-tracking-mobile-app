@@ -97,4 +97,13 @@ class Elm327ParserTest {
     fun `return null for incomplete A6 payload`() {
         assertNull(parser.decodePid("A6", "41 A6 00 03"))
     }
+
+    @Test
+    fun `WWH RPM bytes decode equal to Mode 01 via compatibility shim`() {
+        val mode01 = parser.decodePid("0c", "410C1AF8")
+        val wwhShim = WwhObd.mode01CompatibleResponse("0c", "62F40C1AF8>")
+        val fromWwh = parser.decodePid("0c", wwhShim!!)
+        assertEquals(mode01, fromWwh)
+        assertEquals(1726.0, fromWwh!!, 0.001)
+    }
 }
