@@ -33,3 +33,5 @@ GoogleService-Info.plist
 .env.*
 !.env.example
 .envrc.old
+
+.worktrees/
