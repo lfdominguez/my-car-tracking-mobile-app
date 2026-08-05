@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.domivega.gps_car.fuel.FuelTypePreset
@@ -63,6 +65,7 @@ fun SettingsScreen(
         VehicleObdProfile.entries.map { it.name to it.displayName },
     onVehicleObdProfileSelected: (String) -> Unit = {},
     onVwOdometerDidChange: (String) -> Unit = {},
+    onWwhObdOnlyChange: (Boolean) -> Unit = {},
     onScanClick: () -> Unit = {},
     onDeviceSelected: (address: String, name: String?) -> Unit = { _, _ -> },
     onConnectClick: () -> Unit = {},
@@ -319,6 +322,26 @@ fun SettingsScreen(
                 text = "4-hex DID override for cluster odometer (e.g. 22A6). Leave empty to try built-in candidates.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text("WWH-OBD only (experimental)")
+                Text(
+                    text = "Engine metrics via UDS 22F4xx only (no classic Mode 01). " +
+                        "Applies on next OBD reconnect. May fail if the car has no OBDonUDS.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = state.wwhObdOnly,
+                onCheckedChange = onWwhObdOnlyChange,
             )
         }
 

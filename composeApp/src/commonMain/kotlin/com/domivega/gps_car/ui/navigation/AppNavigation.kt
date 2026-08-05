@@ -153,6 +153,7 @@ fun AppNavigation(
                         onProtocolSelected = onProtocolSelected,
                         onVehicleObdProfileSelected = settingsViewModel::updateVehicleObdProfile,
                         onVwOdometerDidChange = settingsViewModel::updateVwOdometerDid,
+                        onWwhObdOnlyChange = settingsViewModel::updateWwhObdOnly,
                         onScanClick = onBleScanClick,
                         onDeviceSelected = onBleDeviceSelected,
                         onConnectClick = onBleConnectClick,

@@ -20,6 +20,8 @@ data class SettingsUiState(
     val vehicleObdProfile: String = "Generic",
     /** Optional 4-hex DID override for VW MQB odometer (empty = candidates). */
     val vwOdometerDid: String = "",
+    /** Experimental WWH-OBD / OBDonUDS engine stack only. */
+    val wwhObdOnly: Boolean = false,
     /** FuelTypePreset name; default E10. */
     val fuelType: String = "E10",
     val fuelStoichAfr: Double = 14.08,

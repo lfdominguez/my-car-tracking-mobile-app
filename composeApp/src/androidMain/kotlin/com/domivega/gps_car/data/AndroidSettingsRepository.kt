@@ -54,6 +54,10 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
         get() = appSettings.vwOdometerDid
         set(value) { appSettings.vwOdometerDid = value }
 
+    override var wwhObdOnly: Boolean
+        get() = appSettings.wwhObdOnly
+        set(value) { appSettings.wwhObdOnly = value }
+
     override var fuelType: String
         get() = appSettings.fuelType
         set(value) { appSettings.fuelType = value }

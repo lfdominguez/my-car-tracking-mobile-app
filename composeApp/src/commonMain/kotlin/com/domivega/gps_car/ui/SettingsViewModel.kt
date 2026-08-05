@@ -47,6 +47,7 @@ class SettingsViewModel(
                 obdProtocol = repository.obdProtocol,
                 vehicleObdProfile = repository.vehicleObdProfile,
                 vwOdometerDid = repository.vwOdometerDid,
+                wwhObdOnly = repository.wwhObdOnly,
                 fuelType = repository.fuelType,
                 fuelStoichAfr = repository.fuelStoichAfr,
                 fuelDensityGl = repository.fuelDensityGl,
@@ -107,6 +108,11 @@ class SettingsViewModel(
         val cleaned = did.trim().filter { it.isLetterOrDigit() }.uppercase()
         repository.vwOdometerDid = cleaned
         _uiState.update { it.copy(vwOdometerDid = cleaned) }
+    }
+
+    fun updateWwhObdOnly(enabled: Boolean) {
+        repository.wwhObdOnly = enabled
+        _uiState.update { it.copy(wwhObdOnly = enabled) }
     }
 
     fun updateFuelType(typeName: String) {
