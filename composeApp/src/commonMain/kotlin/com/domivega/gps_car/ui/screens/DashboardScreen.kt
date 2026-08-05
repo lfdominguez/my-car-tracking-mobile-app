@@ -43,6 +43,8 @@ fun DashboardScreen(
                 ecuConnected = state.ecuConnected
             )
 
+            OdometerBanner(odometerKm = state.odometerKm)
+
             // Primary Metrics (Speed & RPM)
             Row(
                 modifier = Modifier.fillMaxWidth().weight(1.2f),
@@ -155,6 +157,50 @@ fun StatusHeader(isTracking: Boolean, isGpsLocked: Boolean, ecuConnected: Boolea
                 contentDescription = "GPS Status",
                 tint = if (isGpsLocked) MaterialTheme.colorScheme.primary else Color.Gray,
                 modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun OdometerBanner(odometerKm: Double?) {
+    val label = if (odometerKm != null && odometerKm.isFinite()) {
+        val whole = odometerKm.toLong()
+        if (odometerKm >= 100.0) {
+            "$whole km"
+        } else {
+            val tenths = ((odometerKm * 10.0) + 0.5).toInt()
+            val w = tenths / 10
+            val f = tenths % 10
+            "$w.$f km"
+        }
+    } else {
+        "— km"
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "ODOMETER",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold
             )
         }
     }

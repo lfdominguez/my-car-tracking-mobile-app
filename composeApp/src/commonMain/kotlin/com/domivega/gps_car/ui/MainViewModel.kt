@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.domivega.gps_car.data.CarMetricSource
 import com.domivega.gps_car.objects.GpsDataSource
+import com.domivega.gps_car.obd.OdometerReading
 import com.domivega.gps_car.ui.state.DashboardState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +40,7 @@ class MainViewModel(
             val rpm = pidValues["0c"] ?: 0.0
             val engineLoad = pidValues["04"] ?: 0.0
             val fuelLevel = pidValues["2f"] ?: 0.0
+            val odometerKm = OdometerReading.fromPidValues(pidValues)
             
             // Heuristic for GPS Lock: if we have valid accuracy
             val isGpsLocked = location.accuracy != -1.0 && location.accuracy < 50.0 // Adjusted threshold
@@ -51,6 +53,7 @@ class MainViewModel(
                 speed = speed,
                 engineLoad = engineLoad,
                 fuelLevel = fuelLevel,
+                odometerKm = odometerKm,
                 isTracking = currentTracking,
                 isGpsLocked = isGpsLocked,
                 ecuConnected = ecuConnected,
