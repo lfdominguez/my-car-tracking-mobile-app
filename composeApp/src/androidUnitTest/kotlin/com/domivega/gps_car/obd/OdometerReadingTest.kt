@@ -26,4 +26,27 @@ class OdometerReadingTest {
     fun `returns null when odometer unavailable`() {
         assertNull(OdometerReading.fromPidValues(mapOf("0d" to 50.0)))
     }
+
+    @Test
+    fun `prefers UDS odometer key over A6`() {
+        val km = OdometerReading.fromPidValues(
+            mapOf(
+                OdometerReading.UDS_KM_KEY to 45012.0,
+                "a6" to 20123.4,
+                "31" to 5700.0,
+            ),
+        )
+        assertEquals(45012.0, km!!, 0.001)
+    }
+
+    @Test
+    fun `uses A6 when UDS odometer key missing`() {
+        val km = OdometerReading.fromPidValues(
+            mapOf(
+                "A6" to 20123.4,
+                "31" to 5700.0,
+            ),
+        )
+        assertEquals(20123.4, km!!, 0.001)
+    }
 }
