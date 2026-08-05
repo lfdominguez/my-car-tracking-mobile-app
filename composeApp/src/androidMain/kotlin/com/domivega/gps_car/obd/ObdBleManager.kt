@@ -67,6 +67,7 @@ object ObdBleManager {
 
     private const val COMMAND_TIMEOUT_MS = 4_000L
     private const val ATZ_TIMEOUT_MS = 6_000L
+    private const val ECU_PROBE_TIMEOUT_MS = 8_000L
     private const val SCAN_PERIOD_MS = 12_000L
     private const val RECONNECT_INTERVAL_MS = 7_000L
     private const val CHARSET_NAME = "US-ASCII"
@@ -123,6 +124,13 @@ object ObdBleManager {
     )
 
     private const val SLOW_EVERY = 5
+
+    /** Mode 01 PIDs reported supported by the ECU (empty = not discovered yet). Log-only. */
+    @Volatile
+    private var supportedMode01Pids: Set<Int> = emptySet()
+
+    /** First miss/NO DATA log per PID per session (does not disable or clear values). */
+    private val noDataLogged = ConcurrentHashMap.newKeySet<String>()
 
     private val parser = Elm327Parser()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -407,6 +415,7 @@ object ObdBleManager {
             sessionReady.set(false)
             _ecuConnected.value = false
             _pidValues.value = emptyMap()
+            resetPidDiscoveryState()
             closeGattInternal()
             connecting.set(false)
             loggedFirstPollOk.set(false)
@@ -763,20 +772,21 @@ object ObdBleManager {
 
     private suspend fun runInitSequence(): Boolean {
         return try {
-            // Clear any noise after link-up
-            delay(300)
+            resetPidDiscoveryState()
+            // Clear noise after link-up; adapters often need a beat after GATT notify.
+            delay(500)
             drainBuffer()
 
-            val steps = listOf(
+            val baseSteps = listOf(
                 "ATZ" to ATZ_TIMEOUT_MS,
                 "ATE0" to COMMAND_TIMEOUT_MS,
                 "ATL0" to COMMAND_TIMEOUT_MS,
                 "ATS0" to COMMAND_TIMEOUT_MS,
                 "ATH0" to COMMAND_TIMEOUT_MS,
-                protocol.atspCommand to COMMAND_TIMEOUT_MS,
+                "ATAL" to COMMAND_TIMEOUT_MS, // long/multi-frame (e.g. odometer A6)
                 "ATAT1" to COMMAND_TIMEOUT_MS,
             )
-            for ((cmd, timeout) in steps) {
+            for ((cmd, timeout) in baseSteps) {
                 val resp = sendCommandLogged(cmd, timeout, isInit = true)
                 if (resp == null) {
                     logE("ELM init failed at $cmd (timeout/error)")
@@ -784,23 +794,47 @@ object ObdBleManager {
                     _ecuConnected.value = false
                     return false
                 }
-                if (cmd == "ATZ") delay(200)
+                if (cmd == "ATZ") delay(500)
             }
 
-            val supported = sendCommandLogged("0100", COMMAND_TIMEOUT_MS, isInit = true)
-            val hasData = supported != null &&
-                supported.contains("41", ignoreCase = true) &&
-                !supported.contains("NO DATA", ignoreCase = true) &&
-                !supported.contains("UNABLE", ignoreCase = true)
+            // Preferred protocol, then ATSP0 fallback if ECU never answers 0100.
+            val protocolsToTry = buildList {
+                add(protocol.atspCommand)
+                if (!protocol.atspCommand.equals("ATSP0", ignoreCase = true)) {
+                    add("ATSP0")
+                }
+            }.distinct()
 
-            _ecuConnected.value = hasData
-            if (!hasData) {
-                logE("ELM init failed at 0100: ${supported ?: "null"}")
+            var ecuRaw: String? = null
+            for ((index, atsp) in protocolsToTry.withIndex()) {
+                val sp = sendCommandLogged(atsp, COMMAND_TIMEOUT_MS, isInit = true)
+                if (sp == null) {
+                    logW("Protocol $atsp failed to respond")
+                    continue
+                }
+                delay(400)
+                ecuRaw = probeEcuSupportedPids()
+                if (ecuRaw != null) {
+                    if (index > 0) logI("ECU contact OK after fallback protocol $atsp")
+                    break
+                }
+                logW("No ECU data after $atsp; trying next protocol if any")
+            }
+
+            if (ecuRaw == null) {
+                logE("ELM init failed at 0100 (no ECU response)")
                 setStatus("ELM init failed (0100)")
-            } else {
-                logI("ELM init OK")
+                _ecuConnected.value = false
+                return false
             }
-            hasData
+
+            discoverSupportedPids(first0100 = ecuRaw)
+            _ecuConnected.value = true
+            logI(
+                "ELM init OK — mode01 support=${supportedMode01Pids.size} " +
+                    "hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size}",
+            )
+            true
         } catch (t: Throwable) {
             logE("ELM init exception: ${t.message}")
             Log.w(TAG, "Init sequence failed", t)
@@ -808,6 +842,64 @@ object ObdBleManager {
             _ecuConnected.value = false
             false
         }
+    }
+
+    /** Retry 0100 a few times; return raw response when ECU answers with a 41 bitmap. */
+    private suspend fun probeEcuSupportedPids(): String? {
+        repeat(3) { attempt ->
+            val raw = sendCommandLogged("0100", ECU_PROBE_TIMEOUT_MS, isInit = true)
+            if (isSuccessfulMode01Response(raw, expectPid = 0x00)) {
+                return raw
+            }
+            logW("0100 probe attempt ${attempt + 1}/3 failed: ${raw?.take(80) ?: "null"}")
+            delay(350)
+            drainBuffer()
+        }
+        return null
+    }
+
+    private fun isSuccessfulMode01Response(raw: String?, expectPid: Int): Boolean {
+        if (raw == null) return false
+        val u = raw.uppercase()
+        if (u.contains("NO DATA") || u.contains("UNABLE") || u.contains("ERROR") || u.contains("?")) {
+            return false
+        }
+        val marker = "41" + expectPid.toString(16).uppercase().padStart(2, '0')
+        return u.replace(" ", "").contains(marker)
+    }
+
+    private suspend fun discoverSupportedPids(first0100: String) {
+        val all = linkedSetOf<Int>()
+        all += PidSupport.parseSupportBitmap(0x00, first0100)
+        var next = PidSupport.nextSupportCommandPid(0x00, first0100)
+        var guard = 0
+        while (next != null && guard < 8) {
+            guard += 1
+            val cmdPid = next
+            val cmd = "01" + cmdPid.toString(16).uppercase().padStart(2, '0')
+            val raw = sendCommandLogged(cmd, ECU_PROBE_TIMEOUT_MS, isInit = true)
+            if (!isSuccessfulMode01Response(raw, expectPid = cmdPid) || raw == null) {
+                logW("Support query $cmd failed; stopping discovery")
+                break
+            }
+            all += PidSupport.parseSupportBitmap(cmdPid, raw)
+            next = PidSupport.nextSupportCommandPid(cmdPid, raw)
+        }
+        supportedMode01Pids = all.toSet()
+        val sample = all.sorted().take(24).joinToString(",") { "%02X".format(it) }
+        logI("Discovered Mode 01 PIDs (${all.size}): $sample${if (all.size > 24) "…" else ""}")
+    }
+
+    private fun resetPidDiscoveryState() {
+        supportedMode01Pids = emptySet()
+        noDataLogged.clear()
+    }
+
+    /** Log first miss per PID per session; never disable or clear last-good values. */
+    private fun notePidMiss(pid: String, rawHint: String?) {
+        if (!noDataLogged.add(pid)) return
+        val hint = rawHint?.replace('\n', ' ')?.trim()?.take(80) ?: "empty/timeout"
+        logW("PID $pid miss ($hint) — holding last-good if any")
     }
 
     /**
@@ -828,8 +920,10 @@ object ObdBleManager {
                 logI("<< $compact")
             } else {
                 val u = resp.uppercase()
-                if (u.contains("NO DATA") || u.contains("ERROR") || u.contains("UNABLE") ||
-                    u.contains("BUS INIT") || u.contains("STOPPED") || u.contains("?")
+                // Plain NO DATA is logged once per PID in notePidMiss.
+                if (u.contains("ERROR") || u.contains("UNABLE") ||
+                    u.contains("BUS INIT") || u.contains("STOPPED") ||
+                    (u.contains("?") && !u.contains("NO DATA"))
                 ) {
                     logW("PID/cmd $cmd → $compact")
                 }
@@ -942,31 +1036,35 @@ object ObdBleManager {
             var windowStartMs = System.currentTimeMillis()
             while (isActive && sessionReady.get()) {
                 round++
-                val pids = ObdPollSchedule.pidsForRound(round, HOT_PIDS, SLOW_PIDS, SLOW_EVERY)
+                val pids = ObdPollSchedule.pidsForRound(
+                    round,
+                    HOT_PIDS,
+                    SLOW_PIDS,
+                    SLOW_EVERY,
+                )
                 try {
                     for (pid in pids) {
                         if (!sessionReady.get()) break
                         val cmd = "01${pid.uppercase()}"
                         val raw = sendCommandLogged(cmd, isInit = false)
                         if (raw == null) {
-                            // Already logged; stop cycle if link is gone
                             if (!sessionReady.get() || gatt == null) break
+                            notePidMiss(pid, null)
                             continue
                         }
-                        if (raw.contains("NO DATA", ignoreCase = true) ||
-                            raw.contains("UNABLE", ignoreCase = true) ||
-                            raw.contains("ERROR", ignoreCase = true)
-                        ) {
+                        val value = parser.decodePid(pid, raw)
+                        if (value == null) {
+                            notePidMiss(pid, raw)
                             continue
                         }
-                        val value = parser.decodePid(pid, raw) ?: continue
                         if (!isValidPidValue(pid, value)) {
                             logW("Invalid value for PID $pid: $value")
                             continue
                         }
 
-                        val updated = LinkedHashMap(_pidValues.value)
-                        updated[pid] = value
+                        val updated = LinkedHashMap(
+                            PidPollPolicy.afterSuccess(_pidValues.value, pid, value),
+                        )
                         val fuelInputs = setOf("10", "44", "0b", "0c", "0f")
                         if (pid in fuelInputs) {
                             recomputeFuelRate(updated)
@@ -979,7 +1077,10 @@ object ObdBleManager {
                             setStatus("ECU online")
                         }
                         if (loggedFirstPollOk.compareAndSet(false, true)) {
-                            logI("Poll started (hot=${HOT_PIDS.size}, slowEvery=$SLOW_EVERY)")
+                            logI(
+                                "Poll started (hot=${HOT_PIDS.size}, " +
+                                    "slow=${SLOW_PIDS.size}, slowEvery=$SLOW_EVERY)",
+                            )
                         }
                     }
                 } catch (t: Throwable) {
