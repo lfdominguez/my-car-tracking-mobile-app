@@ -46,6 +46,14 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
         get() = appSettings.obdProtocol
         set(value) { appSettings.obdProtocol = value }
 
+    override var vehicleObdProfile: String
+        get() = appSettings.vehicleObdProfile
+        set(value) { appSettings.vehicleObdProfile = value }
+
+    override var vwOdometerDid: String
+        get() = appSettings.vwOdometerDid
+        set(value) { appSettings.vwOdometerDid = value }
+
     override var fuelType: String
         get() = appSettings.fuelType
         set(value) { appSettings.fuelType = value }

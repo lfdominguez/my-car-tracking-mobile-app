@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.domivega.gps_car.fuel.FuelTypePreset
+import com.domivega.gps_car.obd.VehicleObdProfile
 import com.domivega.gps_car.ui.state.SettingsUiState
 
 /**
@@ -58,6 +59,10 @@ fun SettingsScreen(
     protocolOptions: List<Pair<String, String>> = emptyList(),
     scannedDevices: List<Pair<String, String>> = emptyList(),
     onProtocolSelected: (String) -> Unit = {},
+    vehicleObdProfileOptions: List<Pair<String, String>> =
+        VehicleObdProfile.entries.map { it.name to it.displayName },
+    onVehicleObdProfileSelected: (String) -> Unit = {},
+    onVwOdometerDidChange: (String) -> Unit = {},
     onScanClick: () -> Unit = {},
     onDeviceSelected: (address: String, name: String?) -> Unit = { _, _ -> },
     onConnectClick: () -> Unit = {},
@@ -71,6 +76,7 @@ fun SettingsScreen(
 ) {
     val scrollState = rememberScrollState()
     var protocolExpanded by remember { mutableStateOf(false) }
+    var vehicleProfileExpanded by remember { mutableStateOf(false) }
     var fuelTypeExpanded by remember { mutableStateOf(false) }
     var showDeviceDialog by remember { mutableStateOf(false) }
 
@@ -78,6 +84,11 @@ fun SettingsScreen(
         .firstOrNull { it.first == state.obdProtocol }
         ?.second
         ?: state.obdProtocol
+
+    val selectedVehicleProfileLabel = vehicleObdProfileOptions
+        .firstOrNull { it.first == state.vehicleObdProfile }
+        ?.second
+        ?: state.vehicleObdProfile
 
     val selectedFuelTypeLabel = fuelTypeOptions
         .firstOrNull { it.first == state.fuelType }
@@ -261,6 +272,54 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
+
+        if (vehicleObdProfileOptions.isNotEmpty()) {
+            ExposedDropdownMenuBox(
+                expanded = vehicleProfileExpanded,
+                onExpandedChange = { vehicleProfileExpanded = it },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = selectedVehicleProfileLabel,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Vehicle OBD profile") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vehicleProfileExpanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    singleLine = true
+                )
+                ExposedDropdownMenu(
+                    expanded = vehicleProfileExpanded,
+                    onDismissRequest = { vehicleProfileExpanded = false }
+                ) {
+                    vehicleObdProfileOptions.forEach { (id, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                vehicleProfileExpanded = false
+                                onVehicleObdProfileSelected(id)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        if (state.vehicleObdProfile == VehicleObdProfile.VwMqb.name) {
+            SettingsTextField(
+                value = state.vwOdometerDid,
+                onValueChange = onVwOdometerDidChange,
+                label = "VW odometer DID (optional hex)"
+            )
+            Text(
+                text = "4-hex DID override for cluster odometer (e.g. 22A6). Leave empty to try built-in candidates.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         Button(

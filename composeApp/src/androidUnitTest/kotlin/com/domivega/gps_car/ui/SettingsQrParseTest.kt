@@ -21,6 +21,8 @@ private class FakeSettingsRepository : SettingsRepository {
     override var bleDeviceAddress: String = ""
     override var bleDeviceName: String = ""
     override var obdProtocol: String = "ISO_15765_4_CAN_11_500"
+    override var vehicleObdProfile: String = "Generic"
+    override var vwOdometerDid: String = ""
     override var fuelType: String = "E10"
     override var fuelStoichAfr: Double = 14.08
     override var fuelDensityGl: Double = 745.0
@@ -79,5 +81,48 @@ class SettingsQrParseTest {
             .decodeFromString(SettingsUiState.serializer(), platformQr)
         assertEquals("Demo Car", decoded.carName)
         assertTrue(decoded.apiToken.length == 64)
+        assertEquals("Generic", decoded.vehicleObdProfile)
+        assertEquals("", decoded.vwOdometerDid)
+    }
+
+    @Test
+    fun qrWithVehicleProfile_appliesProfileAndDid() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        val qr = """
+            {
+              "apiToken": "tok",
+              "startUrl": "https://track.example.com/api/track/start",
+              "stopUrl": "https://track.example.com/api/track/stop",
+              "sampleUrl": "https://track.example.com/api/track/sample",
+              "samplesUrl": "https://track.example.com/api/track/samples",
+              "vehicleObdProfile": "VwMqb",
+              "vwOdometerDid": "22a6"
+            }
+        """.trimIndent()
+
+        vm.updateSettingsFromQr(qr)
+
+        assertEquals("", vm.uiState.value.qrError)
+        assertEquals("VwMqb", repo.vehicleObdProfile)
+        assertEquals("22A6", repo.vwOdometerDid)
+    }
+
+    @Test
+    fun updateVehicleObdProfile_normalizesUnknownToGeneric() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        vm.updateVehicleObdProfile("not-a-profile")
+        assertEquals("Generic", repo.vehicleObdProfile)
+        assertEquals("Generic", vm.uiState.value.vehicleObdProfile)
+    }
+
+    @Test
+    fun updateVwOdometerDid_stripsNonAlnumAndUppercases() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        vm.updateVwOdometerDid(" 22-a6 ")
+        assertEquals("22A6", repo.vwOdometerDid)
+        assertEquals("22A6", vm.uiState.value.vwOdometerDid)
     }
 }

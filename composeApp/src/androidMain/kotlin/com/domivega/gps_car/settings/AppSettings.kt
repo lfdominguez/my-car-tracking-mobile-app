@@ -15,6 +15,8 @@ class AppSettings(context: Context) {
         private const val KEY_BLE_DEVICE_ADDRESS = "ble_device_address"
         private const val KEY_BLE_DEVICE_NAME = "ble_device_name"
         private const val KEY_OBD_PROTOCOL = "obd_protocol"
+        private const val KEY_VEHICLE_OBD_PROFILE = "vehicle_obd_profile"
+        private const val KEY_VW_ODOMETER_DID = "vw_odometer_did"
         private const val KEY_FUEL_TYPE = "fuel_type"
         private const val KEY_FUEL_STOICH_AFR = "fuel_stoich_afr"
         private const val KEY_FUEL_DENSITY_GL = "fuel_density_gl"
@@ -30,6 +32,8 @@ class AppSettings(context: Context) {
         const val DEFAULT_SAMPLE_URL = "https://YOUR_SERVER.example/api/track/sample"
         const val DEFAULT_SAMPLES_URL = "https://YOUR_SERVER.example/api/track/samples"
         const val DEFAULT_OBD_PROTOCOL = "ISO_15765_4_CAN_11_500"
+        const val DEFAULT_VEHICLE_OBD_PROFILE = "Generic"
+        const val DEFAULT_VW_ODOMETER_DID = ""
 
         // Example vehicle defaults: compact 1.0L turbo on E10 (edit in Settings)
         const val DEFAULT_FUEL_TYPE = "E10"
@@ -71,6 +75,16 @@ class AppSettings(context: Context) {
     var obdProtocol: String
         get() = prefs.getString(KEY_OBD_PROTOCOL, DEFAULT_OBD_PROTOCOL) ?: DEFAULT_OBD_PROTOCOL
         set(value) = prefs.edit().putString(KEY_OBD_PROTOCOL, value).apply()
+
+    /** Stored as [com.domivega.gps_car.obd.VehicleObdProfile] enum name. */
+    var vehicleObdProfile: String
+        get() = prefs.getString(KEY_VEHICLE_OBD_PROFILE, DEFAULT_VEHICLE_OBD_PROFILE) ?: DEFAULT_VEHICLE_OBD_PROFILE
+        set(value) = prefs.edit().putString(KEY_VEHICLE_OBD_PROFILE, value).apply()
+
+    /** Optional 4-hex DID override for VW MQB cluster odometer (empty = candidate list). */
+    var vwOdometerDid: String
+        get() = prefs.getString(KEY_VW_ODOMETER_DID, DEFAULT_VW_ODOMETER_DID) ?: DEFAULT_VW_ODOMETER_DID
+        set(value) = prefs.edit().putString(KEY_VW_ODOMETER_DID, value).apply()
 
     /** Stored as [com.domivega.gps_car.fuel.FuelTypePreset] enum name. */
     var fuelType: String

@@ -11,6 +11,8 @@ interface SettingsRepository {
     var bleDeviceAddress: String
     var bleDeviceName: String
     var obdProtocol: String
+    var vehicleObdProfile: String
+    var vwOdometerDid: String
     var fuelType: String
     var fuelStoichAfr: Double
     var fuelDensityGl: Double

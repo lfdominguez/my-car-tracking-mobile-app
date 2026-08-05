@@ -6,6 +6,7 @@ import com.domivega.gps_car.data.BackendConnectionTester
 import com.domivega.gps_car.data.ConnectionTestOutcome
 import com.domivega.gps_car.data.SettingsRepository
 import com.domivega.gps_car.fuel.FuelTypePreset
+import com.domivega.gps_car.obd.VehicleObdProfile
 import com.domivega.gps_car.ui.state.SettingsUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +45,8 @@ class SettingsViewModel(
                 bleDeviceAddress = repository.bleDeviceAddress,
                 bleDeviceName = repository.bleDeviceName,
                 obdProtocol = repository.obdProtocol,
+                vehicleObdProfile = repository.vehicleObdProfile,
+                vwOdometerDid = repository.vwOdometerDid,
                 fuelType = repository.fuelType,
                 fuelStoichAfr = repository.fuelStoichAfr,
                 fuelDensityGl = repository.fuelDensityGl,
@@ -92,6 +95,18 @@ class SettingsViewModel(
     fun updateObdProtocol(protocolName: String) {
         repository.obdProtocol = protocolName
         _uiState.update { it.copy(obdProtocol = protocolName) }
+    }
+
+    fun updateVehicleObdProfile(profileName: String) {
+        val profile = VehicleObdProfile.fromName(profileName)
+        repository.vehicleObdProfile = profile.name
+        _uiState.update { it.copy(vehicleObdProfile = profile.name) }
+    }
+
+    fun updateVwOdometerDid(did: String) {
+        val cleaned = did.trim().filter { it.isLetterOrDigit() }.uppercase()
+        repository.vwOdometerDid = cleaned
+        _uiState.update { it.copy(vwOdometerDid = cleaned) }
     }
 
     fun updateFuelType(typeName: String) {
@@ -214,6 +229,14 @@ class SettingsViewModel(
             if (newState.bleDeviceAddress.isNotEmpty()) repository.bleDeviceAddress = newState.bleDeviceAddress
             if (newState.bleDeviceName.isNotEmpty()) repository.bleDeviceName = newState.bleDeviceName
             if (newState.obdProtocol.isNotEmpty()) repository.obdProtocol = newState.obdProtocol
+            if (newState.vehicleObdProfile.isNotEmpty()) {
+                repository.vehicleObdProfile = VehicleObdProfile.fromName(newState.vehicleObdProfile).name
+            }
+            // Allow explicit empty DID from QR when key is present via non-default decode;
+            // blank default means "leave existing" only when payload omitted the field (defaults).
+            if (newState.vwOdometerDid.isNotEmpty()) {
+                repository.vwOdometerDid = newState.vwOdometerDid.trim().filter { it.isLetterOrDigit() }.uppercase()
+            }
             if (newState.fuelType.isNotEmpty()) repository.fuelType = newState.fuelType
             repository.fuelStoichAfr = newState.fuelStoichAfr
             repository.fuelDensityGl = newState.fuelDensityGl

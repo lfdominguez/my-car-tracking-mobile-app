@@ -16,6 +16,10 @@ data class SettingsUiState(
     val bleDeviceName: String = "",
     /** [ObdProtocol] enum name on Android; default CAN 11/500. */
     val obdProtocol: String = "ISO_15765_4_CAN_11_500",
+    /** [VehicleObdProfile] enum name; default Generic. */
+    val vehicleObdProfile: String = "Generic",
+    /** Optional 4-hex DID override for VW MQB odometer (empty = candidates). */
+    val vwOdometerDid: String = "",
     /** FuelTypePreset name; default E10. */
     val fuelType: String = "E10",
     val fuelStoichAfr: Double = 14.08,
