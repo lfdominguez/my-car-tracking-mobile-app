@@ -72,7 +72,10 @@ object ObdBleManager {
     private const val RECONNECT_INTERVAL_MS = 7_000L
     /** Wall-clock interval for VW MQB UDS cluster odometer probes. */
     private const val VW_ODO_INTERVAL_MS = 45_000L
+    /** Do not run UDS until Mode 01 has produced this many successful decodes. */
+    private const val VW_ODO_MIN_MODE01_OK = 8
     private const val UDS_COMMAND_TIMEOUT_MS = 6_000L
+    private const val MODE01_HEALTH_TIMEOUT_MS = 3_000L
     private const val CHARSET_NAME = "US-ASCII"
 
     /** PIDs map for ForegroundTrackingService. */
@@ -142,6 +145,14 @@ object ObdBleManager {
     /** Last VW UDS odometer attempt wall clock (rate limit). */
     @Volatile
     private var lastVwOdoAtMs: Long = 0L
+
+    /** Successful Mode 01 decodes this session (gates first UDS probe). */
+    @Volatile
+    private var mode01OkCount: Int = 0
+
+    /** True if the current/last UDS probe issued ATCRA (needs ATAR to clear). */
+    @Volatile
+    private var udsReceiveFilterWasSet: Boolean = false
 
     private val loggedVwUdsStart = AtomicBoolean(false)
     private val loggedVwUdsSuccess = AtomicBoolean(false)
@@ -834,8 +845,10 @@ object ObdBleManager {
                     logW("Protocol $atsp failed to respond")
                     continue
                 }
-                delay(400)
-                ecuRaw = probeEcuSupportedPids()
+                delay(500)
+                // Spend longer on the preferred protocol before ATSP0 auto-search.
+                val attempts = if (index == 0) 8 else 3
+                ecuRaw = probeEcuSupportedPids(attempts = attempts)
                 if (ecuRaw != null) {
                     if (index > 0) logI("ECU contact OK after fallback protocol $atsp")
                     break
@@ -866,29 +879,33 @@ object ObdBleManager {
         }
     }
 
-    /** Retry 0100 a few times; return raw response when ECU answers with a 41 bitmap. */
-    private suspend fun probeEcuSupportedPids(): String? {
-        repeat(3) { attempt ->
+    /**
+     * Retry 0100 until ECU answers with a 41 bitmap.
+     * VW ECUs / adapters often need several wakes after ELM ATZ before 0100 lands
+     * (user-observed ~1 min cold start) — prefer more attempts on the chosen protocol
+     * before falling back to ATSP0 auto-search (which is very slow).
+     */
+    private suspend fun probeEcuSupportedPids(attempts: Int = 6): String? {
+        repeat(attempts) { attempt ->
             val raw = sendCommandLogged("0100", ECU_PROBE_TIMEOUT_MS, isInit = true)
             if (isSuccessfulMode01Response(raw, expectPid = 0x00)) {
+                if (attempt > 0) {
+                    logI("0100 OK on attempt ${attempt + 1}/$attempts")
+                }
                 return raw
             }
-            logW("0100 probe attempt ${attempt + 1}/3 failed: ${raw?.take(80) ?: "null"}")
-            delay(350)
+            logW(
+                "0100 probe attempt ${attempt + 1}/$attempts failed: " +
+                    (raw?.take(80) ?: "null"),
+            )
+            delay(400L + attempt * 250L)
             drainBuffer()
         }
         return null
     }
 
-    private fun isSuccessfulMode01Response(raw: String?, expectPid: Int): Boolean {
-        if (raw == null) return false
-        val u = raw.uppercase()
-        if (u.contains("NO DATA") || u.contains("UNABLE") || u.contains("ERROR") || u.contains("?")) {
-            return false
-        }
-        val marker = "41" + expectPid.toString(16).uppercase().padStart(2, '0')
-        return u.replace(" ", "").contains(marker)
-    }
+    private fun isSuccessfulMode01Response(raw: String?, expectPid: Int): Boolean =
+        ElmHeaderRestore.isMode01Live(raw, expectPid)
 
     private suspend fun discoverSupportedPids(first0100: String) {
         val all = linkedSetOf<Int>()
@@ -917,6 +934,8 @@ object ObdBleManager {
         noDataLogged.clear()
         sessionWinningDid = null
         lastVwOdoAtMs = 0L
+        mode01OkCount = 0
+        udsReceiveFilterWasSet = false
         loggedVwUdsStart.set(false)
         loggedVwUdsSuccess.set(false)
         loggedVwUdsFail.set(false)
@@ -1111,6 +1130,7 @@ object ObdBleManager {
                         }
                         _pidValues.value = updated.toMap()
                         pidsOkWindow++
+                        mode01OkCount += 1
 
                         if (!_ecuConnected.value) {
                             _ecuConnected.value = true
@@ -1129,7 +1149,7 @@ object ObdBleManager {
                 }
 
                 if (sessionReady.get()) {
-                    maybePollVwOdometer()
+                    maybePollVwOdometer(round = round)
                 }
 
                 // Light rate log ~every 10s (not per PID)
@@ -1152,10 +1172,13 @@ object ObdBleManager {
      * VW MQB only: rare UDS ReadDID to instrument cluster for dash odometer.
      * Serialized via [sendCommand] mutex; always restores OBD headers afterward.
      */
-    private suspend fun maybePollVwOdometer() {
+    private suspend fun maybePollVwOdometer(round: Int) {
         if (!sessionReady.get() || gatt == null) return
         val profile = VehicleObdProfile.fromName(settings.vehicleObdProfile)
         if (profile != VehicleObdProfile.VwMqb) return
+
+        // Let Mode 01 stabilize before the first header switch (avoids killing RPM/speed).
+        if (mode01OkCount < VW_ODO_MIN_MODE01_OK || round < 3) return
 
         val now = System.currentTimeMillis()
         if (lastVwOdoAtMs != 0L && now - lastVwOdoAtMs < VW_ODO_INTERVAL_MS) return
@@ -1166,21 +1189,21 @@ object ObdBleManager {
 
     private suspend fun pollVwOdometerOnce() {
         if (loggedVwUdsStart.compareAndSet(false, true)) {
-            logI("VW MQB UDS odometer probe (ATSH714 / service 22)")
+            logI("VW MQB UDS odometer probe (ATSH714 / service 22, no ATCRA)")
         }
         var gotReading = false
+        udsReceiveFilterWasSet = false
         try {
             // Physical addressing to instrument cluster (11-bit CAN).
+            // Intentionally NO ATCRA/ATFCSM: receive filters left active after a weak
+            // ATAR restore make functional Mode 01 (7E8) silent while UDS still works.
             val sh = sendCommandLogged("ATSH714", COMMAND_TIMEOUT_MS, isInit = false)
-            if (sh == null) {
+            if (sh == null || !ElmHeaderRestore.isAcceptableAtResponse(sh)) {
                 if (loggedVwUdsFail.compareAndSet(false, true)) {
                     logW("VW UDS: ATSH714 failed/timeout")
                 }
                 return
             }
-            // Best-effort receive filter / flow control; ignore adapter rejections.
-            sendCommandLogged("ATCRA77E", COMMAND_TIMEOUT_MS, isInit = false)
-            sendCommandLogged("ATFCSM1", COMMAND_TIMEOUT_MS, isInit = false)
 
             val dids = sessionWinningDid?.let { listOf(it) }
                 ?: UdsReadDid.candidateDids(settings.vwOdometerDid)
@@ -1232,35 +1255,75 @@ object ObdBleManager {
     /**
      * Restore functional OBD-II addressing after a UDS cluster probe.
      * Must always run after [pollVwOdometerOnce] header switch.
+     * Verifies Mode 01 is live (010C); otherwise marks session unhealthy.
      */
     private suspend fun restoreObdHeaders() {
-        // Clear any CAN receive address filter, then restore functional header 7DF.
+        val filterWasSet = udsReceiveFilterWasSet
+        // Clear receive filter (if any) then restore functional broadcast header 7DF.
         val atar = sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = false)
         val atsh = sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = false)
 
-        val atarOk = atar != null && !isElmErrorResponse(atar)
-        val atshOk = atsh != null && !isElmErrorResponse(atsh)
+        val cmdsOk = ElmHeaderRestore.commandsSucceeded(
+            atarRaw = atar,
+            atshRaw = atsh,
+            receiveFilterWasSet = filterWasSet,
+        )
+        if (!cmdsOk) {
+            udsHeaderRestoreFailed = true
+            logE(
+                "UDS header restore failed (ATAR/ATSH7DF) — " +
+                    "Mode 01 may be unhealthy until reconnect",
+            )
+            return
+        }
 
-        if (atarOk || atshOk) {
+        // Prove engine ECU still answers on functional addressing.
+        val live = sendCommandLogged("010C", MODE01_HEALTH_TIMEOUT_MS, isInit = false)
+        if (ElmHeaderRestore.isMode01Live(live, expectPid = 0x0C)) {
+            // Keep RPM fresh from the health probe.
+            val rpm = live?.let { parser.decodePid("0c", it) }
+            if (rpm != null && isValidPidValue("0c", rpm)) {
+                val updated = LinkedHashMap(
+                    PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
+                )
+                recomputeFuelRate(updated)
+                _pidValues.value = updated.toMap()
+                mode01OkCount += 1
+            }
             if (udsHeaderRestoreFailed) {
                 udsHeaderRestoreFailed = false
                 logI("OBD headers restored after prior UDS restore failure")
             }
+            udsReceiveFilterWasSet = false
+            return
+        }
+
+        // One hard retry: ATAR + ATSH again, then re-check.
+        logW("Mode 01 not live after UDS restore — retrying ATAR/ATSH7DF")
+        sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = false)
+        sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = false)
+        val live2 = sendCommandLogged("010C", MODE01_HEALTH_TIMEOUT_MS, isInit = false)
+        if (ElmHeaderRestore.isMode01Live(live2, expectPid = 0x0C)) {
+            val rpm = live2?.let { parser.decodePid("0c", it) }
+            if (rpm != null && isValidPidValue("0c", rpm)) {
+                val updated = LinkedHashMap(
+                    PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
+                )
+                recomputeFuelRate(updated)
+                _pidValues.value = updated.toMap()
+                mode01OkCount += 1
+            }
+            udsHeaderRestoreFailed = false
+            udsReceiveFilterWasSet = false
+            logI("Mode 01 recovered after UDS restore retry")
             return
         }
 
         udsHeaderRestoreFailed = true
         logE(
-            "UDS header restore failed (ATAR/ATSH7DF) — " +
-                "Mode 01 may be unhealthy until reconnect",
+            "Mode 01 dead after UDS odometer probe (010C failed) — " +
+                "forcing session re-init on next timeout",
         )
-    }
-
-    private fun isElmErrorResponse(raw: String): Boolean {
-        val u = raw.uppercase()
-        return u.contains("ERROR") || u.contains("UNABLE") ||
-            u.contains("BUS INIT") || u.contains("STOPPED") ||
-            (u.contains("?") && !u.contains("NO DATA") && !u.contains("OK"))
     }
 
     private fun stopPollLoop() {

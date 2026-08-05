@@ -100,8 +100,9 @@ class UdsReadDidTest {
         assertTrue(fromNull.isNotEmpty())
         assertEquals(fromNull, fromEmpty)
         assertEquals(fromNull, fromBlank)
-        // Unverified MQB placeholders expected in default probe list
-        assertTrue(fromNull.contains(0x22B0) || fromNull.contains(0x2203) || fromNull.contains(0x029F))
+        // Nivus-confirmed DID first, then fallbacks
+        assertEquals(0x2203, fromNull.first())
+        assertTrue(fromNull.contains(0x22B0) || fromNull.contains(0x029F))
     }
 
     @Test

@@ -13,8 +13,9 @@ object UdsReadDid {
      * Replace / reorder after a successful road log; prefer settings override.
      */
     private val DEFAULT_CANDIDATE_DIDS: List<Int> = listOf(
-        0x22B0, // UNVERIFIED — often cited in community notes for cluster distance
-        0x2203, // UNVERIFIED — MQB-related placeholder
+        // Confirmed on VW Nivus Highline 2024 (MQB-A0 cluster) via road log.
+        0x2203,
+        0x22B0, // UNVERIFIED fallback — community notes for cluster distance
         0x029F, // UNVERIFIED — alternate placeholder seen in public discussions
     )
 
