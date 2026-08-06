@@ -60,6 +60,67 @@ class UdsReadDidTest {
     }
 
     @Test
+    fun `parsePositiveReadDid reassembles multi-frame ELM ISO-TP lines`() {
+        // Naive hex-filter concatenates "014" + "0" + "1" frame indices and breaks DID payload.
+        // 0x0003DA0E / 10 = 25243.0 km (Nivus-style 4-byte tenths).
+        val raw = """
+            014
+            0: 62 22 03 00 03
+            1: DA 0E 00 00 00
+            >
+        """.trimIndent()
+
+        val payload = UdsReadDid.parsePositiveReadDid(raw, 0x2203)
+
+        assertNotNull(payload)
+        assertTrue(payload!!.size >= 4)
+        assertEquals(0x00.toByte(), payload[0])
+        assertEquals(0x03.toByte(), payload[1])
+        assertEquals(0xDA.toByte(), payload[2])
+        assertEquals(0x0E.toByte(), payload[3])
+        assertEquals(25243.0, UdsReadDid.decodeOdometerKm(payload)!!, 0.001)
+    }
+
+    @Test
+    fun `parsePositiveReadDid handles multi-frame without leading length line`() {
+        val raw = """
+            0: 62 22 03 00 03
+            1: DA 0E
+            >
+        """.trimIndent()
+        val payload = UdsReadDid.parsePositiveReadDid(raw, 0x2203)
+        assertNotNull(payload)
+        assertEquals(25243.0, UdsReadDid.decodeOdometerKm(payload!!)!!, 0.001)
+    }
+
+    @Test
+    fun `parsePositiveReadDid handles ATL0 one-line multi-frame with inline frame indices`() {
+        // With ATL0, clones often emit multi-frame on one line (CR or none), e.g.:
+        // 0140:62220300031:DA0E000000>
+        // Frame markers must not be concatenated into the hex payload.
+        val raw = "0140:62220300031:DA0E000000>"
+        val payload = UdsReadDid.parsePositiveReadDid(raw, 0x2203)
+        assertNotNull(payload)
+        assertEquals(25243.0, UdsReadDid.decodeOdometerKm(payload!!)!!, 0.001)
+    }
+
+    @Test
+    fun `parsePositiveReadDid handles ATL0 spaced one-line multi-frame`() {
+        val raw = "0: 62 22 03 00 03 1: DA 0E 00 00>"
+        val payload = UdsReadDid.parsePositiveReadDid(raw, 0x2203)
+        assertNotNull(payload)
+        assertEquals(25243.0, UdsReadDid.decodeOdometerKm(payload!!)!!, 0.001)
+    }
+
+    @Test
+    fun `parsePositiveReadDid handles CR-separated ATL0 multi-frame without LF`() {
+        val raw = "014\r0:6222030003\r1:DA0E000000\r>"
+        val payload = UdsReadDid.parsePositiveReadDid(raw, 0x2203)
+        assertNotNull(payload)
+        assertEquals(25243.0, UdsReadDid.decodeOdometerKm(payload!!)!!, 0.001)
+    }
+
+    @Test
     fun `decodeOdometerKm decodes 4-byte big-endian with 0_1 km resolution`() {
         // 123456 raw → 12345.6 km when interpreted as /10
         val payload = byteArrayOf(0x00, 0x01, 0xE2.toByte(), 0x40)
@@ -82,6 +143,14 @@ class UdsReadDidTest {
         assertNull(UdsReadDid.decodeOdometerKm(byteArrayOf()))
         assertNull(UdsReadDid.decodeOdometerKm(byteArrayOf(0x01)))
         assertNull(UdsReadDid.decodeOdometerKm(byteArrayOf(0x01, 0x02)))
+    }
+
+    @Test
+    fun `decodeOdometerKm uses first four bytes when payload longer`() {
+        // Extra trailing padding must not reject a valid 4-byte odometer.
+        // 0x0003DA0E / 10 = 25243.0
+        val payload = byteArrayOf(0x00, 0x03, 0xDA.toByte(), 0x0E, 0x00, 0x00)
+        assertEquals(25243.0, UdsReadDid.decodeOdometerKm(payload)!!, 0.001)
     }
 
     @Test

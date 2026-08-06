@@ -22,14 +22,18 @@ object FuelConsumptionCalculator {
 
     fun litersPerHour(config: FuelCalcConfig, sensors: FuelCalcSensors): Double? {
         if (config.stoichAfr <= 0.0 || config.densityGl <= 0.0) return null
-        val airGs = resolveAirMassGs(config, sensors) ?: return null
+        val airGs = airMassGs(config, sensors) ?: return null
         if (airGs <= 0.0 || airGs.isNaN() || airGs.isInfinite()) return null
         val lambda = sensors.lambda?.takeIf { it in 0.5..1.5 } ?: 1.0
         val lh = airGs * 3600.0 / (config.stoichAfr * lambda * config.densityGl)
         return lh.takeIf { it.isFinite() && it > 0.0 && it <= 200.0 }
     }
 
-    private fun resolveAirMassGs(config: FuelCalcConfig, sensors: FuelCalcSensors): Double? {
+    /**
+     * Air mass flow g/s: prefer sensor MAF, else MAP×RPM×IAT speed-density estimate.
+     * Used for fuel L/h and as fallback when Mode 01 PID 0x10 is unsupported.
+     */
+    fun airMassGs(config: FuelCalcConfig, sensors: FuelCalcSensors): Double? {
         val maf = sensors.mafGs
         if (maf != null && maf > 0.0 && maf.isFinite()) return maf
 

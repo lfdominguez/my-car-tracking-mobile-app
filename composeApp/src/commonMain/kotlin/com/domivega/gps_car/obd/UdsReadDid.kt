@@ -23,6 +23,10 @@ object UdsReadDid {
 
     /**
      * Positive response payload bytes after `62 DID_H DID_L`, or null.
+     *
+     * Handles single-line and multi-line ELM ISO-TP style replies where frame
+     * indices (`0:`, `1:`) and a leading length line (`014`) must not be treated
+     * as payload hex (naive strip-all-non-hex breaks DID markers).
      */
     fun parsePositiveReadDid(raw: String, did: Int): ByteArray? {
         if (raw.isBlank()) return null
@@ -31,14 +35,7 @@ object UdsReadDid {
         // Negative response: 7F <sid> <nrc>
         if (Regex("""7F\s*22""", RegexOption.IGNORE_CASE).containsMatchIn(raw)) return null
 
-        val clean = raw
-            .replace(" ", "")
-            .replace("\r", "")
-            .replace("\n", "")
-            .replace("\t", "")
-            .uppercase()
-            .filter { it in '0'..'9' || it in 'A'..'F' }
-
+        val clean = normalizeElmHex(raw)
         if (clean.length < 6) return null
 
         val didHi = (did shr 8) and 0xFF
@@ -61,33 +58,88 @@ object UdsReadDid {
     }
 
     /**
+     * Reassemble ELM text into a continuous hex string for UDS parsing.
+     *
+     * Strips:
+     * - `SEARCHING...` / prompt noise
+     * - ISO-TP pretty-print frame markers (`0:`, `1:`, …) even when ATL0 glues
+     *   multi-frame onto one line (`0140:622203…1:DA0E…`)
+     * - a short leading length nibble run before the first `62` (e.g. `014`)
+     *
+     * Frame indices are recognized as 1–2 decimal digits immediately before `:`.
+     * Longer digit runs before `:` keep the leading nibbles as hex payload
+     * (so `…00031:` yields data `…0003` + frame `1:`, not a greedy `\d+:` eat).
+     */
+    internal fun normalizeElmHex(raw: String): String {
+        val src = raw.uppercase().replace("SEARCHING", " ")
+        val out = StringBuilder(src.length)
+        var i = 0
+        while (i < src.length) {
+            val c = src[i]
+            when {
+                c == '>' || c.isWhitespace() -> i++
+                c in '0'..'9' -> {
+                    var j = i
+                    while (j < src.length && src[j] in '0'..'9') j++
+                    if (j < src.length && src[j] == ':') {
+                        val digitLen = j - i
+                        // ELM frame index is 1–2 digits before ':'. Extra leading digits are hex.
+                        val idxLen = if (digitLen <= 2) digitLen else 1
+                        val dataEnd = j - idxLen
+                        if (dataEnd > i) {
+                            out.append(src, i, dataEnd)
+                        }
+                        i = j + 1 // skip index digits + ':'
+                    } else {
+                        out.append(src, i, j)
+                        i = j
+                    }
+                }
+                c in 'A'..'F' -> {
+                    out.append(c)
+                    i++
+                }
+                else -> i++ // punctuation, etc.
+            }
+        }
+
+        val hex = out.toString()
+        if (hex.length < 6) return hex
+
+        // Drop ELM "014"-style length prefix immediately before SID 62 when present.
+        val sid = hex.indexOf("62")
+        if (sid in 1..3) {
+            return hex.substring(sid)
+        }
+        return hex
+    }
+
+    /**
      * Decode odometer km from DID payload.
      *
      * Common layouts tried (deterministic order):
-     * - 4-byte big-endian integer / 10.0 (0.1 km resolution), if result in 0..[SANE_KM_MAX]
-     * - 4-byte big-endian integer as whole km, if in 0..[SANE_KM_MAX]
-     * - 3-byte big-endian integer as whole km, if in 0..[SANE_KM_MAX]
+     * - first 4 bytes big-endian integer / 10.0 (0.1 km resolution), if result in 0..[SANE_KM_MAX]
+     * - first 4 bytes big-endian integer as whole km, if in 0..[SANE_KM_MAX]
+     * - first 3 bytes big-endian integer as whole km, if in 0..[SANE_KM_MAX]
      *
-     * Prefer /10 for 4-byte values when that yields a sane reading (matches SAE A6 style).
+     * Longer payloads (padding / multi-frame tail) use the leading bytes only.
      */
     fun decodeOdometerKm(payload: ByteArray): Double? {
-        when (payload.size) {
-            4 -> {
-                val raw = payload.toUIntBe()
-                val asTenths = raw / 10.0
-                if (asTenths in 0.0..SANE_KM_MAX) return asTenths
-                val asWhole = raw.toDouble()
-                if (asWhole in 0.0..SANE_KM_MAX) return asWhole
-                return null
-            }
-            3 -> {
-                val raw = payload.toUIntBe()
-                val asWhole = raw.toDouble()
-                if (asWhole in 0.0..SANE_KM_MAX) return asWhole
-                return null
-            }
-            else -> return null
+        if (payload.size >= 4) {
+            val four = payload.copyOfRange(0, 4)
+            val raw = four.toUIntBe()
+            val asTenths = raw / 10.0
+            if (asTenths in 0.0..SANE_KM_MAX) return asTenths
+            val asWhole = raw.toDouble()
+            if (asWhole in 0.0..SANE_KM_MAX) return asWhole
         }
+        if (payload.size >= 3) {
+            val three = payload.copyOfRange(0, 3)
+            val raw = three.toUIntBe()
+            val asWhole = raw.toDouble()
+            if (asWhole in 0.0..SANE_KM_MAX) return asWhole
+        }
+        return null
     }
 
     /**

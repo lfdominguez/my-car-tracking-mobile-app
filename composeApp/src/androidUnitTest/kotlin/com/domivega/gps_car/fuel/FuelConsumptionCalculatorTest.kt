@@ -64,6 +64,32 @@ class FuelConsumptionCalculatorTest {
     }
 
     @Test
+    fun `airMassGs prefers sensor maf over map estimate`() {
+        val sensors = FuelCalcSensors(
+            mafGs = 12.5,
+            mapKpa = 100.0,
+            rpm = 2000.0,
+            iatC = 25.0,
+        )
+        assertEquals(12.5, FuelConsumptionCalculator.airMassGs(e10Config, sensors)!!, 1e-9)
+    }
+
+    @Test
+    fun `airMassGs estimates from map when maf missing`() {
+        val air = FuelConsumptionCalculator.airMassGs(
+            e10Config,
+            FuelCalcSensors(
+                mafGs = null,
+                mapKpa = 100.0,
+                rpm = 2000.0,
+                iatC = 25.0,
+            ),
+        )
+        assertNotNull(air)
+        assertTrue(air!! > 0.0)
+    }
+
+    @Test
     fun `returns null without usable sensors`() {
         assertNull(
             FuelConsumptionCalculator.litersPerHour(

@@ -67,7 +67,9 @@ object ObdBleManager {
 
     private const val COMMAND_TIMEOUT_MS = 4_000L
     private const val ATZ_TIMEOUT_MS = 6_000L
-    private const val ECU_PROBE_TIMEOUT_MS = 8_000L
+    /** Per-attempt wait for 0100 during init (keep short — cold ECU is handled by retries). */
+    private const val ECU_PROBE_TIMEOUT_MS = 2_500L
+    private const val ECU_PROBE_ATTEMPTS = 8
     private const val SCAN_PERIOD_MS = 12_000L
     private const val RECONNECT_INTERVAL_MS = 7_000L
     /** Wall-clock interval for VW MQB UDS cluster odometer probes. */
@@ -75,9 +77,14 @@ object ObdBleManager {
     /** Do not run cluster UDS until engine stack has produced this many successful decodes. */
     private const val VW_ODO_MIN_ENGINE_OK = 8
     private const val UDS_COMMAND_TIMEOUT_MS = 6_000L
-    private const val MODE01_HEALTH_TIMEOUT_MS = 3_000L
+    private const val MODE01_HEALTH_TIMEOUT_MS = 4_000L
     private const val WWH_HEALTH_TIMEOUT_MS = 4_000L
+    /** Settle after cluster header restore before Mode 01 health. */
+    private const val UDS_RESTORE_SETTLE_MS = 150L
     private const val CHARSET_NAME = "US-ASCII"
+
+    /** MAP/RPM/IAT speed-density air mass when Mode 01 PID 0x10 is missing. */
+    const val ESTIMATED_MAF_KEY = "ffmafg"
 
     /** PIDs map for ForegroundTrackingService. */
     val pidsMap: Map<String, String> = linkedMapOf(
@@ -102,6 +109,7 @@ object ObdBleManager {
         "42" to "Control Module Voltage",
         "1f" to "Engine ON time",
         "10" to "Mass Air Flow",
+        ESTIMATED_MAF_KEY to "Mass Air Flow (estimated)",
         "44" to "Fuel/Air Ratio",
         "33" to "Barometric Pressure",
         "0f" to "Intake Air Temp",
@@ -174,11 +182,19 @@ object ObdBleManager {
     private val loggedVwClusterExtraOk = ConcurrentHashMap.newKeySet<String>()
 
     /**
-     * Set when header restore after UDS fails critically.
-     * If Mode 01 then times out, force session re-init (avoid permanent bus stuck on 714).
+     * Set when header restore after UDS fails health check.
+     * Soft: back off further UDS; hard GATT re-init only after sustained Mode 01 timeouts.
      */
     @Volatile
     private var udsHeaderRestoreFailed = false
+
+    /** Wall clock: do not run cluster UDS before this (0 = no extra backoff). */
+    @Volatile
+    private var vwUdsNotBeforeMs: Long = 0L
+
+    /** Consecutive engine command timeouts (null raw) in the poll loop. */
+    @Volatile
+    private var consecutiveEngineTimeouts: Int = 0
 
     private val parser = Elm327Parser()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -396,7 +412,8 @@ object ObdBleManager {
             try {
                 logI("Connect attempt ${selectedName ?: address} ($address)")
                 setStatus("Connecting to ${selectedName ?: address}…")
-                _ecuConnected.value = false
+                // Keep prior ecuConnected until init outcome so brief reconnects do not
+                // immediately end the tracking trip (EcuConnectionController grace still applies).
                 sessionReady.set(false)
                 loggedFirstPollOk.set(false)
 
@@ -848,32 +865,23 @@ object ObdBleManager {
             wwhEngineOnly = settings.wwhObdOnly
             sessionEngineHeader = "7DF"
 
-            // Preferred protocol, then ATSP0 fallback if ECU never answers.
-            val protocolsToTry = buildList {
-                add(protocol.atspCommand)
-                if (!protocol.atspCommand.equals("ATSP0", ignoreCase = true)) {
-                    add("ATSP0")
-                }
-            }.distinct()
+            // Always use the configured protocol only (ATSP0 only when user picks Automatic).
+            // Do not fall back to auto-search if a fixed protocol is set — early 0100
+            // misses are usually a cold ECU, not a wrong protocol.
+            val atsp = protocol.atspCommand
+            logI("Using OBD protocol ${protocol.name} ($atsp) — no auto fallback")
+
+            val sp = sendCommandLogged(atsp, COMMAND_TIMEOUT_MS, isInit = true)
+            if (sp == null) {
+                logE("ELM init failed at $atsp (timeout/error)")
+                setStatus("ELM init failed ($atsp)")
+                _ecuConnected.value = false
+                return false
+            }
+            delay(500)
 
             if (wwhEngineOnly) {
-                var wwhOk = false
-                for ((index, atsp) in protocolsToTry.withIndex()) {
-                    val sp = sendCommandLogged(atsp, COMMAND_TIMEOUT_MS, isInit = true)
-                    if (sp == null) {
-                        logW("Protocol $atsp failed to respond")
-                        continue
-                    }
-                    delay(500)
-                    val attempts = if (index == 0) 12 else 4
-                    if (probeWwhEngineLive(attempts = attempts)) {
-                        wwhOk = true
-                        if (index > 0) logI("WWH contact OK after fallback protocol $atsp")
-                        break
-                    }
-                    logW("No WWH 22F40C after $atsp; trying next protocol if any")
-                }
-                if (!wwhOk) {
+                if (!probeWwhEngineLive(attempts = ECU_PROBE_ATTEMPTS)) {
                     logE("ELM init failed at WWH 22F40C (no ECU response)")
                     setStatus("WWH-OBD init failed (no 22F40C)")
                     _ecuConnected.value = false
@@ -887,40 +895,30 @@ object ObdBleManager {
                 return true
             }
 
-            var ecuRaw: String? = null
-            for ((index, atsp) in protocolsToTry.withIndex()) {
-                val sp = sendCommandLogged(atsp, COMMAND_TIMEOUT_MS, isInit = true)
-                if (sp == null) {
-                    logW("Protocol $atsp failed to respond")
-                    continue
-                }
-                delay(500)
-                // Functional OBD header before first 0100 (best-effort).
-                sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = true)
-                sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = true)
-                sessionEngineHeader = "7DF"
-                // Spend longer on the preferred protocol before ATSP0 auto-search.
-                val attempts = if (index == 0) 12 else 4
-                ecuRaw = probeEcuSupportedPids(attempts = attempts)
-                if (ecuRaw != null) {
-                    if (index > 0) logI("ECU contact OK after fallback protocol $atsp")
-                    break
-                }
-                logW("No ECU data after $atsp; trying next protocol if any")
-            }
+            // Functional OBD header before first 0100 (best-effort).
+            sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = true)
+            sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = true)
+            sessionEngineHeader = "7DF"
 
+            val ecuRaw = probeEcuSupportedPids(attempts = ECU_PROBE_ATTEMPTS)
             if (ecuRaw == null) {
-                logE("ELM init failed at 0100 (no ECU response)")
+                logE("ELM init failed at 0100 (no ECU response on $atsp)")
                 setStatus("ELM init failed (0100)")
                 _ecuConnected.value = false
                 return false
             }
 
-            discoverSupportedPids(first0100 = ecuRaw)
+            if (isSuccessfulMode01Response(ecuRaw, expectPid = 0x00)) {
+                discoverSupportedPids(first0100 = ecuRaw)
+            } else {
+                // Live via 010C only — do not treat RPM payload as a support bitmap.
+                supportedMode01Pids = emptySet()
+                logI("Support discovery skipped (ECU proven via 010C)")
+            }
             _ecuConnected.value = true
             logI(
                 "ELM init OK — mode01 support=${supportedMode01Pids.size} " +
-                    "hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size}",
+                    "protocol=${protocol.name} hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size}",
             )
             true
         } catch (t: Throwable) {
@@ -934,11 +932,10 @@ object ObdBleManager {
 
     /**
      * Retry 0100 until ECU answers with a 41 bitmap.
-     * VW ECUs / adapters often need several wakes after ELM ATZ before 0100 lands
-     * (user-observed ~1 min cold start) — prefer more attempts on the chosen protocol
-     * before falling back to ATSP0 auto-search (which is very slow).
+     * Short per-try timeout + modest backoff (cold ECU), same fixed protocol only.
+     * If 0100 never lands, accept a live 010C as contact and continue without bitmap.
      */
-    private suspend fun probeEcuSupportedPids(attempts: Int = 12): String? {
+    private suspend fun probeEcuSupportedPids(attempts: Int = ECU_PROBE_ATTEMPTS): String? {
         repeat(attempts) { attempt ->
             val raw = sendCommandLogged("0100", ECU_PROBE_TIMEOUT_MS, isInit = true)
             if (isSuccessfulMode01Response(raw, expectPid = 0x00)) {
@@ -947,11 +944,22 @@ object ObdBleManager {
                 }
                 return raw
             }
+            // Quick alternate wake: some ECUs answer RPM before support bitmap.
+            if (attempt >= 2) {
+                val rpmRaw = sendCommandLogged("010C", ECU_PROBE_TIMEOUT_MS, isInit = true)
+                if (isSuccessfulMode01Response(rpmRaw, expectPid = 0x0C)) {
+                    logI(
+                        "ECU live via 010C on attempt ${attempt + 1}/$attempts " +
+                            "(0100 still pending — support discovery may be empty)",
+                    )
+                    return rpmRaw
+                }
+            }
             logW(
                 "0100 probe attempt ${attempt + 1}/$attempts failed: " +
-                    (raw?.take(80) ?: "null"),
+                    (raw?.take(80) ?: "timeout/null"),
             )
-            delay(400L + attempt * 300L)
+            delay(200L + attempt * 150L)
             drainBuffer()
         }
         return null
@@ -1043,6 +1051,10 @@ object ObdBleManager {
         loggedVwUdsFail.set(false)
         loggedVwClusterExtraOk.clear()
         udsHeaderRestoreFailed = false
+        vwUdsNotBeforeMs = 0L
+        consecutiveEngineTimeouts = 0
+        // Drop stale metrics (e.g. prior-trip engine run time PID 1F) before a new session.
+        _pidValues.value = emptyMap()
     }
 
     /** Log first miss per PID per session; never disable or clear last-good values. */
@@ -1158,21 +1170,32 @@ object ObdBleManager {
     }
 
     private fun recomputeFuelRate(into: MutableMap<String, Double>) {
-        val fuelLh = FuelConsumptionCalculator.litersPerHour(
-            FuelCalcConfig(
-                stoichAfr = settings.fuelStoichAfr,
-                densityGl = settings.fuelDensityGl,
-                displacementL = settings.engineDisplacementL,
-                ve = settings.engineVe,
-            ),
-            FuelCalcSensors(
-                mafGs = into["10"],
-                lambda = into["44"],
-                mapKpa = into["0b"],
-                rpm = into["0c"],
-                iatC = into["0f"],
-            ),
+        val config = FuelCalcConfig(
+            stoichAfr = settings.fuelStoichAfr,
+            densityGl = settings.fuelDensityGl,
+            displacementL = settings.engineDisplacementL,
+            ve = settings.engineVe,
         )
+        val sensors = FuelCalcSensors(
+            mafGs = into["10"],
+            lambda = into["44"],
+            mapKpa = into["0b"],
+            rpm = into["0c"],
+            iatC = into["0f"],
+        )
+        // When ECU has no PID 0x10 MAF, still publish air mass from MAP path for samples/UI.
+        if (into["10"] == null) {
+            val estimated = FuelConsumptionCalculator.airMassGs(
+                config,
+                sensors.copy(mafGs = null),
+            )
+            if (estimated != null && isValidPidValue(ESTIMATED_MAF_KEY, estimated)) {
+                into[ESTIMATED_MAF_KEY] = estimated
+            }
+        } else {
+            into.remove(ESTIMATED_MAF_KEY)
+        }
+        val fuelLh = FuelConsumptionCalculator.litersPerHour(config, sensors)
         if (fuelLh != null && isValidPidValue("ff125a", fuelLh)) {
             into["ff125a"] = fuelLh
         }
@@ -1203,20 +1226,31 @@ object ObdBleManager {
                         val raw = sendCommandLogged(cmd, isInit = false)
                         if (raw == null) {
                             if (!sessionReady.get() || gatt == null) break
-                            if (udsHeaderRestoreFailed) {
+                            consecutiveEngineTimeouts += 1
+                            if (
+                                UdsRestorePolicy.shouldHardRecoverSession(
+                                    udsRestoreUnhealthy = udsHeaderRestoreFailed,
+                                    consecutiveEngineTimeouts = consecutiveEngineTimeouts,
+                                )
+                            ) {
                                 logE(
-                                    "Engine timeout after UDS header restore failure " +
-                                        "— forcing session re-init",
+                                    "Engine timeouts after UDS restore " +
+                                        "(streak=$consecutiveEngineTimeouts) — session re-init",
                                 )
                                 sessionReady.set(false)
                                 _ecuConnected.value = false
                                 setStatus("OBD headers unhealthy — reconnecting")
-                                // Drop GATT so auto-reconnect can re-run full ELM init.
                                 closeGattInternal()
                                 break
                             }
                             notePidMiss(pid, null)
                             continue
+                        }
+                        consecutiveEngineTimeouts = 0
+                        if (udsHeaderRestoreFailed) {
+                            // Mode 01 answering again — clear soft unhealthy flag.
+                            udsHeaderRestoreFailed = false
+                            logI("Engine stack healthy again after UDS restore blip")
                         }
                         val value = if (wwhEngineOnly) {
                             val shim = WwhObd.mode01CompatibleResponse(pid, raw)
@@ -1294,6 +1328,7 @@ object ObdBleManager {
         if (engineOkCount < VW_ODO_MIN_ENGINE_OK || round < 3) return
 
         val now = System.currentTimeMillis()
+        if (vwUdsNotBeforeMs != 0L && now < vwUdsNotBeforeMs) return
         if (lastVwOdoAtMs != 0L && now - lastVwOdoAtMs < VW_ODO_INTERVAL_MS) return
         lastVwOdoAtMs = now
 
@@ -1302,21 +1337,27 @@ object ObdBleManager {
 
     private suspend fun pollVwOdometerOnce() {
         if (loggedVwUdsStart.compareAndSet(false, true)) {
-            logI("VW MQB UDS cluster probe (ATSH714 / service 22, no ATCRA)")
+            logI("VW MQB UDS cluster probe (ATSH714 / service 22, FC best-effort, no ATCRA)")
         }
         var gotReading = false
+        var lastMissReason: String? = null
+        var flowControlEnabled = false
         udsReceiveFilterWasSet = false
         try {
             // Physical addressing to instrument cluster (11-bit CAN).
-            // Intentionally NO ATCRA/ATFCSM: receive filters left active after a weak
-            // ATAR restore make functional Mode 01 (7E8) silent while UDS still works.
+            // No ATCRA: receive filters left active after a weak ATAR restore make
+            // functional Mode 01 (7E8) silent while UDS still works.
             val sh = sendCommandLogged("ATSH714", COMMAND_TIMEOUT_MS, isInit = false)
             if (sh == null || !ElmHeaderRestore.isAcceptableAtResponse(sh)) {
-                if (loggedVwUdsFail.compareAndSet(false, true)) {
-                    logW("VW UDS: ATSH714 failed/timeout")
-                }
+                lastMissReason = "ATSH714 failed/timeout"
+                logW("VW UDS: $lastMissReason")
                 return
             }
+
+            // ISO-TP multi-frame odometer needs tester flow-control on many ELM clones.
+            // Enable only for this hop; always clear in finally (not a receive filter).
+            flowControlEnabled = enableClusterFlowControl()
+            delay(50)
 
             val dids = sessionWinningDid?.let { listOf(it) }
                 ?: UdsReadDid.candidateDids(settings.vwOdometerDid)
@@ -1325,11 +1366,20 @@ object ObdBleManager {
                 if (!sessionReady.get() || gatt == null) break
                 val cmd = "22" + did.toString(16).uppercase().padStart(4, '0')
                 val raw = sendCommandLogged(cmd, UDS_COMMAND_TIMEOUT_MS, isInit = false)
-                    ?: continue
-                val payload = UdsReadDid.parsePositiveReadDid(raw, did) ?: continue
-                val km = UdsReadDid.decodeOdometerKm(payload) ?: continue
-                if (!isValidPidValue(OdometerReading.UDS_KM_KEY, km)) {
-                    logW("VW UDS: invalid odometer decode $km for DID ${did.toString(16)}")
+                if (raw == null) {
+                    lastMissReason = "timeout on DID ${didHex(did)}"
+                    continue
+                }
+                val payload = UdsReadDid.parsePositiveReadDid(raw, did)
+                if (payload == null) {
+                    val snippet = raw.replace('\n', ' ').replace('\r', ' ').trim().take(100)
+                    lastMissReason = "no 62${didHex(did)} parse in: $snippet"
+                    continue
+                }
+                val km = UdsReadDid.decodeOdometerKm(payload)
+                if (km == null || !isValidPidValue(OdometerReading.UDS_KM_KEY, km)) {
+                    lastMissReason =
+                        "bad odometer payload size=${payload.size} km=$km DID=${didHex(did)}"
                     continue
                 }
 
@@ -1344,28 +1394,50 @@ object ObdBleManager {
                 sessionWinningDid = did
                 gotReading = true
                 if (loggedVwUdsSuccess.compareAndSet(false, true)) {
-                    logI(
-                        "VW UDS odometer OK: DID=${did.toString(16).uppercase().padStart(4, '0')} " +
-                            "km=$km",
-                    )
+                    logI("VW UDS odometer OK: DID=${didHex(did)} km=$km")
+                } else {
+                    logI("VW UDS odometer refresh: DID=${didHex(did)} km=$km")
                 }
                 break
             }
 
-            if (!gotReading && loggedVwUdsFail.compareAndSet(false, true)) {
-                logW("VW UDS odometer: no positive DID response this session (yet)")
+            if (!gotReading) {
+                val reason = lastMissReason ?: "no positive DID response"
+                // Log every miss hop until first success so road tests are diagnosable.
+                if (!loggedVwUdsSuccess.get()) {
+                    logW("VW UDS odometer miss: $reason")
+                    loggedVwUdsFail.set(true)
+                }
             }
 
             // Same hop: well-known cluster extras (fuel / oil / doors). Best-effort.
             pollVwClusterExtras()
         } catch (t: Throwable) {
-            if (loggedVwUdsFail.compareAndSet(false, true)) {
-                logW("VW UDS cluster error: ${t.message}")
-            }
+            logW("VW UDS cluster error: ${t.message}")
             Log.w(TAG, "pollVwOdometerOnce", t)
         } finally {
+            if (flowControlEnabled) {
+                // Best-effort; ignore errors so header restore always runs.
+                sendCommandLogged("ATFCSM0", COMMAND_TIMEOUT_MS, isInit = false)
+            }
             restoreObdHeaders()
         }
+    }
+
+    /**
+     * Best-effort ISO-TP flow control for cluster multi-frame ($22) responses.
+     * Does not set ATCRA. Returns true if ATFCSM1 was accepted (caller must clear).
+     */
+    private suspend fun enableClusterFlowControl(): Boolean {
+        // FC address = request header 714; classic FC data 30 00 00.
+        sendCommandLogged("ATFCSH714", COMMAND_TIMEOUT_MS, isInit = false)
+        sendCommandLogged("ATFCSD300000", COMMAND_TIMEOUT_MS, isInit = false)
+        val sm = sendCommandLogged("ATFCSM1", COMMAND_TIMEOUT_MS, isInit = false)
+        val ok = ElmHeaderRestore.isAcceptableAtResponse(sm)
+        if (!ok && loggedVwUdsFail.compareAndSet(false, true)) {
+            logW("VW UDS: ATFCSM1 not accepted — multi-frame odo may fail on this adapter")
+        }
+        return ok
     }
 
     /**
@@ -1400,10 +1472,12 @@ object ObdBleManager {
      * Restore session engine addressing after a UDS cluster probe.
      * Must always run after [pollVwOdometerOnce] header switch.
      * Health-checks with Mode 01 010C or WWH 22F40C depending on stack.
+     * On health miss: soft-backoff further UDS; do not kill the trip immediately.
      */
     private suspend fun restoreObdHeaders() {
         val filterWasSet = udsReceiveFilterWasSet
         val header = sessionEngineHeader.ifBlank { "7DF" }
+        drainBuffer()
         // Clear receive filter (if any) then restore session engine header.
         val atar = sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = false)
         val atsh = sendCommandLogged("ATSH$header", COMMAND_TIMEOUT_MS, isInit = false)
@@ -1414,38 +1488,79 @@ object ObdBleManager {
             receiveFilterWasSet = filterWasSet,
         )
         if (!cmdsOk) {
-            udsHeaderRestoreFailed = true
-            logE(
-                "UDS header restore failed (ATAR/ATSH$header) — " +
-                    "engine stack may be unhealthy until reconnect",
-            )
+            markUdsRestoreUnhealthy("ATAR/ATSH$header rejected")
+            // Best-effort second shot at functional header.
+            sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = false)
+            sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = false)
+            sessionEngineHeader = "7DF"
             return
         }
+
+        delay(UDS_RESTORE_SETTLE_MS)
+        drainBuffer()
 
         if (applyEngineHealthProbe()) {
-            if (udsHeaderRestoreFailed) {
-                udsHeaderRestoreFailed = false
-                logI("OBD headers restored after prior UDS restore failure")
-            }
-            udsReceiveFilterWasSet = false
+            onUdsRestoreHealthy()
             return
         }
 
-        // One hard retry: ATAR + ATSH again, then re-check.
+        // Retry same header, then physical engine 7E0 (often more reliable after cluster hop).
         logW("Engine not live after UDS restore — retrying ATAR/ATSH$header")
         sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = false)
         sendCommandLogged("ATSH$header", COMMAND_TIMEOUT_MS, isInit = false)
+        delay(UDS_RESTORE_SETTLE_MS)
+        drainBuffer()
         if (applyEngineHealthProbe()) {
-            udsHeaderRestoreFailed = false
-            udsReceiveFilterWasSet = false
+            onUdsRestoreHealthy()
             logI("Engine recovered after UDS restore retry")
             return
         }
 
+        if (!header.equals("7E0", ignoreCase = true)) {
+            logW("Engine not live on $header after UDS — trying ATSH7E0")
+            sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = false)
+            val sh7e0 = sendCommandLogged("ATSH7E0", COMMAND_TIMEOUT_MS, isInit = false)
+            if (ElmHeaderRestore.isAcceptableAtResponse(sh7e0)) {
+                delay(UDS_RESTORE_SETTLE_MS)
+                drainBuffer()
+                if (applyEngineHealthProbe()) {
+                    sessionEngineHeader = "7E0"
+                    onUdsRestoreHealthy()
+                    logI("Engine recovered on physical 7E0 after cluster UDS")
+                    return
+                }
+            }
+            // Prefer functional for ongoing Mode 01 if 7E0 did not help.
+            sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = false)
+            sessionEngineHeader = "7DF"
+        }
+
+        markUdsRestoreUnhealthy("health 010C/22F40C failed after retries")
+    }
+
+    private fun onUdsRestoreHealthy() {
+        if (udsHeaderRestoreFailed) {
+            logI("OBD headers restored after prior UDS restore failure")
+        }
+        udsHeaderRestoreFailed = false
+        udsReceiveFilterWasSet = false
+        consecutiveEngineTimeouts = 0
+        vwUdsNotBeforeMs = UdsRestorePolicy.nextUdsAllowedAtMs(
+            nowMs = System.currentTimeMillis(),
+            restoreHealthOk = true,
+        )
+    }
+
+    private fun markUdsRestoreUnhealthy(reason: String) {
         udsHeaderRestoreFailed = true
+        val now = System.currentTimeMillis()
+        vwUdsNotBeforeMs = UdsRestorePolicy.nextUdsAllowedAtMs(
+            nowMs = now,
+            restoreHealthOk = false,
+        )
         logE(
-            "Engine dead after UDS odometer probe (health failed) — " +
-                "forcing session re-init on next timeout",
+            "UDS restore unhealthy ($reason) — backing off cluster UDS " +
+                "${UdsRestorePolicy.DEFAULT_BACKOFF_MS / 1000}s; Mode 01 keeps polling",
         )
     }
 
@@ -1516,7 +1631,7 @@ object ObdBleManager {
             "0c" -> value in 0.0..16383.0
             "2f", VwClusterDids.KEY_FUEL_PCT -> value in 0.0..100.0
             "04", "43", "45", "49" -> value in 0.0..100.0
-            "10" -> value in 0.0..655.35
+            "10", ESTIMATED_MAF_KEY -> value in 0.0..655.35
             "ff125a" -> value in 0.0..200.0
             "42" -> value in 0.0..20.0
             "a6", OdometerReading.UDS_KM_KEY -> value in 0.0..2_000_000.0
@@ -1526,6 +1641,9 @@ object ObdBleManager {
             else -> true
         }
     }
+
+    private fun didHex(did: Int): String =
+        did.toString(16).uppercase().padStart(4, '0')
 
     private fun uuid(s: String): UUID = UUID.fromString(s)
 }

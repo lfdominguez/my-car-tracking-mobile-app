@@ -35,6 +35,7 @@ import com.domivega.gps_car.data.queue.SampleQueueRepository
 import com.domivega.gps_car.data.queue.SampleQueueUploader
 import com.domivega.gps_car.network.ApiClient
 import com.domivega.gps_car.network.Sample
+import com.domivega.gps_car.obd.FuelLevelReading
 import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.OdometerReading
 import com.domivega.gps_car.settings.AppSettings
@@ -251,7 +252,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 absoluteEngineLoadPct = pidValues["43"],
                 shortTermFuelTrimPct = pidValues["06"],
                 longTermFuelTrimPct = pidValues["07"],
-                fuelLevelPct = pidValues["2f"],
+                fuelLevelPct = FuelLevelReading.fromPidValues(pidValues),
 
                 acceleratorPedalPct = pidValues["49"],
                 ambientAirTempC = pidValues["46"],
@@ -261,7 +262,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 manifoldAbsolutePressureKpa = pidValues["0b"],
                 controlModuleVoltage = pidValues["42"],
                 engineOnTime = pidValues["1f"],
-                massAirFlow = pidValues["10"],
+                massAirFlow = pidValues["10"]
+                    ?: pidValues[ObdBleManager.ESTIMATED_MAF_KEY],
                 lambdaCmd = pidValues["44"],
                 atmosphericPressure = pidValues["33"],
                 intakeAirTemperature = pidValues["0f"],
