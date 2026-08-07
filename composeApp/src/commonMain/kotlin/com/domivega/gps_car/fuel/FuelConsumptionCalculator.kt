@@ -13,6 +13,10 @@ data class FuelCalcSensors(
     val mapKpa: Double? = null,
     val rpm: Double? = null,
     val iatC: Double? = null,
+    val stftPct: Double? = null,
+    val ltftPct: Double? = null,
+    /** SAE PID 5E L/h when present — wins over air-path estimate. */
+    val ecuFuelRateLh: Double? = null,
 )
 
 object FuelConsumptionCalculator {
@@ -21,12 +25,25 @@ object FuelConsumptionCalculator {
     private const val FOUR_STROKE_REV_FACTOR = 120.0
 
     fun litersPerHour(config: FuelCalcConfig, sensors: FuelCalcSensors): Double? {
+        sensors.ecuFuelRateLh?.let { r ->
+            if (r.isFinite() && r > 0.0 && r <= 100.0) return r
+        }
         if (config.stoichAfr <= 0.0 || config.densityGl <= 0.0) return null
         val airGs = airMassGs(config, sensors) ?: return null
         if (airGs <= 0.0 || airGs.isNaN() || airGs.isInfinite()) return null
         val lambda = sensors.lambda?.takeIf { it in 0.5..1.5 } ?: 1.0
-        val lh = airGs * 3600.0 / (config.stoichAfr * lambda * config.densityGl)
+        val trim = trimFactor(sensors.stftPct, sensors.ltftPct)
+        val lh = airGs * 3600.0 / (config.stoichAfr * lambda * config.densityGl) * trim
         return lh.takeIf { it.isFinite() && it > 0.0 && it <= 200.0 }
+    }
+
+    /**
+     * Multiplicative correction from STFT+LTFT (%). Each trim used only if in ±25%.
+     * Clamped to 0.7…1.3. Applied only on estimated (non-5E) path.
+     */
+    fun trimFactor(stftPct: Double?, ltftPct: Double?): Double {
+        fun one(t: Double?) = t?.takeIf { it in -25.0..25.0 } ?: 0.0
+        return (1.0 + (one(stftPct) + one(ltftPct)) / 100.0).coerceIn(0.7, 1.3)
     }
 
     /**

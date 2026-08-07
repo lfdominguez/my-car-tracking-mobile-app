@@ -77,4 +77,8 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
     override var engineVe: Double
         get() = appSettings.engineVe
         set(value) { appSettings.engineVe = value }
+
+    override var tankCapacityL: Double
+        get() = appSettings.tankCapacityL
+        set(value) { appSettings.tankCapacityL = value }
 }

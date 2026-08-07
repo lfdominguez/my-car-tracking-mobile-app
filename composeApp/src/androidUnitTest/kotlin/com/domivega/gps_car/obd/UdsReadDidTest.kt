@@ -181,4 +181,22 @@ class UdsReadDidTest {
         assertEquals(defaults, UdsReadDid.candidateDids("22B00"))
         assertEquals(defaults, UdsReadDid.candidateDids("GGGG"))
     }
+
+    @Test
+    fun `suggestsIsoTpFlowControlRetry true for incomplete multi-frame with 62 fragment`() {
+        // First frame only — no complete parseable payload; FC may unlock CF frames.
+        assertTrue(UdsReadDid.suggestsIsoTpFlowControlRetry("014\r0: 62 22 03 00 03\r>"))
+        assertTrue(UdsReadDid.suggestsIsoTpFlowControlRetry("0:6222030003>"))
+    }
+
+    @Test
+    fun `suggestsIsoTpFlowControlRetry false for NO DATA or complete response`() {
+        assertTrue(!UdsReadDid.suggestsIsoTpFlowControlRetry("NO DATA >"))
+        assertTrue(!UdsReadDid.suggestsIsoTpFlowControlRetry(null))
+        assertTrue(!UdsReadDid.suggestsIsoTpFlowControlRetry(""))
+        // Complete single-frame style — no need for custom FC.
+        assertTrue(
+            !UdsReadDid.suggestsIsoTpFlowControlRetry("62 22 03 00 03 DA 0E 00 00 >"),
+        )
+    }
 }

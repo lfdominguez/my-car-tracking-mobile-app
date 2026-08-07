@@ -19,4 +19,6 @@ interface SettingsRepository {
     var fuelDensityGl: Double
     var engineDisplacementL: Double
     var engineVe: Double
+    /** Liters; 0 = unknown. */
+    var tankCapacityL: Double
 }

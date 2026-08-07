@@ -53,6 +53,7 @@ class SettingsViewModel(
                 fuelDensityGl = repository.fuelDensityGl,
                 engineDisplacementL = repository.engineDisplacementL,
                 engineVe = repository.engineVe,
+                tankCapacityL = repository.tankCapacityL,
             )
         }
     }
@@ -164,6 +165,12 @@ class SettingsViewModel(
         _uiState.update { it.copy(engineVe = clamped) }
     }
 
+    fun updateTankCapacityL(value: Double) {
+        val clamped = value.coerceAtLeast(0.0)
+        repository.tankCapacityL = clamped
+        _uiState.update { it.copy(tankCapacityL = clamped) }
+    }
+
     fun clearQrError() {
         _uiState.update { it.copy(qrError = "") }
     }
@@ -248,6 +255,9 @@ class SettingsViewModel(
             repository.fuelDensityGl = newState.fuelDensityGl
             repository.engineDisplacementL = newState.engineDisplacementL
             repository.engineVe = newState.engineVe
+            if (newState.tankCapacityL > 0.0) {
+                repository.tankCapacityL = newState.tankCapacityL
+            }
 
             _uiState.update {
                 it.copy(

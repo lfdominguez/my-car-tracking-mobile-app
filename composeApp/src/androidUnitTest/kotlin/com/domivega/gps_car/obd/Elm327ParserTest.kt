@@ -99,6 +99,13 @@ class Elm327ParserTest {
     }
 
     @Test
+    fun `decodes PID 5E engine fuel rate L per hour`() {
+        // (A*256+B)*0.05 → A=0x01 B=0xF4 = 500 → 25.0 L/h
+        val result = parser.decodePid("5e", "41 5E 01 F4")
+        assertEquals(25.0, result!!, 0.001)
+    }
+
+    @Test
     fun `WWH RPM bytes decode equal to Mode 01 via compatibility shim`() {
         val mode01 = parser.decodePid("0c", "410C1AF8")
         val wwhShim = WwhObd.mode01CompatibleResponse("0c", "62F40C1AF8>")

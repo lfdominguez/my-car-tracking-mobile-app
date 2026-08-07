@@ -60,7 +60,11 @@ class ApiClient(private val settings: AppSettings) {
 
     suspend fun startSession(): Result<StartResponse> {
         val startedAtMs = System.currentTimeMillis()
-        val startRequest = StartRequest(timestampStart = rfc3339FromEpochMillis(startedAtMs))
+        val tank = settings.tankCapacityL.takeIf { it > 0.0 }
+        val startRequest = StartRequest(
+            timestampStart = rfc3339FromEpochMillis(startedAtMs),
+            tankCapacityL = tank,
+        )
 
         Log.d("ApiClient", "Starting session at $startedAtMs (${startRequest.timestampStart})")
 
@@ -156,6 +160,9 @@ data class StartRequest(
     /** RFC3339 / ISO-8601 instant string (Rust DateTime). */
     @SerialName("timestamp_start")
     val timestampStart: String,
+    /** Optional tank capacity (L) for fuel-level trip cross-check; omit when unknown. */
+    @SerialName("tank_capacity_l")
+    val tankCapacityL: Double? = null,
 )
 
 

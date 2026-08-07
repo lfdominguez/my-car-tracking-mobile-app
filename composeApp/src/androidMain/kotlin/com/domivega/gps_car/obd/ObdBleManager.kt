@@ -72,10 +72,10 @@ object ObdBleManager {
     private const val ECU_PROBE_ATTEMPTS = 8
     private const val SCAN_PERIOD_MS = 12_000L
     private const val RECONNECT_INTERVAL_MS = 7_000L
-    /** Wall-clock interval for VW MQB UDS cluster odometer probes. */
-    private const val VW_ODO_INTERVAL_MS = 45_000L
     /** Do not run cluster UDS until engine stack has produced this many successful decodes. */
     private const val VW_ODO_MIN_ENGINE_OK = 8
+    /** Continuous OBD speed ~0 before a once-per-stop cluster hop. */
+    private const val VW_ODO_STOP_DWELL_MS = 5_000L
     private const val UDS_COMMAND_TIMEOUT_MS = 6_000L
     private const val MODE01_HEALTH_TIMEOUT_MS = 4_000L
     private const val WWH_HEALTH_TIMEOUT_MS = 4_000L
@@ -111,6 +111,7 @@ object ObdBleManager {
         "10" to "Mass Air Flow",
         ESTIMATED_MAF_KEY to "Mass Air Flow (estimated)",
         "44" to "Fuel/Air Ratio",
+        "5e" to "Engine Fuel Rate",
         "33" to "Barometric Pressure",
         "0f" to "Intake Air Temp",
     )
@@ -132,6 +133,7 @@ object ObdBleManager {
     /** Slow-changing PIDs polled every [SLOW_EVERY]th round. */
     private val SLOW_PIDS = listOf(
         "2f", // Fuel level
+        "5e", // Engine fuel rate L/h (prefer over estimated ff125a when live)
         "a6", // Vehicle odometer (SAE PID A6)
         "31", // Distance since codes cleared (not dash odometer)
         "05", // Coolant
@@ -155,9 +157,12 @@ object ObdBleManager {
     @Volatile
     private var sessionWinningDid: Int? = null
 
-    /** Last VW UDS odometer attempt wall clock (rate limit). */
-    @Volatile
-    private var lastVwOdoAtMs: Long = 0L
+    /** Initial + once-per-stop cluster UDS schedule (no moving timer). */
+    private val vwOdoSchedule = VwOdoSchedule(
+        engineOkMin = VW_ODO_MIN_ENGINE_OK,
+        stopDwellMs = VW_ODO_STOP_DWELL_MS,
+        stopSpeedMaxKmh = 0.5,
+    )
 
     /** Successful engine decodes this session (Mode 01 or WWH; gates first cluster UDS). */
     @Volatile
@@ -1041,7 +1046,7 @@ object ObdBleManager {
         supportedMode01Pids = emptySet()
         noDataLogged.clear()
         sessionWinningDid = null
-        lastVwOdoAtMs = 0L
+        vwOdoSchedule.reset()
         engineOkCount = 0
         wwhEngineOnly = false
         sessionEngineHeader = "7DF"
@@ -1182,6 +1187,9 @@ object ObdBleManager {
             mapKpa = into["0b"],
             rpm = into["0c"],
             iatC = into["0f"],
+            stftPct = into["06"],
+            ltftPct = into["07"],
+            ecuFuelRateLh = into["5e"],
         )
         // When ECU has no PID 0x10 MAF, still publish air mass from MAP path for samples/UI.
         if (into["10"] == null) {
@@ -1270,7 +1278,7 @@ object ObdBleManager {
                         val updated = LinkedHashMap(
                             PidPollPolicy.afterSuccess(_pidValues.value, pid, value),
                         )
-                        val fuelInputs = setOf("10", "44", "0b", "0c", "0f")
+                        val fuelInputs = setOf("10", "44", "0b", "0c", "0f", "06", "07", "5e")
                         if (pid in fuelInputs) {
                             recomputeFuelRate(updated)
                         }
@@ -1316,32 +1324,49 @@ object ObdBleManager {
     }
 
     /**
-     * VW MQB only: rare UDS ReadDID hop to instrument cluster (odometer + nice-to-haves).
+     * VW MQB only: UDS ReadDID hop to instrument cluster (odometer + nice-to-haves).
+     * Initial after engine OK, then once per stop after ≥5s at 0 km/h — not while moving.
      * Serialized via [sendCommand] mutex; always restores OBD headers afterward.
      */
     private suspend fun maybePollVwOdometer(round: Int) {
         if (!sessionReady.get() || gatt == null) return
         val profile = VehicleObdProfile.fromName(settings.vehicleObdProfile)
         if (profile != VehicleObdProfile.VwMqb) return
+        // Light settle before first possible hop; engineOkMin is the primary gate.
+        if (round < 3) return
 
-        // Let engine stack stabilize before the first header switch (avoids killing RPM/speed).
-        if (engineOkCount < VW_ODO_MIN_ENGINE_OK || round < 3) return
+        val speed = _pidValues.value["0d"]
+        val decision = vwOdoSchedule.onPollTick(
+            nowMs = System.currentTimeMillis(),
+            speedKmh = speed,
+            engineOkCount = engineOkCount,
+            udsNotBeforeMs = vwUdsNotBeforeMs,
+        )
+        if (!decision.shouldHop) return
 
-        val now = System.currentTimeMillis()
-        if (vwUdsNotBeforeMs != 0L && now < vwUdsNotBeforeMs) return
-        if (lastVwOdoAtMs != 0L && now - lastVwOdoAtMs < VW_ODO_INTERVAL_MS) return
-        lastVwOdoAtMs = now
-
-        pollVwOdometerOnce()
+        val kind = if (decision.isInitial) "initial" else "stop"
+        logI(
+            "VW UDS cluster hop ($kind) speed=${speed ?: "?"} " +
+                "engineOk=$engineOkCount",
+        )
+        var gotReading = false
+        try {
+            gotReading = pollVwOdometerOnce()
+        } finally {
+            vwOdoSchedule.onHopFinished(success = gotReading)
+        }
     }
 
-    private suspend fun pollVwOdometerOnce() {
+    /** @return true if cluster odometer km was published this hop. */
+    private suspend fun pollVwOdometerOnce(): Boolean {
         if (loggedVwUdsStart.compareAndSet(false, true)) {
-            logI("VW MQB UDS cluster probe (ATSH714 / service 22, FC best-effort, no ATCRA)")
+            logI(
+                "VW MQB UDS cluster probe (ATSH714 / service 22, plain first, " +
+                    "FC only if multi-frame incomplete, no ATCRA)",
+            )
         }
         var gotReading = false
         var lastMissReason: String? = null
-        var flowControlEnabled = false
         udsReceiveFilterWasSet = false
         try {
             // Physical addressing to instrument cluster (11-bit CAN).
@@ -1351,54 +1376,79 @@ object ObdBleManager {
             if (sh == null || !ElmHeaderRestore.isAcceptableAtResponse(sh)) {
                 lastMissReason = "ATSH714 failed/timeout"
                 logW("VW UDS: $lastMissReason")
-                return
+                return false
             }
-
-            // ISO-TP multi-frame odometer needs tester flow-control on many ELM clones.
-            // Enable only for this hop; always clear in finally (not a receive filter).
-            flowControlEnabled = enableClusterFlowControl()
-            delay(50)
+            // Clean slate: never enter the hop with a sticky custom FC mode from a
+            // prior attempt (ATFCSM1 on some BLE clones yields NO DATA for 22xxxx).
+            // ATCFC1 keeps adapter-automatic ISO-TP FC (ELM default) without ATFCSM1.
+            sendCommandLogged("ATFCSM0", COMMAND_TIMEOUT_MS, isInit = false)
+            sendCommandLogged("ATCFC1", COMMAND_TIMEOUT_MS, isInit = false)
+            delay(80)
 
             val dids = sessionWinningDid?.let { listOf(it) }
                 ?: UdsReadDid.candidateDids(settings.vwOdometerDid)
 
+            // Pass 1: adapter-default ISO-TP FC (no ATFCSM1). This is the path that
+            // previously returned DID 2203 km on the Nivus.
+            var fcRetryDid: Int? = null
+            var fcRetrySnippet: String? = null
             for (did in dids) {
                 if (!sessionReady.get() || gatt == null) break
-                val cmd = "22" + did.toString(16).uppercase().padStart(4, '0')
-                val raw = sendCommandLogged(cmd, UDS_COMMAND_TIMEOUT_MS, isInit = false)
-                if (raw == null) {
-                    lastMissReason = "timeout on DID ${didHex(did)}"
-                    continue
+                val outcome = tryReadClusterOdometerDid(did)
+                when {
+                    outcome.km != null -> {
+                        publishClusterOdometer(did, outcome.km)
+                        gotReading = true
+                        break
+                    }
+                    UdsReadDid.suggestsIsoTpFlowControlRetry(outcome.raw) -> {
+                        if (fcRetryDid == null) {
+                            fcRetryDid = did
+                            fcRetrySnippet = outcome.raw
+                                ?.replace('\n', ' ')
+                                ?.replace('\r', ' ')
+                                ?.trim()
+                                ?.take(80)
+                        }
+                        lastMissReason =
+                            "incomplete multi-frame DID ${didHex(did)} (may retry with ATFC)"
+                    }
+                    else -> {
+                        val snippet = outcome.raw
+                            ?.replace('\n', ' ')
+                            ?.replace('\r', ' ')
+                            ?.trim()
+                            ?.take(100)
+                            ?: "timeout/empty"
+                        lastMissReason = "no 62${didHex(did)} parse in: $snippet"
+                    }
                 }
-                val payload = UdsReadDid.parsePositiveReadDid(raw, did)
-                if (payload == null) {
-                    val snippet = raw.replace('\n', ' ').replace('\r', ' ').trim().take(100)
-                    lastMissReason = "no 62${didHex(did)} parse in: $snippet"
-                    continue
-                }
-                val km = UdsReadDid.decodeOdometerKm(payload)
-                if (km == null || !isValidPidValue(OdometerReading.UDS_KM_KEY, km)) {
-                    lastMissReason =
-                        "bad odometer payload size=${payload.size} km=$km DID=${didHex(did)}"
-                    continue
-                }
+            }
 
-                val updated = LinkedHashMap(
-                    PidPollPolicy.afterSuccess(
-                        _pidValues.value,
-                        OdometerReading.UDS_KM_KEY,
-                        km,
-                    ),
+            // Pass 2: only if we saw a multi-frame fragment — custom FC can unlock CFs.
+            // Do NOT enable ATFC after plain NO DATA (breaks many clones).
+            if (!gotReading && fcRetryDid != null) {
+                logI(
+                    "VW UDS: retry DID ${didHex(fcRetryDid)} with hop-local ATFC " +
+                        "(snippet=${fcRetrySnippet ?: "?"})",
                 )
-                _pidValues.value = updated.toMap()
-                sessionWinningDid = did
-                gotReading = true
-                if (loggedVwUdsSuccess.compareAndSet(false, true)) {
-                    logI("VW UDS odometer OK: DID=${didHex(did)} km=$km")
-                } else {
-                    logI("VW UDS odometer refresh: DID=${didHex(did)} km=$km")
+                if (enableClusterFlowControl()) {
+                    delay(80)
+                    val outcome = tryReadClusterOdometerDid(fcRetryDid)
+                    if (outcome.km != null) {
+                        publishClusterOdometer(fcRetryDid, outcome.km)
+                        gotReading = true
+                    } else {
+                        val snippet = outcome.raw
+                            ?.replace('\n', ' ')
+                            ?.replace('\r', ' ')
+                            ?.trim()
+                            ?.take(100)
+                            ?: "timeout/empty"
+                        lastMissReason =
+                            "ATFC retry no 62${didHex(fcRetryDid)} parse in: $snippet"
+                    }
                 }
-                break
             }
 
             if (!gotReading) {
@@ -1411,22 +1461,55 @@ object ObdBleManager {
             }
 
             // Same hop: well-known cluster extras (fuel / oil / doors). Best-effort.
+            // Still without custom FC unless already enabled for odo multi-frame.
             pollVwClusterExtras()
         } catch (t: Throwable) {
             logW("VW UDS cluster error: ${t.message}")
             Log.w(TAG, "pollVwOdometerOnce", t)
         } finally {
-            if (flowControlEnabled) {
-                // Best-effort; ignore errors so header restore always runs.
-                sendCommandLogged("ATFCSM0", COMMAND_TIMEOUT_MS, isInit = false)
-            }
+            // Always clear custom FC — even if enable failed partway or a prior hop stuck.
+            sendCommandLogged("ATFCSM0", COMMAND_TIMEOUT_MS, isInit = false)
+            sendCommandLogged("ATCFC1", COMMAND_TIMEOUT_MS, isInit = false)
             restoreObdHeaders()
+        }
+        return gotReading
+    }
+
+    private data class ClusterOdoRead(val raw: String?, val km: Double?)
+
+    private suspend fun tryReadClusterOdometerDid(did: Int): ClusterOdoRead {
+        val cmd = "22" + did.toString(16).uppercase().padStart(4, '0')
+        val raw = sendCommandLogged(cmd, UDS_COMMAND_TIMEOUT_MS, isInit = false)
+        if (raw == null) return ClusterOdoRead(null, null)
+        val payload = UdsReadDid.parsePositiveReadDid(raw, did) ?: return ClusterOdoRead(raw, null)
+        val km = UdsReadDid.decodeOdometerKm(payload)
+        if (km == null || !isValidPidValue(OdometerReading.UDS_KM_KEY, km)) {
+            return ClusterOdoRead(raw, null)
+        }
+        return ClusterOdoRead(raw, km)
+    }
+
+    private fun publishClusterOdometer(did: Int, km: Double) {
+        val updated = LinkedHashMap(
+            PidPollPolicy.afterSuccess(
+                _pidValues.value,
+                OdometerReading.UDS_KM_KEY,
+                km,
+            ),
+        )
+        _pidValues.value = updated.toMap()
+        sessionWinningDid = did
+        if (loggedVwUdsSuccess.compareAndSet(false, true)) {
+            logI("VW UDS odometer OK: DID=${didHex(did)} km=$km")
+        } else {
+            logI("VW UDS odometer refresh: DID=${didHex(did)} km=$km")
         }
     }
 
     /**
      * Best-effort ISO-TP flow control for cluster multi-frame ($22) responses.
      * Does not set ATCRA. Returns true if ATFCSM1 was accepted (caller must clear).
+     * Call only after [UdsReadDid.suggestsIsoTpFlowControlRetry] — not on plain NO DATA.
      */
     private suspend fun enableClusterFlowControl(): Boolean {
         // FC address = request header 714; classic FC data 30 00 00.
@@ -1434,7 +1517,7 @@ object ObdBleManager {
         sendCommandLogged("ATFCSD300000", COMMAND_TIMEOUT_MS, isInit = false)
         val sm = sendCommandLogged("ATFCSM1", COMMAND_TIMEOUT_MS, isInit = false)
         val ok = ElmHeaderRestore.isAcceptableAtResponse(sm)
-        if (!ok && loggedVwUdsFail.compareAndSet(false, true)) {
+        if (!ok) {
             logW("VW UDS: ATFCSM1 not accepted — multi-frame odo may fail on this adapter")
         }
         return ok
@@ -1478,6 +1561,8 @@ object ObdBleManager {
         val filterWasSet = udsReceiveFilterWasSet
         val header = sessionEngineHeader.ifBlank { "7DF" }
         drainBuffer()
+        // Belt-and-suspenders: leave cluster hop without custom ISO-TP FC.
+        sendCommandLogged("ATFCSM0", COMMAND_TIMEOUT_MS, isInit = false)
         // Clear receive filter (if any) then restore session engine header.
         val atar = sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = false)
         val atsh = sendCommandLogged("ATSH$header", COMMAND_TIMEOUT_MS, isInit = false)
@@ -1632,6 +1717,7 @@ object ObdBleManager {
             "2f", VwClusterDids.KEY_FUEL_PCT -> value in 0.0..100.0
             "04", "43", "45", "49" -> value in 0.0..100.0
             "10", ESTIMATED_MAF_KEY -> value in 0.0..655.35
+            "5e" -> value in 0.0..100.0
             "ff125a" -> value in 0.0..200.0
             "42" -> value in 0.0..20.0
             "a6", OdometerReading.UDS_KM_KEY -> value in 0.0..2_000_000.0

@@ -28,6 +28,8 @@ data class SettingsUiState(
     val fuelDensityGl: Double = 745.0,
     val engineDisplacementL: Double = 1.0,
     val engineVe: Double = 0.85,
+    /** Liters; 0 = unknown (no tank-level fuel cross-check). */
+    val tankCapacityL: Double = 0.0,
     /** Last QR parse error (cleared on successful apply). */
     val qrError: String = "",
     val connectionTestInProgress: Boolean = false,

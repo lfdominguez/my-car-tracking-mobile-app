@@ -23,6 +23,7 @@ class AppSettings(context: Context) {
         private const val KEY_FUEL_DENSITY_GL = "fuel_density_gl"
         private const val KEY_ENGINE_DISPLACEMENT_L = "engine_displacement_l"
         private const val KEY_ENGINE_VE = "engine_ve"
+        private const val KEY_TANK_CAPACITY_L = "tank_capacity_l"
         private const val KEY_CAR_ID = "car_id"
         private const val KEY_CAR_NAME = "car_name"
 
@@ -43,6 +44,8 @@ class AppSettings(context: Context) {
         const val DEFAULT_FUEL_DENSITY_GL = 745.0
         const val DEFAULT_ENGINE_DISPLACEMENT_L = 1.0
         const val DEFAULT_ENGINE_VE = 0.85
+        /** 0 = unknown (no level cross-check). */
+        const val DEFAULT_TANK_CAPACITY_L = 0.0
     }
 
     var apiToken: String
@@ -113,6 +116,11 @@ class AppSettings(context: Context) {
     var engineVe: Double
         get() = getDouble(KEY_ENGINE_VE, DEFAULT_ENGINE_VE)
         set(value) = putDouble(KEY_ENGINE_VE, value)
+
+    /** Fuel tank capacity in liters; 0 = unknown. */
+    var tankCapacityL: Double
+        get() = getDouble(KEY_TANK_CAPACITY_L, DEFAULT_TANK_CAPACITY_L)
+        set(value) = putDouble(KEY_TANK_CAPACITY_L, value)
 
     var carId: String
         get() = prefs.getString(KEY_CAR_ID, "") ?: ""

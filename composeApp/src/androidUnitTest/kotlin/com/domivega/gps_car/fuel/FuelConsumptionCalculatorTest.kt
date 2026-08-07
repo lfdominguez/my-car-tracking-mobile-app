@@ -98,4 +98,58 @@ class FuelConsumptionCalculatorTest {
             ),
         )
     }
+
+    @Test
+    fun `ecu fuel rate PID 5E wins over maf path`() {
+        val result = FuelConsumptionCalculator.litersPerHour(
+            e10Config,
+            FuelCalcSensors(mafGs = 10.0, lambda = 1.0, ecuFuelRateLh = 12.0),
+        )
+        assertEquals(12.0, result!!, 1e-9)
+    }
+
+    @Test
+    fun `invalid ecu fuel rate falls back to maf`() {
+        val mafOnly = FuelConsumptionCalculator.litersPerHour(
+            e10Config,
+            FuelCalcSensors(mafGs = 10.0, lambda = 1.0),
+        )!!
+        val badEcu = FuelConsumptionCalculator.litersPerHour(
+            e10Config,
+            FuelCalcSensors(mafGs = 10.0, lambda = 1.0, ecuFuelRateLh = 0.0),
+        )!!
+        assertEquals(mafOnly, badEcu, 1e-9)
+    }
+
+    @Test
+    fun `positive trims increase estimated fuel rate`() {
+        val base = FuelConsumptionCalculator.litersPerHour(
+            e10Config,
+            FuelCalcSensors(mafGs = 10.0, lambda = 1.0),
+        )!!
+        val trimmed = FuelConsumptionCalculator.litersPerHour(
+            e10Config,
+            FuelCalcSensors(mafGs = 10.0, lambda = 1.0, stftPct = 10.0, ltftPct = 5.0),
+        )!!
+        assertEquals(base * 1.15, trimmed, 0.01)
+    }
+
+    @Test
+    fun `out of range trim ignored`() {
+        val base = FuelConsumptionCalculator.litersPerHour(
+            e10Config,
+            FuelCalcSensors(mafGs = 10.0, lambda = 1.0),
+        )!!
+        val withBad = FuelConsumptionCalculator.litersPerHour(
+            e10Config,
+            FuelCalcSensors(mafGs = 10.0, lambda = 1.0, stftPct = 50.0),
+        )!!
+        assertEquals(base, withBad, 1e-9)
+    }
+
+    @Test
+    fun `trim factor clamps at 1_3`() {
+        assertEquals(1.3, FuelConsumptionCalculator.trimFactor(25.0, 25.0), 1e-9)
+        assertEquals(0.7, FuelConsumptionCalculator.trimFactor(-25.0, -25.0), 1e-9)
+    }
 }

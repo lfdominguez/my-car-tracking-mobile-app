@@ -143,6 +143,32 @@ object UdsReadDid {
     }
 
     /**
+     * True when ELM text looks like an incomplete ISO-TP multi-frame (first frame /
+     * length prefix present) rather than plain NO DATA — custom ATFC may help.
+     *
+     * Plain `NO DATA` must return false: forcing ATFCSM1 on many BLE ELM clones
+     * breaks RX entirely (including a DID that worked without custom FC).
+     */
+    fun suggestsIsoTpFlowControlRetry(raw: String?): Boolean {
+        if (raw.isNullOrBlank()) return false
+        val u = raw.uppercase()
+        if (u.contains("NO DATA") || u.contains("ERROR") || u.contains("UNABLE")) {
+            return false
+        }
+        if (u.contains("7F") && Regex("""7F\s*22""").containsMatchIn(u)) {
+            return false
+        }
+        // Multi-frame pretty-print or length prefix without a full parseable UDS body.
+        val hasFrameMarker = u.contains("0:")
+        val hasLenPrefix = Regex("""(?m)^\s*0*[1-9A-F][0-9A-F]{0,2}\s*$""").containsMatchIn(raw) ||
+            u.contains("014") || u.contains("013") || u.contains("012")
+        val has62 = u.replace(" ", "").contains("62")
+        if (!has62) return false
+        // Incomplete if frame markers/length present but parse would need more CFs.
+        return hasFrameMarker || hasLenPrefix
+    }
+
+    /**
      * If [overrideHex] is 4 hex chars (optional `0x` prefix), return that single DID.
      * Empty/null/invalid override → built-in UNVERIFIED candidate list.
      */

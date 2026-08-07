@@ -163,6 +163,7 @@ fun AppNavigation(
                         onFuelDensityGlChange = settingsViewModel::updateFuelDensityGl,
                         onEngineDisplacementLChange = settingsViewModel::updateEngineDisplacementL,
                         onEngineVeChange = settingsViewModel::updateEngineVe,
+                        onTankCapacityLChange = settingsViewModel::updateTankCapacityL,
                     )
                     "Debug" -> DebugConsoleScreen(
                         pidValues = dashboardState.pidValues,

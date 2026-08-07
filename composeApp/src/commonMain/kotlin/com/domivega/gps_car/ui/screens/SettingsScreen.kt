@@ -76,6 +76,7 @@ fun SettingsScreen(
     onFuelDensityGlChange: (Double) -> Unit = {},
     onEngineDisplacementLChange: (Double) -> Unit = {},
     onEngineVeChange: (Double) -> Unit = {},
+    onTankCapacityLChange: (Double) -> Unit = {},
 ) {
     val scrollState = rememberScrollState()
     var protocolExpanded by remember { mutableStateOf(false) }
@@ -449,6 +450,12 @@ fun SettingsScreen(
             value = state.engineVe,
             onValueChange = onEngineVeChange,
             label = "Volumetric efficiency (0–1)"
+        )
+
+        SettingsDoubleField(
+            value = state.tankCapacityL,
+            onValueChange = onTankCapacityLChange,
+            label = "Tank capacity (L, 0 = unknown)"
         )
     }
 

@@ -52,6 +52,8 @@ class Elm327Parser {
                 raw / 10.0
             }
             "10" -> ((a * 256.0) + b) / 100.0 // MAF
+            // SAE J1979 PID 0x5E: engine fuel rate (L/h)
+            "5E" -> ((a * 256.0) + b) * 0.05
             else -> null
         }
     }
