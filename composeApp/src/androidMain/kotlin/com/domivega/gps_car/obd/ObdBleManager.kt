@@ -3,16 +3,7 @@ package com.domivega.gps_car.obd
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCallback
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -39,7 +30,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import java.nio.charset.Charset
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -49,21 +39,13 @@ data class BleDeviceInfo(
 )
 
 /**
- * Native BLE ELM327 manager: scan/connect GATT UART, AT session, PID poll loop.
+ * ELM327 OBD session over BLE GATT or Classic Bluetooth SPP.
  *
  * Call [initialize] once from Application. Observe [pidValues] / [ecuConnected].
+ * Transport is selected via [setBluetoothTransport] / settings (default BLE).
  */
 object ObdBleManager {
     private const val TAG = "ObdBleMgr"
-
-    private val NORDIC_UART_SERVICE = uuid("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
-    private val NORDIC_UART_RX = uuid("6E400002-B5A3-F393-E0A9-E50E24DCCA9E") // write
-    private val NORDIC_UART_TX = uuid("6E400003-B5A3-F393-E0A9-E50E24DCCA9E") // notify
-
-    private val FFE0_SERVICE = uuid("0000FFE0-0000-1000-8000-00805F9B34FB")
-    private val FFE1_CHAR = uuid("0000FFE1-0000-1000-8000-00805F9B34FB")
-
-    private val CCCD = uuid("00002902-0000-1000-8000-00805F9B34FB")
 
     private const val COMMAND_TIMEOUT_MS = 4_000L
     private const val ATZ_TIMEOUT_MS = 6_000L
@@ -240,12 +222,14 @@ object ObdBleManager {
     private var protocol: ObdProtocol = ObdProtocol.DEFAULT
 
     private var bluetoothAdapter: BluetoothAdapter? = null
-    private var gatt: BluetoothGatt? = null
-    private var writeChar: BluetoothGattCharacteristic? = null
-    private var notifyChar: BluetoothGattCharacteristic? = null
+
+    @Volatile
+    private var bluetoothTransport: BluetoothTransport = BluetoothTransport.DEFAULT
+
+    private var transport: ElmTransport = BleElmTransport()
 
     private val responseLock = Any()
-    private val responseBuffer = StringBuilder()
+    private val responseFramer = ElmResponseFramer()
     private var responseDeferred: CompletableDeferred<String>? = null
 
     private val connecting = AtomicBoolean(false)
@@ -255,7 +239,6 @@ object ObdBleManager {
     private var pollJob: Job? = null
     private var reconnectJob: Job? = null
     private var scanTimeoutJob: Job? = null
-    private var connectCompletion: CompletableDeferred<Boolean>? = null
 
     /** One INFO after first successful poll cycle per connection. */
     private val loggedFirstPollOk = AtomicBoolean(false)
@@ -273,6 +256,8 @@ object ObdBleManager {
             selectedName = settings.bleDeviceName.ifBlank { null }
             protocol = runCatching { ObdProtocol.valueOf(settings.obdProtocol) }
                 .getOrDefault(ObdProtocol.DEFAULT)
+            bluetoothTransport = BluetoothTransport.fromName(settings.bluetoothTransport)
+            transport = createTransport(bluetoothTransport)
 
             isInitialized = true
             _connectionStatus.value = when {
@@ -282,7 +267,7 @@ object ObdBleManager {
             }
             logI(
                 "Manager initialized; device=${selectedAddress ?: "none"}, " +
-                    "protocol=${protocol.name}"
+                    "protocol=${protocol.name}, transport=${bluetoothTransport.name}"
             )
         }
     }
@@ -312,18 +297,21 @@ object ObdBleManager {
         _scannedDevices.value = emptyList()
         setStatus("Scanning…")
 
-        @SuppressLint("MissingPermission")
         try {
-            val scanner = adapter.bluetoothLeScanner
-            if (scanner == null) {
-                scanning.set(false)
-                setStatus("BLE scanner unavailable")
-                return
-            }
-            val settings = ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-                .build()
-            scanner.startScan(null, settings, scanCallback)
+            (transport as? SppElmTransport)?.attachContext(appContext)
+            transport.startScan(
+                adapter = adapter,
+                onDevice = { info ->
+                    scanResults[info.address] = info
+                    _scannedDevices.value = scanResults.values.sortedBy { it.name ?: it.address }
+                },
+                onStatus = { msg ->
+                    if (!sessionReady.get() && !transport.isLinked) {
+                        setStatus(msg)
+                    }
+                    logW(msg)
+                },
+            )
             scanTimeoutJob?.cancel()
             scanTimeoutJob = scope.launch {
                 delay(SCAN_PERIOD_MS)
@@ -338,19 +326,17 @@ object ObdBleManager {
 
     fun stopScan() {
         if (!isInitialized) return
-        if (!scanning.getAndSet(false)) return
+        val wasScanning = scanning.getAndSet(false)
         scanTimeoutJob?.cancel()
         scanTimeoutJob = null
-        @SuppressLint("MissingPermission")
         try {
-            if (hasScanPermission()) {
-                bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
-            }
+            transport.stopScan(bluetoothAdapter)
         } catch (t: Throwable) {
             Log.w(TAG, "stopScan failed", t)
         }
+        if (!wasScanning) return
         val count = _scannedDevices.value.size
-        if (gatt == null && !sessionReady.get()) {
+        if (!transport.isLinked && !sessionReady.get()) {
             setStatus(if (count > 0) "Scan done ($count devices)" else "Scan done (no devices)")
         }
     }
@@ -382,6 +368,28 @@ object ObdBleManager {
         }
     }
 
+
+    fun setBluetoothTransport(transportKind: BluetoothTransport) {
+        ensureInit()
+        if (bluetoothTransport == transportKind) {
+            settings.bluetoothTransport = transportKind.name
+            return
+        }
+        logI("Bluetooth transport ${bluetoothTransport.name} → ${transportKind.name}")
+        stopScan()
+        scope.launch {
+            stopPollLoop()
+            sessionReady.set(false)
+            _ecuConnected.value = false
+            closeLinkInternal()
+            connecting.set(false)
+            bluetoothTransport = transportKind
+            settings.bluetoothTransport = transportKind.name
+            transport = createTransport(transportKind)
+            setStatus("Transport: ${transportKind.displayName}")
+        }
+    }
+
     fun connect() {
         ensureInit()
         val address = selectedAddress
@@ -403,7 +411,7 @@ object ObdBleManager {
             setStatus("Bluetooth is off")
             return
         }
-        if (sessionReady.get() && gatt != null) {
+        if (sessionReady.get() && transport.isLinked) {
             Log.d(TAG, "Already connected")
             return
         }
@@ -415,33 +423,36 @@ object ObdBleManager {
         stopScan()
         scope.launch {
             try {
-                logI("Connect attempt ${selectedName ?: address} ($address)")
+                logI(
+                    "Connect attempt ${selectedName ?: address} ($address) " +
+                        "via ${bluetoothTransport.name}",
+                )
                 setStatus("Connecting to ${selectedName ?: address}…")
-                // Keep prior ecuConnected until init outcome so brief reconnects do not
-                // immediately end the tracking trip (EcuConnectionController grace still applies).
                 sessionReady.set(false)
                 loggedFirstPollOk.set(false)
 
-                closeGattInternal()
+                closeLinkInternal()
 
                 val device = adapter.getRemoteDevice(address)
-                val completed = CompletableDeferred<Boolean>()
-                connectCompletion = completed
-
-                @SuppressLint("MissingPermission")
-                val newGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    device.connectGatt(appContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
-                } else {
-                    @Suppress("DEPRECATION")
-                    device.connectGatt(appContext, false, gattCallback)
-                }
-                gatt = newGatt
-
-                val ok = withTimeoutOrNull(15_000L) { completed.await() } == true
+                (transport as? SppElmTransport)?.attachContext(appContext)
+                val ok = transport.connect(
+                    context = appContext,
+                    adapter = adapter,
+                    device = device,
+                    onBytes = { bytes -> onTransportBytes(bytes) },
+                    onLinkLost = { reason ->
+                        scope.launch { handleLinkLost(reason) }
+                    },
+                )
                 if (!ok) {
-                    logW("Connect timeout (GATT/notify setup)")
-                    setStatus("Connect timeout")
-                    closeGattInternal()
+                    val hint = if (bluetoothTransport == BluetoothTransport.ClassicSpp) {
+                        " (pair in system settings PIN 1234/0000; close other OBD apps)"
+                    } else {
+                        ""
+                    }
+                    logW("Connect failed/timeout$hint")
+                    setStatus("Connect failed$hint")
+                    closeLinkInternal()
                     connecting.set(false)
                     return@launch
                 }
@@ -450,13 +461,12 @@ object ObdBleManager {
                 logI("Initializing ELM…")
                 val initOk = runInitSequence()
                 if (!initOk) {
-                    // Status already set with failed step inside runInitSequence when known
                     if (!_connectionStatus.value.startsWith("ELM init failed")) {
                         setStatus("ELM init failed")
                     }
                     logW("Reconnect will retry (init failed)")
                     _ecuConnected.value = false
-                    closeGattInternal()
+                    closeLinkInternal()
                     connecting.set(false)
                     return@launch
                 }
@@ -472,7 +482,7 @@ object ObdBleManager {
                 setStatus("Connect error: ${t.message}")
                 _ecuConnected.value = false
                 sessionReady.set(false)
-                closeGattInternal()
+                closeLinkInternal()
                 connecting.set(false)
             }
         }
@@ -486,7 +496,7 @@ object ObdBleManager {
             _ecuConnected.value = false
             _pidValues.value = emptyMap()
             resetPidDiscoveryState()
-            closeGattInternal()
+            closeLinkInternal()
             connecting.set(false)
             loggedFirstPollOk.set(false)
             setStatus("Disconnected")
@@ -494,7 +504,6 @@ object ObdBleManager {
         }
     }
 
-    /** Retry last saved device when not connected (every ~7s). */
     fun startAutoReconnect() {
         ensureInit()
         if (reconnectJob?.isActive == true) return
@@ -510,7 +519,7 @@ object ObdBleManager {
                         hasConnectPermission() &&
                         !sessionReady.get() &&
                         !connecting.get() &&
-                        gatt == null
+                        !transport.isLinked
 
                     if (canTry) {
                         logI("Auto-reconnect → $address")
@@ -572,258 +581,24 @@ object ObdBleManager {
         }
     }
 
-    private val scanCallback = object : ScanCallback() {
-        @SuppressLint("MissingPermission")
-        override fun onScanResult(callbackType: Int, result: ScanResult?) {
-            val device = result?.device ?: return
-            val address = device.address ?: return
-            val name = try {
-                device.name ?: result.scanRecord?.deviceName
-            } catch (_: SecurityException) {
-                result.scanRecord?.deviceName
-            }
-            val info = BleDeviceInfo(name = name, address = address)
-            scanResults[address] = info
-            _scannedDevices.value = scanResults.values.sortedBy { it.name ?: it.address }
-        }
-
-        override fun onScanFailed(errorCode: Int) {
-            scanning.set(false)
-            setStatus("Scan failed (code $errorCode)")
-            Log.w(TAG, "Scan failed: $errorCode")
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private val gattCallback = object : BluetoothGattCallback() {
-        @SuppressLint("MissingPermission")
-        override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-            val stateLabel = when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> "CONNECTED"
-                BluetoothProfile.STATE_DISCONNECTED -> "DISCONNECTED"
-                BluetoothProfile.STATE_CONNECTING -> "CONNECTING"
-                BluetoothProfile.STATE_DISCONNECTING -> "DISCONNECTING"
-                else -> "state=$newState"
-            }
-            logI("GATT $stateLabel status=$status")
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
-                setStatus("GATT connected, discovering…")
-                if (hasConnectPermission()) {
-                    g.discoverServices()
-                } else {
-                    logW("GATT connected but missing BLUETOOTH_CONNECT")
-                    connectCompletion?.complete(false)
-                    connectCompletion = null
-                }
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                val wasReady = sessionReady.getAndSet(false)
-                stopPollLoop()
-                _ecuConnected.value = false
-                loggedFirstPollOk.set(false)
-                writeChar = null
-                notifyChar = null
-                failPendingResponse("disconnected")
-                if (connecting.get()) {
-                    logW("GATT dropped during connect (status=$status)")
-                    connectCompletion?.complete(false)
-                    connectCompletion = null
-                    connecting.set(false)
-                }
-                if (gatt === g) {
-                    try {
-                        if (hasConnectPermission()) g.close()
-                    } catch (_: Throwable) {
-                    }
-                    gatt = null
-                }
-                if (wasReady) {
-                    setStatus("Disconnected from adapter")
-                    logW("Disconnected from adapter (status=$status) — will auto-retry")
-                }
-            }
-        }
-
-        @SuppressLint("MissingPermission")
-        override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                logE("Service discovery failed: $status")
-                connectCompletion?.complete(false)
-                connectCompletion = null
-                return
-            }
-            val found = selectUartCharacteristics(g)
-            if (!found) {
-                logE("No UART characteristic found on adapter")
-                setStatus("No UART characteristic found")
-                connectCompletion?.complete(false)
-                connectCompletion = null
-                return
-            }
-            enableNotifications(g, notifyChar!!)
-        }
-
-        @Deprecated("Deprecated in Java")
-        @Suppress("DEPRECATION")
-        override fun onCharacteristicChanged(
-            g: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-        ) {
-            val value = characteristic.value ?: return
-            onNotifyBytes(value)
-        }
-
-        override fun onCharacteristicChanged(
-            g: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray,
-        ) {
-            onNotifyBytes(value)
-        }
-
-        @SuppressLint("MissingPermission")
-        override fun onDescriptorWrite(
-            g: BluetoothGatt,
-            descriptor: BluetoothGattDescriptor,
-            status: Int,
-        ) {
-            if (descriptor.uuid == CCCD) {
-                val ok = status == BluetoothGatt.GATT_SUCCESS
-                if (ok) {
-                    logI("Notify enabled (CCCD ok)")
-                } else {
-                    logE("Notify enable failed (CCCD status=$status)")
-                    setStatus("Notify enable failed")
-                }
-                connectCompletion?.complete(ok)
-                connectCompletion = null
-            }
-        }
-
-        override fun onCharacteristicWrite(
-            g: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            status: Int,
-        ) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                logW("Characteristic write failed: status=$status")
+    private fun createTransport(kind: BluetoothTransport): ElmTransport {
+        return when (kind) {
+            BluetoothTransport.Ble -> BleElmTransport()
+            BluetoothTransport.ClassicSpp -> SppElmTransport().also {
+                if (isInitialized) it.attachContext(appContext)
             }
         }
     }
 
-    private fun selectUartCharacteristics(g: BluetoothGatt): Boolean {
-        // Prefer Nordic UART
-        val nordic = g.getService(NORDIC_UART_SERVICE)
-        if (nordic != null) {
-            val rx = nordic.getCharacteristic(NORDIC_UART_RX)
-            val tx = nordic.getCharacteristic(NORDIC_UART_TX)
-            if (rx != null && tx != null) {
-                writeChar = rx
-                notifyChar = tx
-                logI("UART: Nordic NUS")
-                return true
-            }
-        }
-
-        // FFE0 / FFE1 style
-        val ffe0 = g.getService(FFE0_SERVICE)
-        if (ffe0 != null) {
-            val ffe1 = ffe0.getCharacteristic(FFE1_CHAR)
-            if (ffe1 != null && isWritable(ffe1) && canNotify(ffe1)) {
-                writeChar = ffe1
-                notifyChar = ffe1
-                logI("UART: FFE0/FFE1")
-                return true
-            }
-            // Sometimes separate chars under FFE0
-            val writable = ffe0.characteristics?.firstOrNull { isWritable(it) }
-            val notifiable = ffe0.characteristics?.firstOrNull { canNotify(it) }
-            if (writable != null && notifiable != null) {
-                writeChar = writable
-                notifyChar = notifiable
-                logI("UART: FFE0 writable+notify pair")
-                return true
-            }
-        }
-
-        // Generic fallback: first service with writable + notify pair
-        for (service in g.services.orEmpty()) {
-            val chars = service.characteristics.orEmpty()
-            val writable = chars.firstOrNull { isWritable(it) }
-            val notifiable = chars.firstOrNull { canNotify(it) }
-            if (writable != null && notifiable != null) {
-                writeChar = writable
-                notifyChar = notifiable
-                logI("UART: fallback on ${service.uuid}")
-                return true
-            }
-        }
-        return false
-    }
-
-    private fun isWritable(c: BluetoothGattCharacteristic): Boolean {
-        val p = c.properties
-        return (p and BluetoothGattCharacteristic.PROPERTY_WRITE) != 0 ||
-            (p and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0
-    }
-
-    private fun canNotify(c: BluetoothGattCharacteristic): Boolean {
-        val p = c.properties
-        return (p and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0 ||
-            (p and BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun enableNotifications(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-        if (!hasConnectPermission()) {
-            connectCompletion?.complete(false)
-            connectCompletion = null
-            return
-        }
-        g.setCharacteristicNotification(characteristic, true)
-        val descriptor = characteristic.getDescriptor(CCCD)
-        if (descriptor == null) {
-            // Some stacks still deliver notifications without CCCD write
-            logW("No CCCD; assuming notifications active")
-            connectCompletion?.complete(true)
-            connectCompletion = null
-            return
-        }
-        val enableValue =
-            if ((characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) {
-                BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            } else {
-                BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-            }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val result = g.writeDescriptor(descriptor, enableValue)
-            if (result != BluetoothStatusCodes.SUCCESS) {
-                logW("writeDescriptor returned $result; trying legacy path")
-                // Fall through — older path may still work on some devices
-                @Suppress("DEPRECATION")
-                descriptor.value = enableValue
-                @Suppress("DEPRECATION")
-                g.writeDescriptor(descriptor)
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            descriptor.value = enableValue
-            @Suppress("DEPRECATION")
-            g.writeDescriptor(descriptor)
-        }
-    }
-
-    private fun onNotifyBytes(value: ByteArray) {
+    private fun onTransportBytes(value: ByteArray) {
         val chunk = try {
             String(value, Charset.forName(CHARSET_NAME))
         } catch (_: Throwable) {
             String(value)
         }
         synchronized(responseLock) {
-            responseBuffer.append(chunk)
-            val current = responseBuffer.toString()
-            if (current.contains('>')) {
-                val complete = current
-                responseBuffer.setLength(0)
+            val complete = responseFramer.append(chunk)
+            if (complete != null) {
                 val deferred = responseDeferred
                 responseDeferred = null
                 deferred?.complete(complete)
@@ -833,10 +608,23 @@ object ObdBleManager {
 
     private fun failPendingResponse(reason: String) {
         synchronized(responseLock) {
-            responseBuffer.setLength(0)
+            responseFramer.clear()
             val deferred = responseDeferred
             responseDeferred = null
             deferred?.completeExceptionally(IllegalStateException(reason))
+        }
+    }
+
+    private fun handleLinkLost(reason: String) {
+        val wasReady = sessionReady.getAndSet(false)
+        stopPollLoop()
+        _ecuConnected.value = false
+        loggedFirstPollOk.set(false)
+        failPendingResponse(reason)
+        connecting.set(false)
+        if (wasReady) {
+            setStatus("Disconnected from adapter")
+            logW("Link lost ($reason) — will auto-retry")
         }
     }
 
@@ -1104,25 +892,24 @@ object ObdBleManager {
 
     private fun drainBuffer() {
         synchronized(responseLock) {
-            responseBuffer.setLength(0)
+            responseFramer.clear()
         }
     }
 
     private suspend fun sendCommand(cmd: String, timeoutMs: Long = COMMAND_TIMEOUT_MS): String {
         return commandMutex.withLock {
             withContext(Dispatchers.IO) {
-                val g = gatt ?: throw IllegalStateException("Not connected")
-                val wc = writeChar ?: throw IllegalStateException("No write characteristic")
+                if (!transport.isLinked) throw IllegalStateException("Not connected")
                 if (!hasConnectPermission()) throw SecurityException("Missing BLUETOOTH_CONNECT")
 
                 val deferred = CompletableDeferred<String>()
                 synchronized(responseLock) {
-                    responseBuffer.setLength(0)
+                    responseFramer.clear()
                     responseDeferred = deferred
                 }
 
                 val payload = (cmd.trim() + "\r").toByteArray(Charset.forName(CHARSET_NAME))
-                val written = writeCharacteristic(g, wc, payload)
+                val written = transport.write(payload)
                 if (!written) {
                     synchronized(responseLock) {
                         responseDeferred = null
@@ -1133,8 +920,7 @@ object ObdBleManager {
                 val result = withTimeoutOrNull(timeoutMs) { deferred.await() }
                 if (result == null) {
                     synchronized(responseLock) {
-                        val partial = responseBuffer.toString()
-                        responseBuffer.setLength(0)
+                        val partial = responseFramer.drainPartial()
                         responseDeferred = null
                         if (partial.isNotBlank()) return@withContext partial
                     }
@@ -1142,35 +928,6 @@ object ObdBleManager {
                 }
                 result
             }
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun writeCharacteristic(
-        g: BluetoothGatt,
-        characteristic: BluetoothGattCharacteristic,
-        payload: ByteArray,
-    ): Boolean {
-        val props = characteristic.properties
-        val writeType =
-            if ((props and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0 &&
-                (props and BluetoothGattCharacteristic.PROPERTY_WRITE) == 0
-            ) {
-                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-            } else {
-                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            }
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val code = g.writeCharacteristic(characteristic, payload, writeType)
-            code == BluetoothStatusCodes.SUCCESS
-        } else {
-            @Suppress("DEPRECATION")
-            characteristic.writeType = writeType
-            @Suppress("DEPRECATION")
-            characteristic.value = payload
-            @Suppress("DEPRECATION")
-            g.writeCharacteristic(characteristic)
         }
     }
 
@@ -1233,7 +990,7 @@ object ObdBleManager {
                         }
                         val raw = sendCommandLogged(cmd, isInit = false)
                         if (raw == null) {
-                            if (!sessionReady.get() || gatt == null) break
+                            if (!sessionReady.get() || !transport.isLinked) break
                             consecutiveEngineTimeouts += 1
                             if (
                                 UdsRestorePolicy.shouldHardRecoverSession(
@@ -1248,7 +1005,7 @@ object ObdBleManager {
                                 sessionReady.set(false)
                                 _ecuConnected.value = false
                                 setStatus("OBD headers unhealthy — reconnecting")
-                                closeGattInternal()
+                                closeLinkInternal()
                                 break
                             }
                             notePidMiss(pid, null)
@@ -1329,7 +1086,7 @@ object ObdBleManager {
      * Serialized via [sendCommand] mutex; always restores OBD headers afterward.
      */
     private suspend fun maybePollVwOdometer(round: Int) {
-        if (!sessionReady.get() || gatt == null) return
+        if (!sessionReady.get() || !transport.isLinked) return
         val profile = VehicleObdProfile.fromName(settings.vehicleObdProfile)
         if (profile != VehicleObdProfile.VwMqb) return
         // Light settle before first possible hop; engineOkMin is the primary gate.
@@ -1393,7 +1150,7 @@ object ObdBleManager {
             var fcRetryDid: Int? = null
             var fcRetrySnippet: String? = null
             for (did in dids) {
-                if (!sessionReady.get() || gatt == null) break
+                if (!sessionReady.get() || !transport.isLinked) break
                 val outcome = tryReadClusterOdometerDid(did)
                 when {
                     outcome.km != null -> {
@@ -1529,7 +1286,7 @@ object ObdBleManager {
      */
     private suspend fun pollVwClusterExtras() {
         for (did in VwClusterDids.EXTRA_DIDS) {
-            if (!sessionReady.get() || gatt == null) break
+            if (!sessionReady.get() || !transport.isLinked) break
             val key = VwClusterDids.keyForDid(did) ?: continue
             val cmd = "22" + did.toString(16).uppercase().padStart(4, '0')
             val raw = sendCommandLogged(cmd, UDS_COMMAND_TIMEOUT_MS, isInit = false)
@@ -1690,23 +1447,14 @@ object ObdBleManager {
         pollJob = null
     }
 
-    @SuppressLint("MissingPermission")
-    private fun closeGattInternal() {
-        val g = gatt
-        gatt = null
-        writeChar = null
-        notifyChar = null
+    private fun closeLinkInternal() {
         failPendingResponse("closed")
-        if (g != null) {
-            try {
-                if (hasConnectPermission()) {
-                    g.disconnect()
-                    g.close()
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "closeGatt failed", t)
-            }
+        try {
+            transport.close()
+        } catch (t: Throwable) {
+            Log.w(TAG, "closeLink failed", t)
         }
+        transport = createTransport(bluetoothTransport)
     }
 
     private fun isValidPidValue(pid: String, value: Double): Boolean {
@@ -1730,11 +1478,4 @@ object ObdBleManager {
 
     private fun didHex(did: Int): String =
         did.toString(16).uppercase().padStart(4, '0')
-
-    private fun uuid(s: String): UUID = UUID.fromString(s)
-}
-
-// Local alias so we can reference BluetoothStatusCodes without API lint noise on older compile paths
-private object BluetoothStatusCodes {
-    const val SUCCESS = 0
 }

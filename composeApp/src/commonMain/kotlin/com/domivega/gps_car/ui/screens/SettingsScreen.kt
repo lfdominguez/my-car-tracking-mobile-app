@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.domivega.gps_car.fuel.FuelTypePreset
+import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.VehicleObdProfile
 import com.domivega.gps_car.ui.state.SettingsUiState
 
@@ -59,8 +60,11 @@ fun SettingsScreen(
     bleDeviceLabel: String = "",
     connectionStatus: String = "",
     protocolOptions: List<Pair<String, String>> = emptyList(),
+    transportOptions: List<Pair<String, String>> =
+        BluetoothTransport.entries.map { it.name to it.displayName },
     scannedDevices: List<Pair<String, String>> = emptyList(),
     onProtocolSelected: (String) -> Unit = {},
+    onTransportSelected: (String) -> Unit = {},
     vehicleObdProfileOptions: List<Pair<String, String>> =
         VehicleObdProfile.entries.map { it.name to it.displayName },
     onVehicleObdProfileSelected: (String) -> Unit = {},
@@ -80,6 +84,7 @@ fun SettingsScreen(
 ) {
     val scrollState = rememberScrollState()
     var protocolExpanded by remember { mutableStateOf(false) }
+    var transportExpanded by remember { mutableStateOf(false) }
     var vehicleProfileExpanded by remember { mutableStateOf(false) }
     var fuelTypeExpanded by remember { mutableStateOf(false) }
     var showDeviceDialog by remember { mutableStateOf(false) }
@@ -88,6 +93,11 @@ fun SettingsScreen(
         .firstOrNull { it.first == state.obdProtocol }
         ?.second
         ?: state.obdProtocol
+
+    val selectedTransportLabel = transportOptions
+        .firstOrNull { it.first == state.bluetoothTransport }
+        ?.second
+        ?: state.bluetoothTransport
 
     val selectedVehicleProfileLabel = vehicleObdProfileOptions
         .firstOrNull { it.first == state.vehicleObdProfile }
@@ -225,6 +235,49 @@ fun SettingsScreen(
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.primary
         )
+
+        if (transportOptions.isNotEmpty()) {
+            ExposedDropdownMenuBox(
+                expanded = transportExpanded,
+                onExpandedChange = { transportExpanded = it },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = selectedTransportLabel,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Bluetooth transport") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = transportExpanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    singleLine = true
+                )
+                ExposedDropdownMenu(
+                    expanded = transportExpanded,
+                    onDismissRequest = { transportExpanded = false }
+                ) {
+                    transportOptions.forEach { (id, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                transportExpanded = false
+                                onTransportSelected(id)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        if (state.bluetoothTransport == BluetoothTransport.ClassicSpp.name) {
+            Text(
+                text = "Pair in Android Bluetooth settings if needed (PIN often 1234 or 0000). Close Torque/other OBD apps before connecting.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         Text(
             text = "Device",

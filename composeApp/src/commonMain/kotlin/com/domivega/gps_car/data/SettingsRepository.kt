@@ -10,6 +10,7 @@ interface SettingsRepository {
     var carName: String
     var bleDeviceAddress: String
     var bleDeviceName: String
+    var bluetoothTransport: String
     var obdProtocol: String
     var vehicleObdProfile: String
     var vwOdometerDid: String

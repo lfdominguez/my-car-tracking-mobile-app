@@ -1,16 +1,16 @@
 # GPS Car Tracking
 
-Android (Kotlin Multiplatform / Compose) app that records **GPS tracks** enriched with **live OBD-II metrics** from a BLE ELM327 adapter, queues samples offline, and uploads them in batches to your own backend.
+Android (Kotlin Multiplatform / Compose) app that records **GPS tracks** enriched with **live OBD-II metrics** from an ELM327 adapter (BLE GATT or Classic Bluetooth SPP), queues samples offline, and uploads them in batches to your own backend.
 
 ```text
 Phone GPS (~1 Hz)  ──►  sample + latest OBD snapshot  ──►  local queue  ──►  batch HTTP API
-BLE OBD (fast poll) ──►  pidValues (hot/slow PIDs)  ──────┘
+OBD (BLE or SPP)  ──►  pidValues (hot/slow PIDs)  ──────┘
 ```
 
 ### Features
 
 - **Foreground tracking service** — continuous location with notification controls
-- **Native BLE OBD** — ELM327 AT init, selectable protocol (default ISO 15765-4 CAN 11-bit 500 kbaud), auto-reconnect to last adapter
+- **Native OBD (BLE + Classic SPP)** — ELM327 AT init over BLE GATT (default) or Classic RFCOMM; selectable protocol (default ISO 15765-4 CAN 11-bit 500 kbaud); auto-reconnect to last adapter
 - **ECU-driven session** — tracking starts/stops with ECU connectivity
 - **Prioritized OBD polling** — hot PIDs (RPM, speed, load, MAF, …) every round; slow PIDs every 5th round at max BLE rate
 - **Durable send queue** — Room-backed pending samples; ~60s batch flush with retry/backoff
@@ -25,7 +25,7 @@ BLE OBD (fast poll) ──►  pidValues (hot/slow PIDs)  ──────┘
 | Android device | BLE + location; Android 8+ recommended |
 | JDK | **21** (see `devenv.nix` / `JAVA_HOME`) |
 | Android SDK | Via Android Studio or [devenv](https://devenv.sh) |
-| BLE OBD adapter | ELM327-compatible UART-over-BLE |
+| OBD adapter | ELM327-compatible **BLE** (GATT UART) and/or **Classic Bluetooth SPP** (RFCOMM). Dual-mode sticks: pick transport in Settings. |
 | Backend | Rust **car-tracking-platform** (or any wire-compatible `/api/track/*` API). Provision via web QR. |
 
 ### Quick start
@@ -49,9 +49,10 @@ Install the debug APK, open **Settings**, and configure the backend:
 1. **Preferred:** on the web platform, create a car → create a **device** → scan the **QR** (token, track URLs, fuel/engine, optional car name)
 2. Or set manually: **API token** (raw device token for `Authorization: Basic <token>`), plus absolute `/api/track/start|stop|sample|samples` URLs
 3. Tap **Test connection** — hits public `/health`, then a short start/stop smoke with your device token
-4. **BLE adapter** — scan, select, save (auto-reconnect next time)
-5. **OBD protocol** — leave default CAN 11/500 unless your car needs another
-6. **Vehicle & fuel** — usually filled from QR; adjust if needed
+4. **Bluetooth transport** — **BLE (GATT)** default, or **Classic Bluetooth (SPP)** for RFCOMM “OBDII” sticks. Classic: pair in system Bluetooth first (PIN often `1234`/`0000`), fully quit Torque/other OBD apps, then Scan.
+5. **Adapter** — scan, select, save (auto-reconnect next time)
+6. **OBD protocol** — leave default CAN 11/500 unless your car needs another
+7. **Vehicle & fuel** — usually filled from QR; adjust if needed
 
 Grant **location (always)** and **Bluetooth** permissions when prompted.
 
@@ -66,7 +67,7 @@ Grant **location (always)** and **Bluetooth** permissions when prompted.
 | Layer | Role |
 |-------|------|
 | `ForegroundTrackingService` | GPS fixes, build samples, enqueue, session start/stop |
-| `ObdBleManager` | BLE GATT, ELM init, prioritized PID poll, `pidValues` / `ecuConnected` |
+| `ObdBleManager` | ELM session (BLE GATT or Classic SPP transport), PID poll, `pidValues` / `ecuConnected` |
 | `SampleQueueRepository` + `SampleQueueUploader` | Persist unsent rows; batch POST |
 | `ApiClient` | OkHttp start/stop/sample/samples |
 | `AppSettings` | SharedPreferences (URLs, token, BLE, protocol, fuel) |
@@ -117,7 +118,7 @@ See **[AGENTS.md](AGENTS.md)** for conventions when contributing with AI coding 
 
 ```text
 composeApp/
-  src/androidMain/   # Android service, BLE OBD, Room queue, API
+  src/androidMain/   # Android service, OBD BLE/SPP, Room queue, API
   src/commonMain/    # Compose UI, fuel math, shared models
   src/androidUnitTest/
 docs/plans/          # Design & implementation notes

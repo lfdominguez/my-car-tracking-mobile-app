@@ -6,6 +6,7 @@ import com.domivega.gps_car.data.BackendConnectionTester
 import com.domivega.gps_car.data.ConnectionTestOutcome
 import com.domivega.gps_car.data.SettingsRepository
 import com.domivega.gps_car.fuel.FuelTypePreset
+import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.VehicleObdProfile
 import com.domivega.gps_car.ui.state.SettingsUiState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +45,7 @@ class SettingsViewModel(
                 carName = repository.carName,
                 bleDeviceAddress = repository.bleDeviceAddress,
                 bleDeviceName = repository.bleDeviceName,
+                bluetoothTransport = repository.bluetoothTransport,
                 obdProtocol = repository.obdProtocol,
                 vehicleObdProfile = repository.vehicleObdProfile,
                 vwOdometerDid = repository.vwOdometerDid,
@@ -92,6 +94,12 @@ class SettingsViewModel(
                 bleDeviceName = name,
             )
         }
+    }
+
+    fun updateBluetoothTransport(name: String) {
+        val t = BluetoothTransport.fromName(name)
+        repository.bluetoothTransport = t.name
+        _uiState.update { it.copy(bluetoothTransport = t.name) }
     }
 
     fun updateObdProtocol(protocolName: String) {

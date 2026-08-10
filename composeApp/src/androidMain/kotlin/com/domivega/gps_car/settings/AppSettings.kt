@@ -14,6 +14,7 @@ class AppSettings(context: Context) {
         private const val KEY_SAMPLES_URL = "track_samples_url"
         private const val KEY_BLE_DEVICE_ADDRESS = "ble_device_address"
         private const val KEY_BLE_DEVICE_NAME = "ble_device_name"
+        private const val KEY_BLUETOOTH_TRANSPORT = "bluetooth_transport"
         private const val KEY_OBD_PROTOCOL = "obd_protocol"
         private const val KEY_VEHICLE_OBD_PROFILE = "vehicle_obd_profile"
         private const val KEY_VW_ODOMETER_DID = "vw_odometer_did"
@@ -33,6 +34,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_STOP_URL = "https://YOUR_SERVER.example/api/track/stop"
         const val DEFAULT_SAMPLE_URL = "https://YOUR_SERVER.example/api/track/sample"
         const val DEFAULT_SAMPLES_URL = "https://YOUR_SERVER.example/api/track/samples"
+        const val DEFAULT_BLUETOOTH_TRANSPORT = "Ble"
         const val DEFAULT_OBD_PROTOCOL = "ISO_15765_4_CAN_11_500"
         const val DEFAULT_VEHICLE_OBD_PROFILE = "Generic"
         const val DEFAULT_VW_ODOMETER_DID = ""
@@ -75,6 +77,12 @@ class AppSettings(context: Context) {
     var bleDeviceName: String
         get() = prefs.getString(KEY_BLE_DEVICE_NAME, "") ?: ""
         set(value) = prefs.edit().putString(KEY_BLE_DEVICE_NAME, value).apply()
+
+    /** Stored as [com.domivega.gps_car.obd.BluetoothTransport] enum name. */
+    var bluetoothTransport: String
+        get() = prefs.getString(KEY_BLUETOOTH_TRANSPORT, DEFAULT_BLUETOOTH_TRANSPORT)
+            ?: DEFAULT_BLUETOOTH_TRANSPORT
+        set(value) = prefs.edit().putString(KEY_BLUETOOTH_TRANSPORT, value).apply()
 
     /** Stored as [com.domivega.gps_car.obd.ObdProtocol] enum name. */
     var obdProtocol: String

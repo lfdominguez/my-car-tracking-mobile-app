@@ -42,6 +42,10 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
         get() = appSettings.bleDeviceName
         set(value) { appSettings.bleDeviceName = value }
 
+    override var bluetoothTransport: String
+        get() = appSettings.bluetoothTransport
+        set(value) { appSettings.bluetoothTransport = value }
+
     override var obdProtocol: String
         get() = appSettings.obdProtocol
         set(value) { appSettings.obdProtocol = value }

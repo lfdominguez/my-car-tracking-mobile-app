@@ -20,6 +20,7 @@ private class FakeSettingsRepository : SettingsRepository {
     override var carName: String = ""
     override var bleDeviceAddress: String = ""
     override var bleDeviceName: String = ""
+    override var bluetoothTransport: String = "Ble"
     override var obdProtocol: String = "ISO_15765_4_CAN_11_500"
     override var vehicleObdProfile: String = "Generic"
     override var vwOdometerDid: String = ""

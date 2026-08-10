@@ -14,6 +14,8 @@ data class SettingsUiState(
     val carName: String = "",
     val bleDeviceAddress: String = "",
     val bleDeviceName: String = "",
+    /** [BluetoothTransport] enum name; default Ble. */
+    val bluetoothTransport: String = "Ble",
     /** [ObdProtocol] enum name on Android; default CAN 11/500. */
     val obdProtocol: String = "ISO_15765_4_CAN_11_500",
     /** [VehicleObdProfile] enum name; default Generic. */

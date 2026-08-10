@@ -19,6 +19,7 @@ import com.domivega.gps_car.network.ApiClient
 import com.domivega.gps_car.settings.AppSettings
 import com.domivega.gps_car.models.LocationViewModel
 import com.domivega.gps_car.objects.GpsDataSource
+import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.ObdProtocol
 import com.domivega.gps_car.ui.MainViewModel
@@ -110,6 +111,9 @@ fun App() {
         val scannedBleDevices by ObdBleManager.scannedDevices.collectAsState()
         val protocolOptions = remember {
             ObdProtocol.entries.map { it.name to it.displayName }
+        }
+        val transportOptions = remember {
+            BluetoothTransport.entries.map { it.name to it.displayName }
         }
         val scannedDevicePairs = remember(scannedBleDevices) {
             scannedBleDevices.map { device ->
@@ -233,12 +237,18 @@ fun App() {
             bleDeviceLabel = bleDeviceLabel,
             connectionStatus = connectionStatus,
             protocolOptions = protocolOptions,
+            transportOptions = transportOptions,
             scannedDevices = scannedDevicePairs,
             onProtocolSelected = { protocolName ->
                 val protocol = runCatching { ObdProtocol.valueOf(protocolName) }
                     .getOrDefault(ObdProtocol.DEFAULT)
                 ObdBleManager.setProtocol(protocol)
                 settingsViewModel.updateObdProtocol(protocol.name)
+            },
+            onTransportSelected = { transportName ->
+                val t = BluetoothTransport.fromName(transportName)
+                settingsViewModel.updateBluetoothTransport(t.name)
+                ObdBleManager.setBluetoothTransport(t)
             },
             onBleScanClick = { startBleScanWithPermissions() },
             onBleDeviceSelected = { address, name ->
