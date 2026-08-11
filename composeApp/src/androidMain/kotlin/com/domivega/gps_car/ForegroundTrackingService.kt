@@ -40,6 +40,7 @@ import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.OdometerReading
 import com.domivega.gps_car.settings.AppSettings
 import androidx.core.net.toUri
+import com.domivega.gps_car.gps.StationaryPositionFilter
 import com.domivega.gps_car.models.data.LocationData
 import com.domivega.gps_car.objects.GpsDataSource
 
@@ -73,6 +74,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     // Tweakable thresholds (conservative defaults)
     private val maxAccurancyMetters = 15.0        // require reasonably accurate GNSS
+    private val stationaryFilter = StationaryPositionFilter()
 
 
     override fun onCreate() {
@@ -220,14 +222,6 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
             val accMeters = if (loc.hasAccuracy()) loc.accuracy.toDouble() else Double.POSITIVE_INFINITY
 
-            val newLocation = LocationData (
-                latitude = loc.latitude,
-                longitude = loc.longitude,
-                accuracy = accMeters
-            )
-
-            GpsDataSource.updateLocation(newLocation)
-
             val hasGoodAccuracy = accMeters <= maxAccurancyMetters
             if (!hasGoodAccuracy) {
                 updateNotification("Waiting for GPS accuracy… (${accMeters.toInt()} m)", TrackingState.TRACKING)
@@ -238,12 +232,28 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
             // Snapshot latest OBD metrics (updated independently at max BLE rate).
             val pidValues = ObdBleManager.pidValues.value
+            val gpsSpeedMps = loc.takeIf { it.hasSpeed() }?.speed?.toDouble()
+            val filtered = stationaryFilter.accept(
+                latitude = loc.latitude,
+                longitude = loc.longitude,
+                accuracy = accMeters,
+                obdSpeedKph = pidValues["0d"],
+                gpsSpeedMps = gpsSpeedMps,
+            )
+
+            GpsDataSource.updateLocation(
+                LocationData(
+                    latitude = filtered.latitude,
+                    longitude = filtered.longitude,
+                    accuracy = filtered.accuracy,
+                )
+            )
 
             val sample = Sample(
                 trackingId = id,
-                lat = loc.latitude,
-                lon = loc.longitude,
-                acc = accMeters,
+                lat = filtered.latitude,
+                lon = filtered.longitude,
+                acc = filtered.accuracy,
 
                 vehicleEngineRpm = pidValues["0c"],
                 vehicleSpeedKph = pidValues["0d"],
