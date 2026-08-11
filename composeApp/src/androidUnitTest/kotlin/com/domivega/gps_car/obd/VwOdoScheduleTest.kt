@@ -107,4 +107,31 @@ class VwOdoScheduleTest {
         s.reset()
         assertTrue(s.onPollTick(2_000, 0.0, 5, 0L).shouldHop)
     }
+
+    @Test
+    fun `markLocked stops all further hops until reset`() {
+        val s = sched(engineOkMin = 1)
+        assertTrue(s.onPollTick(1_000, 10.0, 5, 0L).shouldHop)
+        s.onHopFinished(true)
+        s.markLocked()
+
+        assertFalse(s.onPollTick(20_000, 0.0, 50, 0L).shouldHop)
+        assertFalse(s.onPollTick(30_000, 0.0, 50, 0L).shouldHop)
+        assertFalse(s.onPollTick(40_000, 25.0, 50, 0L).shouldHop)
+        assertFalse(s.onPollTick(50_000, 0.0, 50, 0L).shouldHop)
+        assertFalse(s.onPollTick(55_100, 0.0, 50, 0L).shouldHop)
+
+        s.reset()
+        assertTrue(s.onPollTick(60_000, 0.0, 5, 0L).shouldHop)
+    }
+
+    @Test
+    fun `without markLocked stop hop still allowed after success`() {
+        val s = sched(engineOkMin = 1)
+        assertTrue(s.onPollTick(1_000, 20.0, 5, 0L).shouldHop)
+        s.onHopFinished(true)
+        // No markLocked — legacy stop schedule still applies
+        assertFalse(s.onPollTick(20_000, 0.0, 50, 0L).shouldHop)
+        assertTrue(s.onPollTick(25_100, 0.0, 50, 0L).shouldHop)
+    }
 }

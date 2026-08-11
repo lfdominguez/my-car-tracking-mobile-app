@@ -169,9 +169,9 @@ class UdsReadDidTest {
         assertTrue(fromNull.isNotEmpty())
         assertEquals(fromNull, fromEmpty)
         assertEquals(fromNull, fromBlank)
-        // Nivus-confirmed DID first, then fallbacks
-        assertEquals(0x2203, fromNull.first())
-        assertTrue(fromNull.contains(0x22B0) || fromNull.contains(0x029F))
+        // Only Nivus-confirmed cluster odometer DID by default.
+        // Unverified 22B0/029F false-won ~23k km while dash showed ~25k.
+        assertEquals(listOf(0x2203), fromNull)
     }
 
     @Test

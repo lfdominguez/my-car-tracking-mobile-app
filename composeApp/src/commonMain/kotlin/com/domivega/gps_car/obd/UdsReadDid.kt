@@ -9,14 +9,13 @@ package com.domivega.gps_car.obd
 object UdsReadDid {
 
     /**
-     * UNVERIFIED MQB / VAG cluster odometer DID placeholders for probe order only.
-     * Replace / reorder after a successful road log; prefer settings override.
+     * Default cluster odometer DID probe list.
+     * Only Nivus-confirmed 0x2203 — unverified 22B0/029F false-won non-dash km.
+     * Other DIDs only via settings override.
      */
     private val DEFAULT_CANDIDATE_DIDS: List<Int> = listOf(
         // Confirmed on VW Nivus Highline 2024 (MQB-A0 cluster) via road log.
         0x2203,
-        0x22B0, // UNVERIFIED fallback — community notes for cluster distance
-        0x029F, // UNVERIFIED — alternate placeholder seen in public discussions
     )
 
     private const val SANE_KM_MAX = 2_000_000.0

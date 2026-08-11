@@ -8,6 +8,9 @@ package com.domivega.gps_car.obd
  */
 object ElmHeaderRestore {
 
+    /** Typical 11-bit engine ECU positive-response CAN id (Mode 01 / physical). */
+    const val ENGINE_RECEIVE_FILTER_HEX: String = "7E8"
+
     fun isAcceptableAtResponse(raw: String?): Boolean {
         if (raw == null) return false
         val u = raw.uppercase()
@@ -35,6 +38,16 @@ object ElmHeaderRestore {
         }
         return true
     }
+
+    /**
+     * After a cluster hop that set ATCRA77E, some BLE clones accept ATAR but still
+     * filter only 77E — Mode 01 (7E8) stays silent on both 7DF and 7E0.
+     * Force CRA to the engine response id when health is still dead.
+     */
+    fun shouldForceEngineReceiveFilter(
+        receiveFilterWasSet: Boolean,
+        healthOkAfterAtar: Boolean,
+    ): Boolean = receiveFilterWasSet && !healthOkAfterAtar
 
     /** True when ELM returned a Mode 01 positive response for [expectPid]. */
     fun isMode01Live(raw: String?, expectPid: Int): Boolean {

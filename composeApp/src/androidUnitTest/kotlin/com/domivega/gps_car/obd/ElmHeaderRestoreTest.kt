@@ -1,5 +1,6 @@
 package com.domivega.gps_car.obd
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -74,5 +75,29 @@ class ElmHeaderRestoreTest {
         assertFalse(ElmHeaderRestore.isMode01Live("NO DATA", expectPid = 0x0C))
         assertFalse(ElmHeaderRestore.isMode01Live(null, expectPid = 0x0C))
         assertFalse(ElmHeaderRestore.isMode01Live("4100BE3EA813", expectPid = 0x0C))
+    }
+
+    @Test
+    fun `force engine receive filter after CRA hop when ATAR health still dead`() {
+        // Sticky ATCRA77E (clone ATAR no-op) silences 7E8 — pin RX to engine.
+        assertTrue(
+            ElmHeaderRestore.shouldForceEngineReceiveFilter(
+                receiveFilterWasSet = true,
+                healthOkAfterAtar = false,
+            ),
+        )
+        assertFalse(
+            ElmHeaderRestore.shouldForceEngineReceiveFilter(
+                receiveFilterWasSet = true,
+                healthOkAfterAtar = true,
+            ),
+        )
+        assertFalse(
+            ElmHeaderRestore.shouldForceEngineReceiveFilter(
+                receiveFilterWasSet = false,
+                healthOkAfterAtar = false,
+            ),
+        )
+        assertEquals("7E8", ElmHeaderRestore.ENGINE_RECEIVE_FILTER_HEX)
     }
 }

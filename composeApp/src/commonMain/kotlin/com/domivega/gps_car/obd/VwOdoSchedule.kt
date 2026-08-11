@@ -3,7 +3,8 @@ package com.domivega.gps_car.obd
 /**
  * When to run VW MQB cluster UDS odometer hops:
  * - one initial after engine stack is healthy
- * - then once per stop after continuous dwell at ~0 km/h
+ * - then once per stop after continuous dwell at ~0 km/h (until [markLocked])
+ * - after a successful odometer lock via [markLocked], no further hops until [reset]
  * Never on a fixed interval while moving.
  */
 class VwOdoSchedule(
@@ -19,6 +20,8 @@ class VwOdoSchedule(
     private var hopInFlight: Boolean = false
     /** Last known stopped state (for consuming stop on hop finish). */
     private var lastWasStopped: Boolean = false
+    /** True after first published cluster odometer — no more hops this session. */
+    private var locked: Boolean = false
 
     fun reset() {
         initialDone = false
@@ -26,6 +29,14 @@ class VwOdoSchedule(
         stopDwellStartMs = null
         hopInFlight = false
         lastWasStopped = false
+        locked = false
+    }
+
+    /** Call when cluster odometer km was published; disables further hops until [reset]. */
+    fun markLocked() {
+        locked = true
+        hopInFlight = false
+        initialDone = true
     }
 
     fun onPollTick(
@@ -34,7 +45,7 @@ class VwOdoSchedule(
         engineOkCount: Int,
         udsNotBeforeMs: Long,
     ): TickResult {
-        if (hopInFlight) return TickResult(false)
+        if (hopInFlight || locked) return TickResult(false)
 
         updateMotion(nowMs, speedKmh)
 
