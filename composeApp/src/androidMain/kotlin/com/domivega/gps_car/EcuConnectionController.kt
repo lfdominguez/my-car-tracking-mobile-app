@@ -51,10 +51,10 @@ object EcuConnectionController {
 
                 if (connected) {
                     disconnectStartedAtMs = null
-                    if (!isRunning) {
-                        Log.i(TAG, "ECU connected → starting tracking service")
-                        appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START)
-                    }
+                    // Always assert START: service no-ops if already TRACKING, and
+                    // recovers sticky-restart WAITING-while-prefs-still-set cases.
+                    Log.i(TAG, "ECU connected → ensure tracking service START (wasRunning=$isRunning)")
+                    appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START)
                     return@collectLatest
                 }
 

@@ -1,6 +1,7 @@
 package com.domivega.gps_car
 
 import android.app.Application
+import com.domivega.gps_car.data.queue.SampleUploadScheduler
 import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.ObdPresenceController
 
@@ -15,5 +16,8 @@ class GpsCarApp : Application() {
 
         // Auto start/stop tracking based on ECU connectivity
         EcuConnectionController.initialize(this)
+
+        // Drain any leftover samples without requiring a forever WAITING FGS.
+        SampleUploadScheduler.enqueue(this)
     }
 }

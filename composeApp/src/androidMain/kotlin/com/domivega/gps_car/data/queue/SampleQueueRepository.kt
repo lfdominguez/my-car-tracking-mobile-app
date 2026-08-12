@@ -30,5 +30,23 @@ class SampleQueueRepository(context: Context) {
         dao.insert(entity)
     }
 
+    /**
+     * After `/start` succeeds, rewrite all rows still keyed by the local session id.
+     */
+    suspend fun rewriteTrackingId(oldId: String, newId: String) {
+        if (oldId == newId || oldId.isBlank() || newId.isBlank()) return
+        val rows = dao.getByTrackingId(oldId)
+        for (row in rows) {
+            val newJson = SamplePayloadRewrite.replaceTrackingId(row.payloadJson, newId)
+            dao.updatePayloadAndTrackingId(row.id, newId, newJson)
+        }
+    }
+
     suspend fun countPending(): Int = dao.countPending()
+
+    suspend fun countFailed(): Int = dao.countByStatus(PendingSampleStatus.FAILED)
+
+    suspend fun countDead(): Int = dao.countByStatus(PendingSampleStatus.DEAD)
+
+    suspend fun countUploadable(): Int = dao.countUploadable()
 }

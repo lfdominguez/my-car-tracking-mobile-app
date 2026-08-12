@@ -14,6 +14,8 @@ data class DashboardState(
     val isTracking: Boolean = false,
     val isGpsLocked: Boolean = false,
     val ecuConnected: Boolean = false,
+    /** Non-null when sample upload has FAILED/DEAD rows or last flush failed. */
+    val uploadWarning: String? = null,
     val serviceVersion: String? = null,
     val pidValues: Map<String, Double> = emptyMap(),
     val pidNames: Map<String, String> = emptyMap()

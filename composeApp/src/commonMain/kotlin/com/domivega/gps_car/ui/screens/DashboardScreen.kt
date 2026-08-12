@@ -41,6 +41,10 @@ fun DashboardScreen(
                 ecuConnected = state.ecuConnected
             )
 
+            state.uploadWarning?.let { warning ->
+                UploadWarningBanner(message = warning)
+            }
+
             OdometerBanner(odometerKm = state.odometerKm)
 
             ClusterExtrasBanner(
@@ -104,6 +108,24 @@ fun DashboardScreen(
                 modifier = Modifier.size(36.dp)
             )
         }
+    }
+}
+
+@Composable
+fun UploadWarningBanner(message: String) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.padding(12.dp),
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 

@@ -18,8 +18,8 @@ materialIconsExtendedVersion = "1.7.3"
 obdMetrics = "9.33.3"
 okhttp = "5.3.2"
 zxingAndroidEmbedded = "4.3.0"
-androidxCarApp = "1.7.0"
 androidxRoom = "2.7.2"
+androidxWork = "2.10.2"
 ksp = "2.2.20-2.0.4"
 
 [libraries]
@@ -38,10 +38,10 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 zxingAndroidEmbedded = { module = "com.journeyapps:zxing-android-embedded", version.ref = "zxingAndroidEmbedded" }
-androidx-car-app = { module = "androidx.car.app:app", version.ref = "androidxCarApp" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "androidxRoom" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "androidxRoom" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "androidxRoom" }
+androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "androidxWork" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

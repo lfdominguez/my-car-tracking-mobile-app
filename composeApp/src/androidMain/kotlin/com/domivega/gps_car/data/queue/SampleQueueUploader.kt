@@ -12,6 +12,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
 /**
@@ -19,12 +20,16 @@ import kotlinx.serialization.json.Json
  *
  * Base interval is 60s; consecutive flush failures double the delay up to 10 minutes.
  * Success resets the delay. Leftover IN_FLIGHT rows are recovered on [start].
+ *
+ * Rows still on a `local:` tracking id are never uploaded until rewritten after `/start`.
+ * Transient network failures restore PENDING without burning attempts.
  */
 class SampleQueueUploader(
     context: Context,
     private val api: ApiClient,
 ) {
-    private val dao = TrackingDatabase.getInstance(context).pendingSampleDao()
+    private val appContext = context.applicationContext
+    private val dao = TrackingDatabase.getInstance(appContext).pendingSampleDao()
     private val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -42,6 +47,7 @@ class SampleQueueUploader(
         job = scope.launch(Dispatchers.IO) {
             runCatching { dao.resetInFlightToPending() }
                 .onFailure { Log.e(TAG, "Failed to reset IN_FLIGHT rows", it) }
+            runCatching { refreshHealth() }
 
             while (isActive) {
                 runCatching { flushOnce() }
@@ -59,18 +65,50 @@ class SampleQueueUploader(
     /** Best-effort immediate flush (e.g. on stop tracking). */
     suspend fun flushNow() = flushOnce()
 
+    /**
+     * Drain uploadable rows until empty, batch/time capped (shutdown / WorkManager).
+     */
+    suspend fun flushUntilEmpty(
+        maxBatches: Int = MAX_DRAIN_BATCHES,
+        maxDurationMs: Long = MAX_DRAIN_MS,
+    ) {
+        withTimeoutOrNull(maxDurationMs) {
+            repeat(maxBatches) {
+                val remaining = runCatching { dao.countUploadable() }.getOrDefault(0)
+                if (remaining <= 0) return@withTimeoutOrNull
+                flushOnce()
+                val after = runCatching { dao.countUploadable() }.getOrDefault(0)
+                if (after >= remaining) {
+                    // No progress (likely offline) — stop draining.
+                    return@withTimeoutOrNull
+                }
+            }
+        }
+        refreshHealth()
+    }
+
     suspend fun flushOnce() = flushMutex.withLock {
         val batch = dao.getBatch(BATCH_SIZE)
-        if (batch.isEmpty()) return@withLock
+        if (batch.isEmpty()) {
+            refreshHealth(lastFlushOk = UploadStatusDataSource.status.value.lastFlushOk)
+            return@withLock
+        }
 
-        val ids = batch.map { it.id }
+        val readyRows = batch.filter { LocalTrackingIds.isUploadable(it.trackingId) }
+        if (readyRows.isEmpty()) {
+            // Only unbound local-session rows — wait for /start rewrite.
+            refreshHealth()
+            return@withLock
+        }
+
+        val ids = readyRows.map { it.id }
         dao.markInFlight(ids)
 
-        val samples = ArrayList<Sample>(batch.size)
-        val entityByRecordedAt = HashMap<Long, MutableList<PendingSampleEntity>>(batch.size)
+        val samples = ArrayList<Sample>(readyRows.size)
+        val entityByRecordedAt = HashMap<Long, MutableList<PendingSampleEntity>>(readyRows.size)
         val decodeFailedIds = ArrayList<Long>()
 
-        for (entity in batch) {
+        for (entity in readyRows) {
             val sample = runCatching {
                 json.decodeFromString(Sample.serializer(), entity.payloadJson)
             }.getOrElse { e ->
@@ -87,8 +125,8 @@ class SampleQueueUploader(
         }
 
         if (samples.isEmpty()) {
-            // All rows failed to decode; treat as a failed flush for backoff purposes.
-            onFlushFailure()
+            onFlushFailure("decode_error")
+            refreshHealth(lastFlushOk = false, lastError = "decode_error")
             return@withLock
         }
 
@@ -105,7 +143,6 @@ class SampleQueueUploader(
                         entities.forEach { toDelete.add(it.id) }
                         continue
                     }
-                    // Match rejections to entities in order when multiple share recorded_at.
                     entities.forEachIndexed { index, entity ->
                         val rejection = rejections.getOrNull(index) ?: rejections.first()
                         if (isDuplicateRejection(rejection.reason)) {
@@ -124,21 +161,51 @@ class SampleQueueUploader(
                 }
 
                 onFlushSuccess()
+                val err = failedByError.keys.firstOrNull()
+                refreshHealth(lastFlushOk = failedByError.isEmpty(), lastError = err)
                 Log.d(
                     TAG,
-                    "Flush ok: batch=${batch.size} deleted=${toDelete.size} " +
-                        "rejected=${response.rejected.size} accepted=${response.accepted}"
+                    "Flush ok: batch=${readyRows.size} deleted=${toDelete.size} " +
+                        "rejected=${response.rejected.size} accepted=${response.accepted}",
                 )
             },
             onFailure = { error ->
                 val message = (error.message ?: error.toString()).take(MAX_ERROR_LEN)
-                val inflightIds = batch.map { it.id }.filter { it !in decodeFailedIds }
+                val inflightIds = readyRows.map { it.id }.filter { it !in decodeFailedIds }
                 if (inflightIds.isNotEmpty()) {
-                    dao.markFailed(inflightIds, message)
+                    when (UploadFailureClassifier.classify(message)) {
+                        UploadFailureKind.Transient -> {
+                            dao.restoreToPending(inflightIds)
+                            Log.w(TAG, "Flush transient failure (no attempt burn): $message")
+                        }
+                        UploadFailureKind.Permanent -> {
+                            dao.markFailed(inflightIds, message)
+                            Log.w(TAG, "Flush permanent failure: $message")
+                        }
+                    }
                 }
-                onFlushFailure()
-                Log.w(TAG, "Flush HTTP/network failure: $message")
-            }
+                onFlushFailure(message)
+                refreshHealth(lastFlushOk = false, lastError = message)
+                SampleUploadScheduler.enqueue(appContext)
+            },
+        )
+    }
+
+    suspend fun refreshHealth(
+        lastFlushOk: Boolean? = UploadStatusDataSource.status.value.lastFlushOk,
+        lastError: String? = UploadStatusDataSource.status.value.lastError,
+    ) {
+        val failed = runCatching { dao.countByStatus(PendingSampleStatus.FAILED) }.getOrDefault(0)
+        val dead = runCatching { dao.countByStatus(PendingSampleStatus.DEAD) }.getOrDefault(0)
+        val uploadable = runCatching { dao.countUploadable() }.getOrDefault(0)
+        UploadStatusDataSource.update(
+            UploadStatus(
+                failedCount = failed,
+                deadCount = dead,
+                pendingUploadableCount = uploadable,
+                lastFlushOk = lastFlushOk,
+                lastError = lastError,
+            ),
         )
     }
 
@@ -146,7 +213,7 @@ class SampleQueueUploader(
         delayMs = BASE_DELAY_MS
     }
 
-    private fun onFlushFailure() {
+    private fun onFlushFailure(message: String) {
         delayMs = (delayMs * 2).coerceAtMost(MAX_DELAY_MS)
     }
 
@@ -161,5 +228,7 @@ class SampleQueueUploader(
         private const val BASE_DELAY_MS = 60_000L
         private const val MAX_DELAY_MS = 10 * 60_000L
         private const val MAX_ERROR_LEN = 500
+        private const val MAX_DRAIN_BATCHES = 50
+        private const val MAX_DRAIN_MS = 30_000L
     }
 }
