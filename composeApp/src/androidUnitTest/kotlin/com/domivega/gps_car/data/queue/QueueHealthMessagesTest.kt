@@ -23,6 +23,19 @@ class QueueHealthMessagesTest {
     }
 
     @Test
+    fun `last error is included in warning`() {
+        val msg = QueueHealthMessages.warning(
+            failedCount = 400,
+            deadCount = 0,
+            lastFlushOk = false,
+            lastError = "track_finished",
+        )
+        assertNotNull(msg)
+        assertTrue(msg!!.contains("track_finished"))
+        assertTrue(msg.contains("400"))
+    }
+
+    @Test
     fun `last flush failure alone produces warning`() {
         val msg = QueueHealthMessages.warning(failedCount = 0, deadCount = 0, lastFlushOk = false)
         assertNotNull(msg)

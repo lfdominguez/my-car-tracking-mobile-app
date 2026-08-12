@@ -48,6 +48,7 @@ class MainViewModel(
                 failedCount = uploadStatus.failedCount,
                 deadCount = uploadStatus.deadCount,
                 lastFlushOk = uploadStatus.lastFlushOk,
+                lastError = uploadStatus.lastError,
             )
 
             DashboardState(

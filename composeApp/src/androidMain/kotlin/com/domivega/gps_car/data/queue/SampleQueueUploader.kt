@@ -145,8 +145,16 @@ class SampleQueueUploader(
                     }
                     entities.forEachIndexed { index, entity ->
                         val rejection = rejections.getOrNull(index) ?: rejections.first()
-                        if (isDuplicateRejection(rejection.reason)) {
+                        // Drop duplicates / unknown-track / bad coords. Keep track_finished
+                        // so Retry can drain after server late-accept is deployed.
+                        if (SampleRejection.isTerminal(rejection.reason)) {
                             toDelete.add(entity.id)
+                            if (!SampleRejection.isDuplicate(rejection.reason)) {
+                                Log.i(
+                                    TAG,
+                                    "Dropping sample id=${entity.id} terminal rejection=${rejection.reason}",
+                                )
+                            }
                         } else {
                             failedByError.getOrPut(rejection.reason) { mutableListOf() }.add(entity.id)
                         }
@@ -215,11 +223,6 @@ class SampleQueueUploader(
 
     private fun onFlushFailure(message: String) {
         delayMs = (delayMs * 2).coerceAtMost(MAX_DELAY_MS)
-    }
-
-    private fun isDuplicateRejection(reason: String): Boolean {
-        val r = reason.lowercase()
-        return r.contains("duplicate") || r.contains("already")
     }
 
     companion object {
