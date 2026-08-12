@@ -1,0 +1,54 @@
+# Draft fdroiddata metadata for GPS Car Tracking.
+# Copy to: fdroiddata/metadata/com.domivega.gps_car.yml
+# Then set Builds[].commit to a signed release tag (e.g. v1.0) that exists on GitHub.
+#
+# applicationId / package: com.domivega.gps_car
+# Upstream Fastlane: fastlane/metadata/android/en-US/
+
+Categories:
+  - Navigation
+  - Connectivity
+
+License: MIT
+
+AuthorName: Luis Felipe Domínguez Vega
+
+SourceCode: https://github.com/lfdominguez/my-car-tracking-mobile-app
+IssueTracker: https://github.com/lfdominguez/my-car-tracking-mobile-app/issues
+
+# Companion server (optional; not required to install the app):
+#   https://github.com/lfdominguez/my-car-tracking-platform
+# Optional hosted instance: https://mycar.domivega.com
+
+RepoType: git
+Repo: https://github.com/lfdominguez/my-car-tracking-mobile-app.git
+
+Builds:
+  - versionName: "1.0"
+    versionCode: 1
+    # REPLACE with the git tag of the release you submit (must match versionName/versionCode in composeApp).
+    commit: v1.0
+    sudo:
+      - apt-get update
+      - apt-get install -y openjdk-21-jdk-headless
+      - update-alternatives --auto java
+    gradle:
+      - composeApp
+    # Confirmed local path from :composeApp:assembleRelease (unsigned; F-Droid signs).
+    output: composeApp/build/outputs/apk/release/composeApp-release-unsigned.apk
+    rm:
+      - devenv.nix
+      - devenv.yaml
+      - devenv.lock
+    scanignore:
+      - docs/plans
+      - .junie
+
+# Prefer Fastlane metadata from the git tree when present.
+# AntiFeatures: none — backend is user-configured; FLOSS self-host is first-class.
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+UpdateCheckData: composeApp/build.gradle.kts|versionCode\\s*=\\s*(\\d+)|.|versionName\\s*=\\s*"([^"]+)"
+CurrentVersion: "1.0"
+CurrentVersionCode: 1

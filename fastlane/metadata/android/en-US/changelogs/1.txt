@@ -1,0 +1,5 @@
+Initial public packaging for free builds (F-Droid-oriented).
+
+• Platform location only (no Google Play Services location)
+• GPS + OBD-II (BLE / Classic), offline sample queue, user-owned backend
+• MIT licensed open source

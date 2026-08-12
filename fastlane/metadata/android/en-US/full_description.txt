@@ -1,0 +1,34 @@
+GPS Car Tracking records GPS tracks enriched with live OBD-II metrics from an ELM327 adapter (Bluetooth LE GATT or Classic SPP), queues samples on the device, and uploads them in batches to a backend you control.
+
+FEATURES
+• Foreground tracking with platform location (system fused on Android 12+, GPS on older devices)
+• Native OBD over BLE or Classic Bluetooth — no proprietary Google Play location libraries
+• ECU-aware sessions: tracking can follow adapter connectivity
+• Durable offline queue (Room) with batch upload and retry
+• Fuel and vehicle settings for estimated consumption from OBD signals
+• Dashboard gauges, settings (including QR provisioning), and OBD debug log
+• No ads, no analytics SDKs, no crash-reporting trackers baked in
+
+BACKEND (YOU CHOOSE)
+• Prefer self-hosting the free/open companion platform:
+  https://github.com/lfdominguez/my-car-tracking-platform
+• Or use any wire-compatible HTTP API (/start, /stop, /samples) with a device token
+• Optional community-hosted instance: https://mycar.domivega.com
+  (configure URLs and token in Settings; nothing is hard-required at build time)
+
+PERMISSIONS (WHY)
+• Location (including background while tracking) — write track points
+• Bluetooth / nearby devices — talk to the ELM327 dongle
+• Notifications & foreground service — keep a trip alive reliably
+• Camera (optional) — scan provisioning QR codes from your web console
+• Internet — upload queued samples when you configure a server
+• Boot completed — re-arm lightweight auto-connect / presence after reboot
+
+PRIVACY
+Samples and credentials stay on your phone until you point the app at a server you trust. Defaults ship empty / placeholder hostnames. BLE addresses and API tokens are stored only in app settings on device.
+
+LICENSE
+MIT. Source: https://github.com/lfdominguez/my-car-tracking-mobile-app
+
+DISCLAIMER
+OBD fuel rate is estimated unless you extend the stack. Do not interact with the phone while driving.

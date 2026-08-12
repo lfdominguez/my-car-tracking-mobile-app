@@ -76,6 +76,7 @@ Changing defaults in code: keep them **non-secret** and documented in README.
 
 - Multi-step features: design + plan under `docs/plans/YYYY-MM-DD-topic-*.md` when the user uses the planning workflow.
 - Prefer **repo-relative** paths in docs (`composeApp/...`, `../car_telemetry_backend`), never `/home/<user>/...`.
+- **F-Droid:** Fastlane text under `fastlane/metadata/android/`; recipe draft + submission notes under `docs/fdroid/`. Keep the tree free of GMS/Firebase and build-time secrets.
 
 ## Security checklist (before public push)
 

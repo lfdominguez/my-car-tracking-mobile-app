@@ -1,0 +1,1 @@
+GPS tracks with live OBD-II metrics; offline queue to your own server

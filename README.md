@@ -123,6 +123,26 @@ docs/plans/          # Design & implementation notes
 devenv.nix           # Dev shell (JDK 21 + Android SDK)
 ```
 
+### F-Droid / free builds
+
+The app is intended to be **F-Droid-compatible**:
+
+- **MIT** license (`LICENSE`)
+- **No Google Play Services** location (platform `LocationManager` / system fused on Android 12+)
+- **No** Firebase, ads, or crash-analytics SDKs
+- Build needs only the Android SDK + JDK 21 — no API keys at compile time
+- Store listing text lives in [`fastlane/metadata/android/en-US/`](fastlane/metadata/android/en-US/)
+- Draft [fdroiddata](https://gitlab.com/fdroid/fdroiddata) recipe + submission steps: [`docs/fdroid/`](docs/fdroid/)
+
+**Backend:** self-host the companion platform ([my-car-tracking-platform](https://github.com/lfdominguez/my-car-tracking-platform)), point Settings at any compatible API, or optionally use the free instance at [mycar.domivega.com](https://mycar.domivega.com). Nothing is hard-wired as a required proprietary cloud.
+
+Release APK (unsigned; F-Droid signs its own builds):
+
+```bash
+./gradlew :composeApp:assembleRelease
+# composeApp/build/outputs/apk/release/composeApp-release-unsigned.apk
+```
+
 ### License
 
 MIT — see [LICENSE](LICENSE).
