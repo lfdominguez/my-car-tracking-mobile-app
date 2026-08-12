@@ -2,6 +2,7 @@ package com.domivega.gps_car
 
 import android.app.Application
 import com.domivega.gps_car.obd.ObdBleManager
+import com.domivega.gps_car.obd.ObdPresenceController
 
 class GpsCarApp : Application() {
     override fun onCreate() {
@@ -9,7 +10,8 @@ class GpsCarApp : Application() {
 
         // Native BLE ELM327 OBD
         ObdBleManager.initialize(this)
-        ObdBleManager.startAutoReconnect()
+        // Presence wake or cheap fallback — not a 7s reconnect hammer.
+        ObdPresenceController.arm(this)
 
         // Auto start/stop tracking based on ECU connectivity
         EcuConnectionController.initialize(this)

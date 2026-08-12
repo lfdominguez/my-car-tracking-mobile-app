@@ -21,6 +21,7 @@ import com.domivega.gps_car.models.LocationViewModel
 import com.domivega.gps_car.objects.GpsDataSource
 import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.ObdBleManager
+import com.domivega.gps_car.obd.ObdPresenceController
 import com.domivega.gps_car.obd.ObdProtocol
 import com.domivega.gps_car.ui.MainViewModel
 import com.domivega.gps_car.ui.SettingsViewModel
@@ -254,6 +255,9 @@ fun App() {
             onBleDeviceSelected = { address, name ->
                 ObdBleManager.selectDevice(address, name)
                 settingsViewModel.updateBleDevice(address, name.orEmpty())
+                (context as? android.app.Activity)?.let { activity ->
+                    ObdPresenceController.requestAssociationIfNeeded(activity, address)
+                }
                 connectWithPermissions()
             },
             onBleConnectClick = { connectWithPermissions() },

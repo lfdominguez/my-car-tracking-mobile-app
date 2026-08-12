@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.domivega.gps_car.obd.ObdBleManager
+import com.domivega.gps_car.obd.ObdPresenceController
 
 /**
  * Receives broadcasts from notification action and system boot to start/stop the tracking service.
@@ -19,8 +21,9 @@ class ServiceControlReceiver : BroadcastReceiver() {
             "android.intent.action.QUICKBOOT_POWERON",
             "com.htc.intent.action.QUICKBOOT_POWERON",
             "android.intent.action.MY_PACKAGE_REPLACED" -> {
-                // Start the service in a waiting state on boot or update
-                context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START_WAITING)
+                // Re-arm idle OBD wait (presence or cheap fallback). Do not start forever WAITING FGS.
+                ObdBleManager.initialize(context.applicationContext)
+                ObdPresenceController.arm(context.applicationContext)
             }
             else -> {}
         }

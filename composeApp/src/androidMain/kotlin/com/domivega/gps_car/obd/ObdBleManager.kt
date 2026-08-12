@@ -18,6 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,7 +54,6 @@ object ObdBleManager {
     private const val ECU_PROBE_TIMEOUT_MS = 2_500L
     private const val ECU_PROBE_ATTEMPTS = 8
     private const val SCAN_PERIOD_MS = 12_000L
-    private const val RECONNECT_INTERVAL_MS = 7_000L
     /** Do not run cluster UDS until engine stack has produced this many successful decodes. */
     private const val VW_ODO_MIN_ENGINE_OK = 8
     /** Continuous OBD speed ~0 before a once-per-stop cluster hop. */
@@ -352,6 +352,9 @@ object ObdBleManager {
         settings.bleDeviceName = name.orEmpty()
         setStatus("Selected ${name ?: address}")
         Log.i(TAG, "Selected device $address ($name)")
+        // Re-arm idle wait (presence or cheap fallback) for the new target.
+        runCatching { ObdPresenceController.arm(appContext) }
+            .onFailure { Log.w(TAG, "ObdPresenceController.arm after selectDevice failed", it) }
     }
 
     fun setProtocol(protocol: ObdProtocol) {
@@ -390,6 +393,8 @@ object ObdBleManager {
             settings.bluetoothTransport = transportKind.name
             transport = createTransport(transportKind)
             setStatus("Transport: ${transportKind.displayName}")
+            runCatching { ObdPresenceController.arm(appContext) }
+                .onFailure { Log.w(TAG, "ObdPresenceController.arm after transport change failed", it) }
         }
     }
 
@@ -474,6 +479,18 @@ object ObdBleManager {
                     return@launch
                 }
 
+                val profile = VehicleObdProfile.fromName(settings.vehicleObdProfile)
+                if (VwOdoFirstGate.requiresOdometerBeforeMode01(profile)) {
+                    val locked = awaitVwClusterOdometerLock()
+                    if (!locked) {
+                        logW("VW odometer gate aborted before Mode 01 (link lost or cancelled)")
+                        _ecuConnected.value = false
+                        closeLinkInternal()
+                        connecting.set(false)
+                        return@launch
+                    }
+                }
+
                 sessionReady.set(true)
                 connecting.set(false)
                 setStatus("ECU online")
@@ -507,10 +524,14 @@ object ObdBleManager {
         }
     }
 
+    /**
+     * Cheap idle fallback reconnect (jittered 30–45s). Prefer Companion presence via
+     * [ObdPresenceController] when BLE + API 31+ association is available.
+     */
     fun startAutoReconnect() {
         ensureInit()
         if (reconnectJob?.isActive == true) return
-        logI("Auto-reconnect loop started")
+        logI("Idle fallback reconnect loop started")
         reconnectJob = scope.launch {
             while (isActive) {
                 try {
@@ -525,7 +546,7 @@ object ObdBleManager {
                         !transport.isLinked
 
                     if (canTry) {
-                        logI("Auto-reconnect → $address")
+                        logI("Idle fallback reconnect → $address")
                         connect()
                     } else if (!hasConnectPermission() && !address.isNullOrBlank()) {
                         // Avoid spamming; status already set on manual connect.
@@ -534,10 +555,20 @@ object ObdBleManager {
                     logW("Auto-reconnect loop error: ${t.message}")
                     Log.w(TAG, "Auto-reconnect loop error", t)
                 }
-                delay(RECONNECT_INTERVAL_MS)
+                delay(IdleReconnectPolicy.nextDelayMs(kotlin.random.Random.nextDouble()))
             }
         }
     }
+
+    fun isSessionReady(): Boolean = sessionReady.get()
+
+    fun isTransportLinked(): Boolean = transport.isLinked
+
+    fun isConnecting(): Boolean = connecting.get()
+
+    fun selectedDeviceAddress(): String? = selectedAddress
+
+    fun currentBluetoothTransport(): BluetoothTransport = bluetoothTransport
 
     fun stopAutoReconnect() {
         if (reconnectJob != null) {
@@ -1071,10 +1102,6 @@ object ObdBleManager {
                     Log.w(TAG, "Poll cycle error", t)
                 }
 
-                if (sessionReady.get()) {
-                    maybePollVwOdometer(round = round)
-                }
-
                 // Light rate log ~every 10s (not per PID)
                 val now = System.currentTimeMillis()
                 if (now - windowStartMs >= 10_000L) {
@@ -1092,38 +1119,26 @@ object ObdBleManager {
     }
 
     /**
-     * VW MQB only: UDS ReadDID hop to instrument cluster (odometer + nice-to-haves).
-     * Retries (initial + stop dwell) until first successful km, then [VwOdoSchedule.markLocked]
-     * — no further hops; live odo advances via Mode 01 PID 31 delta.
-     * Serialized via [sendCommand] mutex; always restores OBD headers afterward.
+     * VW MQB only: block Mode 01 until one successful cluster odometer lock.
+     * Retries with backoff while the link is up; never starts the poll loop without a lock.
+     * @return true if [sessionOdometerTracker] locked.
      */
-    private suspend fun maybePollVwOdometer(round: Int) {
-        if (!sessionReady.get() || !transport.isLinked) return
-        val profile = VehicleObdProfile.fromName(settings.vehicleObdProfile)
-        if (profile != VehicleObdProfile.VwMqb) return
-        // Light settle before first possible hop; engineOkMin is the primary gate.
-        if (round < 3) return
-
-        val speed = _pidValues.value["0d"]
-        val decision = vwOdoSchedule.onPollTick(
-            nowMs = System.currentTimeMillis(),
-            speedKmh = speed,
-            engineOkCount = engineOkCount,
-            udsNotBeforeMs = vwUdsNotBeforeMs,
-        )
-        if (!decision.shouldHop) return
-
-        val kind = if (decision.isInitial) "initial" else "stop"
-        logI(
-            "VW UDS cluster hop ($kind) speed=${speed ?: "?"} " +
-                "engineOk=$engineOkCount",
-        )
-        var gotReading = false
-        try {
-            gotReading = pollVwOdometerOnce()
-        } finally {
-            vwOdoSchedule.onHopFinished(success = gotReading)
+    private suspend fun awaitVwClusterOdometerLock(): Boolean {
+        var attempt = 0
+        while (transport.isLinked && currentCoroutineContext().isActive) {
+            if (sessionOdometerTracker.isLocked) return true
+            setStatus("Reading VW odometer…")
+            logI("VW UDS cluster hop (pre-Mode01 attempt=${attempt + 1})")
+            val got = pollVwOdometerOnce()
+            if (got || sessionOdometerTracker.isLocked) {
+                logI("VW odometer locked — starting Mode 01")
+                return true
+            }
+            val delayMs = VwOdoFirstGate.retryDelayMs(attempt)
+            attempt += 1
+            delay(delayMs)
         }
+        return sessionOdometerTracker.isLocked
     }
 
     /** @return true if cluster odometer km was published this hop. */
@@ -1184,8 +1199,9 @@ object ObdBleManager {
                 }
 
             // Pass 1: adapter-default ISO-TP FC (no ATFCSM1).
+            // Link-only gate: pre-Mode01 odo runs while sessionReady is still false.
             for (did in dids) {
-                if (!sessionReady.get() || !transport.isLinked) break
+                if (!transport.isLinked) break
                 val outcome = tryReadClusterOdometerDid(did)
                 if (outcome.km != null) {
                     publishClusterOdometer(did, outcome.km)
@@ -1226,7 +1242,7 @@ object ObdBleManager {
                 if (enableClusterFlowControl()) {
                     delay(80)
                     for (did in dids) {
-                        if (!sessionReady.get() || !transport.isLinked) break
+                        if (!transport.isLinked) break
                         val outcome = tryReadClusterOdometerDid(did)
                         if (outcome.km != null) {
                             publishClusterOdometer(did, outcome.km)
@@ -1334,7 +1350,7 @@ object ObdBleManager {
      */
     private suspend fun pollVwClusterExtras() {
         for (did in VwClusterDids.EXTRA_DIDS) {
-            if (!sessionReady.get() || !transport.isLinked) break
+            if (!transport.isLinked) break
             val key = VwClusterDids.keyForDid(did) ?: continue
             val cmd = "22" + did.toString(16).uppercase().padStart(4, '0')
             val raw = sendCommandLogged(cmd, UDS_COMMAND_TIMEOUT_MS, isInit = false)

@@ -326,7 +326,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     private fun shutdownService() {
         Log.d(TAG, "Shutting down service.")
-        stopTracking() // Clean up tracking resources
+        stopTracking() // Clean up tracking resources + best-effort flush
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

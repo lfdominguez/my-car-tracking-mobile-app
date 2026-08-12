@@ -80,8 +80,9 @@ object EcuConnectionController {
                         val stillRunning =
                             prefs.getString(ForegroundTrackingService.KEY_TRACKING_ID, null) != null
                         if (!ObdBleManager.ecuConnected.value && stillRunning) {
-                            Log.i(TAG, "ECU disconnected past grace → stopping tracking service")
-                            appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_STOP)
+                            Log.i(TAG, "ECU disconnected past grace → shutting down tracking service")
+                            // Full shutdown (not forever WAITING) to cut idle battery.
+                            appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_SHUTDOWN)
                         }
                         disconnectStartedAtMs = null
                         break
