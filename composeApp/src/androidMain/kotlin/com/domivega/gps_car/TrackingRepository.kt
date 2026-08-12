@@ -12,7 +12,8 @@ class TrackingRepository(private val api: ApiClient) {
         return api.startSession().getOrNull()?.id
     }
 
-    suspend fun notifyStop(trackingId: String) {
-        api.stopSession(trackingId)
+    /** Returns Result so callers can persist pending stop on failure. */
+    suspend fun notifyStop(trackingId: String): Result<Unit> {
+        return api.stopSession(trackingId)
     }
 }

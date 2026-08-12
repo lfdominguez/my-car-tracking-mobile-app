@@ -29,6 +29,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.sqrt
 import androidx.core.content.edit
 import com.domivega.gps_car.data.queue.LocalTrackingIds
@@ -71,6 +72,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     private val accelMutex = Mutex()
     private val isStartingSession = AtomicBoolean(false)
     private var lastSessionStartAttempt = 0L
+    /** Bumped on Stop (and Start) so late GPS/bind coroutines cannot recreate a session. */
+    private val collectionEpoch = AtomicLong(0L)
 
     private var currentState: TrackingState = TrackingState.WAITING
 
@@ -94,6 +97,11 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
         createNotificationChannel()
         createAlertNotificationChannel()
+
+        // Retry any /stop that failed after a previous local stop.
+        serviceScope.launch(Dispatchers.IO) {
+            flushPendingStop()
+        }
     }
 
     @RequiresPermission(allOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
@@ -112,6 +120,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                     startTracking()
                 } else {
                     startWaiting()
+                    serviceScope.launch(Dispatchers.IO) { flushPendingStop() }
                 }
             }
         }
@@ -128,10 +137,14 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     /**
      * Bind a local session id to a server tracking_id via `/start`, then rewrite queued samples.
      * Safe to call while already holding a `local:` id — does nothing once uploadable.
+     * Never creates a new local id (Start owns that); aborts if Stop ran mid-flight.
      */
-    private suspend fun tryBindServerSession() {
-        val current = trackingId ?: prefs.getString(KEY_TRACKING_ID, null)
-        if (current != null && LocalTrackingIds.isUploadable(current)) return
+    private suspend fun tryBindServerSession(epochAtStart: Long = collectionEpoch.get()) {
+        if (currentState != TrackingState.TRACKING) return
+        if (epochAtStart != collectionEpoch.get()) return
+
+        val current = trackingId ?: prefs.getString(KEY_TRACKING_ID, null) ?: return
+        if (LocalTrackingIds.isUploadable(current)) return
         if (isStartingSession.get()) return
 
         val now = System.currentTimeMillis()
@@ -140,18 +153,43 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         if (!isStartingSession.compareAndSet(false, true)) return
 
         try {
+            if (currentState != TrackingState.TRACKING || epochAtStart != collectionEpoch.get()) return
             lastSessionStartAttempt = System.currentTimeMillis()
-            val localId = current ?: ensureLocalSessionId()
+            val localId = trackingId ?: prefs.getString(KEY_TRACKING_ID, null) ?: return
             Log.d(TAG, "Binding server session for localId=$localId")
             val serverId = repo.notifyStart()
-            if (serverId != null && LocalTrackingIds.isUploadable(serverId)) {
-                runCatching { queueRepo.rewriteTrackingId(localId, serverId) }
-                    .onFailure { Log.e(TAG, "Failed to rewrite tracking ids", it) }
-                trackingId = serverId
-                prefs.edit { putString(KEY_TRACKING_ID, serverId) }
-                SampleUploadScheduler.enqueue(this)
-                Log.i(TAG, "Session bound local=$localId → server=$serverId")
+            // Re-check after network: Stop must not leave a fresh tracking_id in prefs.
+            if (!TrackingCollectionGate.shouldCommitBoundSession(
+                    epochAtStart = epochAtStart,
+                    currentEpoch = collectionEpoch.get(),
+                    isTracking = currentState == TrackingState.TRACKING,
+                    serverId = serverId,
+                    isUploadable = LocalTrackingIds::isUploadable,
+                )
+            ) {
+                Log.d(TAG, "Discarding server bind after stop/epoch change (serverId=$serverId)")
+                // /start already opened a remote session — end it so Stop does not leave orphans.
+                if (serverId != null && LocalTrackingIds.isUploadable(serverId)) {
+                    rememberPendingStop(serverId)
+                    val stopRes = runCatching { repo.notifyStop(serverId) }
+                        .getOrElse { Result.failure(it) }
+                    stopRes
+                        .onSuccess {
+                            prefs.edit { remove(KEY_PENDING_STOP_ID) }
+                        }
+                        .onFailure {
+                            Log.e(TAG, "Failed to stop discarded server session — queued pending stop", it)
+                        }
+                }
+                return
             }
+            val boundId = serverId!!
+            runCatching { queueRepo.rewriteTrackingId(localId, boundId) }
+                .onFailure { Log.e(TAG, "Failed to rewrite tracking ids", it) }
+            trackingId = boundId
+            prefs.edit { putString(KEY_TRACKING_ID, boundId) }
+            SampleUploadScheduler.enqueue(this)
+            Log.i(TAG, "Session bound local=$localId → server=$boundId")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to bind server session", e)
         } finally {
@@ -159,12 +197,18 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         }
     }
 
-    private fun ensureLocalSessionId(): String {
+    /** Existing session only — GPS path must never mint a new id after Stop. */
+    private fun currentSessionIdOrNull(): String? {
         val existing = trackingId ?: prefs.getString(KEY_TRACKING_ID, null)
         if (existing != null) {
             trackingId = existing
-            return existing
         }
+        return existing
+    }
+
+    /** Create-or-return local session id. Call only from [startTracking]. */
+    private fun ensureLocalSessionId(): String {
+        currentSessionIdOrNull()?.let { return it }
         val local = LocalTrackingIds.wrapLocal(UUID.randomUUID().toString())
         trackingId = local
         prefs.edit { putString(KEY_TRACKING_ID, local) }
@@ -178,8 +222,10 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             Log.d(TAG, "Already tracking, ignoring start request.")
             return
         }
+        // New collection generation so work from a prior trip cannot resume.
+        val epoch = collectionEpoch.incrementAndGet()
         currentState = TrackingState.TRACKING
-        Log.d(TAG, "Starting tracking...")
+        Log.d(TAG, "Starting tracking... epoch=$epoch")
 
         // IMPORTANT: When started via startForegroundService(), we must call startForeground
         // within a few seconds or the system will throw ForegroundServiceDidNotStartInTimeException.
@@ -200,12 +246,12 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
 
-        // Always have a session id (local until /start succeeds).
+        // Always have a session id (local until /start succeeds). Only Start may create it.
         ensureLocalSessionId()
         Log.d(TAG, "Tracking ID: $trackingId")
 
         serviceScope.launch(Dispatchers.IO) {
-            tryBindServerSession()
+            tryBindServerSession(epochAtStart = epoch)
         }
 
         // Start location updates (platform fused on API 31+, else GPS)
@@ -216,17 +262,43 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     }
 
     private fun handleLocation(loc: Location) {
+        // Drop callbacks as soon as Stop/WAITING — do not schedule IO work.
+        if (currentState != TrackingState.TRACKING) return
+
         val speedMps = loc.speed.toDouble()
+        val epochAtStart = collectionEpoch.get()
 
         serviceScope.launch(Dispatchers.IO) {
+            val sessionId = currentSessionIdOrNull()
+            if (!TrackingCollectionGate.shouldCollect(
+                    epochAtStart = epochAtStart,
+                    currentEpoch = collectionEpoch.get(),
+                    isTracking = currentState == TrackingState.TRACKING,
+                    sessionId = sessionId,
+                )
+            ) {
+                return@launch
+            }
+            val id = sessionId!!
+
             val accMag = accelMutex.withLock {
                 accelValues?.let { v -> sqrt((v[0]*v[0] + v[1]*v[1] + v[2]*v[2]).toDouble()) }
             } ?: 0.0
 
-            // Ensure local id + keep trying to bind server session in background.
-            val id = ensureLocalSessionId()
+            // Keep trying to bind server session in background (never mint a new local id here).
             if (!LocalTrackingIds.isUploadable(id)) {
-                tryBindServerSession()
+                tryBindServerSession(epochAtStart = epochAtStart)
+            }
+
+            // Stop may have landed during bind attempt.
+            if (!TrackingCollectionGate.shouldCollect(
+                    epochAtStart = epochAtStart,
+                    currentEpoch = collectionEpoch.get(),
+                    isTracking = currentState == TrackingState.TRACKING,
+                    sessionId = currentSessionIdOrNull(),
+                )
+            ) {
+                return@launch
             }
 
             val accMeters = if (loc.hasAccuracy()) loc.accuracy.toDouble() else Double.POSITIVE_INFINITY
@@ -258,8 +330,20 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 )
             )
 
+            // Final gate before enqueue — covers Stop during filtering above.
+            val enqueueId = currentSessionIdOrNull()
+            if (!TrackingCollectionGate.shouldCollect(
+                    epochAtStart = epochAtStart,
+                    currentEpoch = collectionEpoch.get(),
+                    isTracking = currentState == TrackingState.TRACKING,
+                    sessionId = enqueueId,
+                )
+            ) {
+                return@launch
+            }
+
             val sample = Sample(
-                trackingId = trackingId ?: id,
+                trackingId = enqueueId!!,
                 lat = filtered.latitude,
                 lon = filtered.longitude,
                 acc = filtered.accuracy,
@@ -288,8 +372,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 intakeAirTemperature = pidValues["0f"],
             )
             // Local enqueue only — never block collection on network.
-            val enqueueId = trackingId ?: id
-            runCatching { queueRepo.enqueue(enqueueId, sample.copy(trackingId = enqueueId)) }
+            runCatching { queueRepo.enqueue(enqueueId, sample) }
                 .onFailure { Log.e(TAG, "Failed to enqueue sample", it) }
 
             updateNotification("Running: v=${"%1$.1f".format(speedMps)} m/s a=${"%1$.2f".format(accMag)} m/s²", TrackingState.TRACKING)
@@ -300,6 +383,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
      * @return server tracking id to notify on stop, if the session was bound.
      */
     private fun stopTrackingInternal(updateWaitingNotification: Boolean): String? {
+        // Invalidate in-flight GPS/bind work before clearing session so they cannot recreate it.
+        collectionEpoch.incrementAndGet()
+
         if (currentState == TrackingState.WAITING) {
             Log.d(TAG, "Already in waiting state.")
             val lingeringId = prefs.getString(KEY_TRACKING_ID, null)
@@ -331,11 +417,12 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     private fun stopTracking() {
         val idToStop = stopTrackingInternal(updateWaitingNotification = true)
+        if (idToStop != null) {
+            rememberPendingStop(idToStop)
+        }
         serviceScope.launch(Dispatchers.IO) {
             runCatching { uploader.flushUntilEmpty() }
-            if (idToStop != null) {
-                runCatching { repo.notifyStop(idToStop) }
-            }
+            flushPendingStop()
             SampleUploadScheduler.enqueue(this@ForegroundTrackingService)
         }
     }
@@ -343,13 +430,14 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     private fun shutdownService() {
         Log.d(TAG, "Shutting down service.")
         val idToStop = stopTrackingInternal(updateWaitingNotification = false)
+        if (idToStop != null) {
+            rememberPendingStop(idToStop)
+        }
         // Keep service alive until bounded flush completes, then stopSelf.
         serviceScope.launch(Dispatchers.IO) {
             try {
                 runCatching { uploader.flushUntilEmpty() }
-                if (idToStop != null) {
-                    runCatching { repo.notifyStop(idToStop) }
-                }
+                flushPendingStop()
             } finally {
                 SampleUploadScheduler.enqueue(this@ForegroundTrackingService)
                 withContext(Dispatchers.Main) {
@@ -358,6 +446,34 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 }
             }
         }
+    }
+
+    private fun rememberPendingStop(trackingId: String) {
+        if (!LocalTrackingIds.isUploadable(trackingId)) return
+        prefs.edit { putString(KEY_PENDING_STOP_ID, trackingId) }
+        Log.i(TAG, "Queued pending stop for trackingId=$trackingId")
+    }
+
+    /**
+     * Best-effort durable `/stop`. Clears [KEY_PENDING_STOP_ID] only on success
+     * so offline stops retry on next service start / flush cycle.
+     */
+    private suspend fun flushPendingStop() {
+        val pending = prefs.getString(KEY_PENDING_STOP_ID, null)
+            ?: return
+        if (!LocalTrackingIds.isUploadable(pending)) {
+            prefs.edit { remove(KEY_PENDING_STOP_ID) }
+            return
+        }
+        val result = runCatching { repo.notifyStop(pending) }.getOrElse { Result.failure(it) }
+        result
+            .onSuccess {
+                prefs.edit { remove(KEY_PENDING_STOP_ID) }
+                Log.i(TAG, "Pending stop delivered for trackingId=$pending")
+            }
+            .onFailure {
+                Log.w(TAG, "Pending stop failed for trackingId=$pending — will retry", it)
+            }
     }
 
     override fun onDestroy() {
@@ -496,6 +612,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
         const val ACTION_START_WAITING = "com.domivega.gps_car.action.START_WAITING"
         const val ACTION_START = "com.domivega.gps_car.action.START_TRACKING"
+        const val KEY_PENDING_STOP_ID = "pending_stop_tracking_id"
         const val ACTION_STOP = "com.domivega.gps_car.action.STOP_TRACKING"
         const val ACTION_SHUTDOWN = "com.domivega.gps_car.action.SHUTDOWN"
 
