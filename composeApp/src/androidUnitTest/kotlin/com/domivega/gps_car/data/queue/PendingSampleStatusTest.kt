@@ -22,4 +22,20 @@ class PendingSampleStatusTest {
             )
         ))
     }
+
+    @Test
+    fun stuckForManualRequeueIncludesDeadFailedAndInFlightOnly() {
+        assertTrue(PendingSampleStatus.isStuckForRequeue(PendingSampleStatus.DEAD))
+        assertTrue(PendingSampleStatus.isStuckForRequeue(PendingSampleStatus.FAILED))
+        assertTrue(PendingSampleStatus.isStuckForRequeue(PendingSampleStatus.IN_FLIGHT))
+        assertTrue(!PendingSampleStatus.isStuckForRequeue(PendingSampleStatus.PENDING))
+        assertEquals(
+            setOf(
+                PendingSampleStatus.DEAD,
+                PendingSampleStatus.FAILED,
+                PendingSampleStatus.IN_FLIGHT,
+            ),
+            PendingSampleStatus.STUCK_FOR_REQUEUE,
+        )
+    }
 }

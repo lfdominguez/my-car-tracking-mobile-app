@@ -14,6 +14,10 @@ import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,11 +27,14 @@ import com.domivega.gps_car.components.EngineLoadGauge
 import com.domivega.gps_car.components.FuelTankGauge
 import com.domivega.gps_car.components.VWDial
 import com.domivega.gps_car.ui.state.DashboardState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun DashboardScreen(
     state: DashboardState,
     onToggleTracking: () -> Unit,
+    onRetryUpload: () -> Unit = {},
 ) {
     Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Column(
@@ -42,7 +49,10 @@ fun DashboardScreen(
             )
 
             state.uploadWarning?.let { warning ->
-                UploadWarningBanner(message = warning)
+                UploadWarningBanner(
+                    message = warning,
+                    onRetry = onRetryUpload,
+                )
             }
 
             OdometerBanner(odometerKm = state.odometerKm)
@@ -112,20 +122,49 @@ fun DashboardScreen(
 }
 
 @Composable
-fun UploadWarningBanner(message: String) {
+fun UploadWarningBanner(
+    message: String,
+    onRetry: () -> Unit = {},
+) {
+    var retrying by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer,
         ),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text(
-            text = message,
-            modifier = Modifier.padding(12.dp),
-            color = MaterialTheme.colorScheme.onErrorContainer,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = message,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            TextButton(
+                onClick = {
+                    if (retrying) return@TextButton
+                    retrying = true
+                    onRetry()
+                    scope.launch {
+                        // Brief lock so double-taps don't stack heavy drains.
+                        delay(1_500)
+                        retrying = false
+                    }
+                },
+                enabled = !retrying,
+            ) {
+                Text(if (retrying) "…" else "Retry")
+            }
+        }
     }
 }
 

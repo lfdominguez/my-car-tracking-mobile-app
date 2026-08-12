@@ -49,4 +49,25 @@ class SampleQueueRepository(context: Context) {
     suspend fun countDead(): Int = dao.countByStatus(PendingSampleStatus.DEAD)
 
     suspend fun countUploadable(): Int = dao.countUploadable()
+
+    /**
+     * Reset DEAD/FAILED/IN_FLIGHT rows so the uploader will try them again.
+     * @return number of rows requeued
+     */
+    suspend fun requeueStuckSamples(): Int = dao.requeueStuck()
+
+    suspend fun publishQueueHealth(
+        lastFlushOk: Boolean? = UploadStatusDataSource.status.value.lastFlushOk,
+        lastError: String? = null,
+    ) {
+        UploadStatusDataSource.update(
+            UploadStatus(
+                failedCount = countFailed(),
+                deadCount = countDead(),
+                pendingUploadableCount = countUploadable(),
+                lastFlushOk = lastFlushOk,
+                lastError = lastError,
+            ),
+        )
+    }
 }

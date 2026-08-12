@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.domivega.gps_car.data.AndroidCarMetricSource
 import com.domivega.gps_car.data.AndroidSettingsRepository
 import com.domivega.gps_car.data.ApiBackendConnectionTester
+import com.domivega.gps_car.data.queue.QueueRetryActions
 import com.domivega.gps_car.network.ApiClient
 import com.domivega.gps_car.settings.AppSettings
 import com.domivega.gps_car.obd.BluetoothTransport
@@ -27,6 +28,7 @@ import com.domivega.gps_car.ui.navigation.AppNavigation
 import com.domivega.gps_car.ui.theme.AutomotiveTheme
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import kotlinx.coroutines.launch
 
 
 /**
@@ -98,6 +100,7 @@ fun App() {
 
         val dashboardState by viewModel.uiState.collectAsState()
         val settingsState by settingsViewModel.uiState.collectAsState()
+        val appScope = rememberCoroutineScope()
 
         // --- BLE OBD status / scan results ---
         val connectionStatus by ObdBleManager.connectionStatus.collectAsState()
@@ -214,6 +217,16 @@ fun App() {
                      context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_STOP)
                 } else {
                      context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START)
+                }
+            },
+            onRetryUpload = {
+                appScope.launch {
+                    val n = runCatching { QueueRetryActions.retryStuck(context) }.getOrDefault(0)
+                    Toast.makeText(
+                        context,
+                        if (n > 0) "Retrying upload ($n samples)" else "No stuck samples to retry",
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
             },
             onOpenSettings = {

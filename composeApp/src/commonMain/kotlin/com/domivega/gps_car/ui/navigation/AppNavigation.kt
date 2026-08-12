@@ -29,6 +29,7 @@ fun AppNavigation(
     dashboardState: DashboardState,
     settingsViewModel: SettingsViewModel,
     onToggleTracking: () -> Unit,
+    onRetryUpload: () -> Unit = {},
     onOpenSettings: () -> Unit, // Callback to open legacy/android settings if needed
     onScanQrCode: () -> Unit,
     logoPainter: Painter? = null,
@@ -128,6 +129,7 @@ fun AppNavigation(
                     "Dashboard" -> DashboardScreen(
                         state = dashboardState,
                         onToggleTracking = onToggleTracking,
+                        onRetryUpload = onRetryUpload,
                     )
                     "Settings" -> SettingsScreen(
                         state = settingsState,

@@ -14,6 +14,11 @@ object PendingSampleStatus {
     const val MAX_ATTEMPTS = 50
 
     val ALL = setOf(PENDING, IN_FLIGHT, FAILED, DEAD)
+
+    /** Statuses reset by manual banner Retry (not healthy PENDING). */
+    val STUCK_FOR_REQUEUE = setOf(DEAD, FAILED, IN_FLIGHT)
+
+    fun isStuckForRequeue(status: String): Boolean = status in STUCK_FOR_REQUEUE
 }
 
 @Entity(tableName = "pending_samples")

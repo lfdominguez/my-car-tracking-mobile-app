@@ -13,7 +13,17 @@ import androidx.work.WorkManager
 object SampleUploadScheduler {
     private const val UNIQUE_WORK = "sample_upload_drain"
 
+    /** Background / failure path: do not replace an already-scheduled drain. */
     fun enqueue(context: Context) {
+        enqueueInternal(context, ExistingWorkPolicy.KEEP)
+    }
+
+    /** Manual Retry: always (re)schedule so work runs even if a prior job is sitting idle. */
+    fun enqueueNow(context: Context) {
+        enqueueInternal(context, ExistingWorkPolicy.REPLACE)
+    }
+
+    private fun enqueueInternal(context: Context, policy: ExistingWorkPolicy) {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
@@ -21,6 +31,6 @@ object SampleUploadScheduler {
             .setConstraints(constraints)
             .build()
         WorkManager.getInstance(context.applicationContext)
-            .enqueueUniqueWork(UNIQUE_WORK, ExistingWorkPolicy.KEEP, request)
+            .enqueueUniqueWork(UNIQUE_WORK, policy, request)
     }
 }

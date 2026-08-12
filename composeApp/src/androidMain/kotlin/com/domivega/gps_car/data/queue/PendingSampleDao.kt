@@ -124,4 +124,19 @@ interface PendingSampleDao {
         """
     )
     suspend fun resetInFlightToPending()
+
+    /**
+     * Manual retry: DEAD / FAILED / IN_FLIGHT → PENDING with attempts cleared.
+     * @return number of rows updated
+     */
+    @Query(
+        """
+        UPDATE pending_samples
+        SET status = 'PENDING',
+            attempts = 0,
+            last_error = NULL
+        WHERE status IN ('DEAD', 'FAILED', 'IN_FLIGHT')
+        """
+    )
+    suspend fun requeueStuck(): Int
 }
