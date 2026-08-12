@@ -23,7 +23,6 @@ kotlin {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             implementation(libs.kotlinx.coroutines.android)
-            implementation(libs.play.services.location)
             implementation(libs.zxingAndroidEmbedded)
             implementation(libs.okhttp)
             implementation(libs.androidx.core.ktx)

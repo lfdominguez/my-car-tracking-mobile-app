@@ -9,7 +9,7 @@ OBD (BLE or SPP)  ──►  pidValues (hot/slow PIDs)  ──────┘
 
 ### Features
 
-- **Foreground tracking service** — continuous location with notification controls
+- **Foreground tracking service** — continuous platform location (system fused on Android 12+, else GPS) with notification controls
 - **Native OBD (BLE + Classic SPP)** — ELM327 AT init over BLE GATT (default) or Classic RFCOMM; selectable protocol (default ISO 15765-4 CAN 11-bit 500 kbaud); auto-reconnect to last adapter
 - **ECU-driven session** — tracking starts/stops with ECU connectivity
 - **Prioritized OBD polling** — hot PIDs (RPM, speed, load, MAF, …) every round; slow PIDs every 5th round at max BLE rate

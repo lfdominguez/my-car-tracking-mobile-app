@@ -20,10 +20,8 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
-import com.google.android.gms.location.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -40,6 +38,7 @@ import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.OdometerReading
 import com.domivega.gps_car.settings.AppSettings
 import androidx.core.net.toUri
+import com.domivega.gps_car.gps.GpsLocator
 import com.domivega.gps_car.gps.StationaryPositionFilter
 import com.domivega.gps_car.models.data.LocationData
 import com.domivega.gps_car.objects.GpsDataSource
@@ -54,7 +53,7 @@ private enum class TrackingState {
  */
 class ForegroundTrackingService : Service(), SensorEventListener {
     private val serviceScope = CoroutineScope(Dispatchers.Main)
-    private lateinit var fused: FusedLocationProviderClient
+    private lateinit var gpsLocator: GpsLocator
     private lateinit var sensorManager: SensorManager
     private var accelValues: FloatArray? = null
     // Keep most recent GPS location to pair with acceleration-triggered events
@@ -65,7 +64,6 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     private lateinit var queueRepo: SampleQueueRepository
     private lateinit var uploader: SampleQueueUploader
 
-    private var locationJob: Job? = null
     private val accelMutex = Mutex()
     private val isStartingSession = AtomicBoolean(false)
     private var lastSessionStartAttempt = 0L
@@ -80,7 +78,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     override fun onCreate() {
         super.onCreate()
 
-        fused = LocationServices.getFusedLocationProviderClient(this)
+        gpsLocator = GpsLocator(this)
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         prefs = getSharedPreferences("tracking_prefs", MODE_PRIVATE)
         val api = ApiClient(AppSettings(this))
@@ -182,24 +180,11 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             }
         }
 
-        // Start location updates
-        val request = LocationRequest.Builder(1000L)
-            .setMinUpdateIntervalMillis(500L)
-            .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
-            .build()
-
-        val cb = object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                val loc = result.lastLocation ?: return
-                lastLocation = loc
-                handleLocation(loc)
-            }
+        // Start location updates (platform fused on API 31+, else GPS)
+        gpsLocator.start { loc ->
+            lastLocation = loc
+            handleLocation(loc)
         }
-        fused.requestLocationUpdates(request, cb, mainLooper)
-
-        locationJob?.cancel()
-        locationJob = Job()
-        locationJob?.invokeOnCompletion { fused.removeLocationUpdates(cb) }
     }
 
     private fun handleLocation(loc: Location) {
@@ -305,8 +290,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         Log.d(TAG, "Stopping tracking, returning to waiting state.")
         currentState = TrackingState.WAITING
 
-        locationJob?.cancel()
-        locationJob = null
+        if (::gpsLocator.isInitialized) {
+            gpsLocator.stop()
+        }
         sensorManager.unregisterListener(this)
 
         val idToStop = trackingId
@@ -333,7 +319,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     override fun onDestroy() {
         super.onDestroy()
-        locationJob?.cancel()
+        if (::gpsLocator.isInitialized) {
+            gpsLocator.stop()
+        }
         sensorManager.unregisterListener(this)
         if (::uploader.isInitialized) {
             uploader.stop()
