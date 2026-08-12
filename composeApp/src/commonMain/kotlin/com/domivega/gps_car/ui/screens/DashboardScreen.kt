@@ -4,7 +4,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -29,7 +28,6 @@ import com.domivega.gps_car.ui.state.DashboardState
 fun DashboardScreen(
     state: DashboardState,
     onToggleTracking: () -> Unit,
-    onMapClick: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Column(
@@ -74,7 +72,7 @@ fun DashboardScreen(
                 )
             }
             
-            // Secondary Metrics (Fuel, Load, Map)
+            // Secondary Metrics (Fuel, Load)
             Row(
                 modifier = Modifier.fillMaxWidth().weight(0.8f).padding(bottom = 80.dp), // Space for FAB
                  horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -90,20 +88,6 @@ fun DashboardScreen(
                     value = state.engineLoad.toFloat(),
                     modifier = Modifier.weight(1f).fillMaxHeight()
                 )
-
-                 // Map / Nav Shortcut
-                 Card(
-                    modifier = Modifier.weight(1f).fillMaxHeight().clickable { onMapClick() },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                             Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.size(32.dp))
-                             Spacer(Modifier.height(4.dp))
-                             Text("MAP", style = MaterialTheme.typography.titleMedium)
-                         }
-                    }
-                }
             }
         }
 

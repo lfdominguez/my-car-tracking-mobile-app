@@ -19,7 +19,6 @@ obdMetrics = "9.33.3"
 okhttp = "5.3.2"
 playServicesLocation = "21.3.0"
 zxingAndroidEmbedded = "4.3.0"
-osmdroidAndroid = "6.1.18"
 androidxCarApp = "1.7.0"
 androidxRoom = "2.7.2"
 ksp = "2.2.20-2.0.4"
@@ -41,7 +40,6 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
 zxingAndroidEmbedded = { module = "com.journeyapps:zxing-android-embedded", version.ref = "zxingAndroidEmbedded" }
-osmdroid-android = { module = "org.osmdroid:osmdroid-android", version.ref = "osmdroidAndroid" }
 androidx-car-app = { module = "androidx.car.app:app", version.ref = "androidxCarApp" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "androidxRoom" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "androidxRoom" }

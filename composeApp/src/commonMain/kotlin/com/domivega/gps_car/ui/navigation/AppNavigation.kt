@@ -19,8 +19,6 @@ import com.domivega.gps_car.ui.screens.AboutScreen
 import com.domivega.gps_car.ui.screens.DashboardScreen
 import com.domivega.gps_car.ui.screens.DebugConsoleScreen
 import com.domivega.gps_car.ui.screens.SettingsScreen
-import com.domivega.gps_car.components.LocationScreen
-import com.domivega.gps_car.models.LocationViewModel
 import com.domivega.gps_car.obd.ObdLogEntry
 import com.domivega.gps_car.ui.state.DashboardState
 import kotlinx.coroutines.launch
@@ -30,7 +28,6 @@ import kotlinx.coroutines.launch
 fun AppNavigation(
     dashboardState: DashboardState,
     settingsViewModel: SettingsViewModel,
-    locationViewModel: LocationViewModel,
     onToggleTracking: () -> Unit,
     onOpenSettings: () -> Unit, // Callback to open legacy/android settings if needed
     onScanQrCode: () -> Unit,
@@ -59,7 +56,6 @@ fun AppNavigation(
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = currentScreen != "Location",
         drawerContent = {
             ModalDrawerSheet {
                 Text(
@@ -132,11 +128,6 @@ fun AppNavigation(
                     "Dashboard" -> DashboardScreen(
                         state = dashboardState,
                         onToggleTracking = onToggleTracking,
-                        onMapClick = { currentScreen = "Location" }
-                    )
-                    "Location" -> LocationScreen(
-                        viewModel = locationViewModel,
-                        dashboardState = dashboardState
                     )
                     "Settings" -> SettingsScreen(
                         state = settingsState,

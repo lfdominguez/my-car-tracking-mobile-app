@@ -1,8 +1,6 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidApplication)
@@ -12,12 +10,6 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-val localProperties = Properties()
-val localPropertiesFile = rootProject.file("local.properties")
-if (localPropertiesFile.exists()) {
-    localPropertiesFile.inputStream().use { localProperties.load(it) }
-}
-val mapsApiKey = localProperties.getProperty("MAPS_API_KEY") ?: "YOUR_API_KEY_HERE"
 
 kotlin {
     androidTarget {
@@ -32,7 +24,6 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.play.services.location)
-            implementation(libs.osmdroid.android)
             implementation(libs.zxingAndroidEmbedded)
             implementation(libs.okhttp)
             implementation(libs.androidx.core.ktx)
@@ -69,7 +60,6 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         // Configure your endpoints here or via gradle properties
     }
     buildFeatures {

@@ -10,8 +10,8 @@ Guidance for AI coding agents and humans working in this repository.
 
 ## Hard rules
 
-1. **No secrets in git** — API tokens, Basic auth strings, private hostnames, Maps keys, BLE addresses, or real credentials must not be committed. Defaults stay empty or `YOUR_SERVER.example`.
-2. **Do not commit `local.properties`** — SDK paths and `MAPS_API_KEY` stay local (already gitignored).
+1. **No secrets in git** — API tokens, Basic auth strings, private hostnames, BLE addresses, or real credentials must not be committed. Defaults stay empty or `YOUR_SERVER.example`.
+2. **Do not commit `local.properties`** — SDK paths stay local (already gitignored).
 3. **Do not weaken tests** to make a change pass; fix the code or extend tests properly.
 4. **Prefer minimal diffs** — match existing style; avoid drive-by refactors unrelated to the task.
 5. **Junie commits** — when the user asks to commit, append  

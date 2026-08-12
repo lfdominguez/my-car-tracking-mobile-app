@@ -17,8 +17,6 @@ import com.domivega.gps_car.data.AndroidSettingsRepository
 import com.domivega.gps_car.data.ApiBackendConnectionTester
 import com.domivega.gps_car.network.ApiClient
 import com.domivega.gps_car.settings.AppSettings
-import com.domivega.gps_car.models.LocationViewModel
-import com.domivega.gps_car.objects.GpsDataSource
 import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.ObdPresenceController
@@ -82,7 +80,6 @@ fun App() {
         val viewModel = remember {
              MainViewModel(
                  carMetricSource = AndroidCarMetricSource()
-                 // GpsDataSource is default
              )
         }
 
@@ -101,10 +98,6 @@ fun App() {
 
         val dashboardState by viewModel.uiState.collectAsState()
         val settingsState by settingsViewModel.uiState.collectAsState()
-
-        val locationViewModel = remember {
-            LocationViewModel(GpsDataSource)
-        }
 
         // --- BLE OBD status / scan results ---
         val connectionStatus by ObdBleManager.connectionStatus.collectAsState()
@@ -216,7 +209,6 @@ fun App() {
         AppNavigation(
             dashboardState = dashboardState,
             settingsViewModel = settingsViewModel,
-            locationViewModel = locationViewModel,
             onToggleTracking = {
                 if (isTracking) {
                      context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_STOP)

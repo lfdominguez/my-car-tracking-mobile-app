@@ -16,7 +16,7 @@ OBD (BLE or SPP)  ──►  pidValues (hot/slow PIDs)  ──────┘
 - **Durable send queue** — Room-backed pending samples; ~60s batch flush with retry/backoff
 - **Vehicle & fuel settings** — fuel preset (E0/E10/E27/E100/Custom), AFR, density, displacement, VE → estimated L/h from MAF + λ (MAP fallback)
 - **In-app OBD debug log** — init steps, BLE lifecycle, errors (Debug tab)
-- **Dashboard** — gauges, map, live metrics
+- **Dashboard** — gauges and live metrics
 
 ### Requirements
 
@@ -34,11 +34,9 @@ OBD (BLE or SPP)  ──►  pidValues (hot/slow PIDs)  ──────┘
 # Optional: reproducible shell (Nix + devenv)
 devenv shell
 
-# Configure Maps key if you use Google Maps placeholders in the manifest
 cp local.properties.example local.properties   # or create manually
 # local.properties:
 #   sdk.dir=/path/to/Android/Sdk
-#   MAPS_API_KEY=your_key_here
 
 ./gradlew :composeApp:assembleDebug
 # APK: composeApp/build/outputs/apk/debug/composeApp-debug.apk
@@ -94,7 +92,7 @@ Metric fields from OBD may be missing; the backend should treat them as optional
 |----------------|----------------|
 | API token | empty — set in app Settings |
 | API URLs | `https://YOUR_SERVER.example/api/track/...` |
-| `local.properties` | gitignored (`sdk.dir`, `MAPS_API_KEY`) |
+| `local.properties` | gitignored (`sdk.dir`) |
 | BLE MAC | stored on device only |
 
 If a credential was ever committed historically, **rotate it on the server** before going public and consider rewriting git history (`git filter-repo`) so the old blob is not reachable.
