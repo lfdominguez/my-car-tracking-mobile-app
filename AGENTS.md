@@ -16,6 +16,7 @@ Guidance for AI coding agents and humans working in this repository.
 4. **Prefer minimal diffs** — match existing style; avoid drive-by refactors unrelated to the task.
 5. **Junie commits** — when the user asks to commit, append  
    `--trailer "Co-authored-by: Junie <junie@jetbrains.com>"`.
+6. **Feature branches, not direct `main`** — all work goes on `feature/<short-name>` (or `fix/…`), then PR → CI green → merge to protected `main`. Version tags only via `scripts/create-release.sh` on clean `main` (see **Branching & releases**).
 
 ## Layout map
 
@@ -88,10 +89,77 @@ Changing defaults in code: keep them **non-secret** and documented in README.
 
 ## Branching & releases
 
-- **`main` is production** — protected; land work via `feature/*` branches and PRs.
-- CI: `.github/workflows/ci.yml` (PR/`main`) and `release.yml` (tags `v*`).
-- Ship a store/F-Droid version with `scripts/create-release.sh` (bumps `versionCode` / `versionName` in `composeApp/build.gradle.kts`, Fastlane changelog, tag, signed GitHub Release APK).
-- Details: `docs/RELEASE.md`.
+**Every agent must follow this path.** Do not commit feature work directly on `main`.
+
+```text
+feature/<short-name>  →  PR (+ CI green)  →  main  →  (optional) scripts/create-release.sh → tag vX.Y
+```
+
+### Feature work (required)
+
+1. Start from up-to-date `main`:
+   ```bash
+   git checkout main
+   git pull origin main
+   git checkout -b feature/<short-name>
+   ```
+2. Implement on that branch only. Keep diffs focused on the task.
+3. Run tests before offering the branch as done:
+   ```bash
+   devenv shell -- ./gradlew :composeApp:testDebugUnitTest
+   ```
+4. Push the branch and open a **PR into `main`** (do not push feature commits straight to `main`).
+5. Wait for CI (`.github/workflows/ci.yml`, required check name **`ci`**) to pass, then merge (prefer linear history / squash).
+6. After merge, delete the local feature branch if finished; pull `main` before the next task.
+
+**Exceptions (only when the user explicitly asks):**
+
+- Docs-only or agent-guidance tweaks the user wants committed immediately — still prefer a `feature/*` PR unless they say otherwise.
+- **Release bumps** via `scripts/create-release.sh` run on clean `main` (maintainer path below).
+
+### Naming
+
+| Branch | Use |
+|--------|-----|
+| `main` | Production only; protected |
+| `feature/<short-name>` | All product/code/docs changes |
+| `fix/...` | Optional alias for bugfixes (same PR flow) |
+
+Examples: `feature/obd-idle-reconnect`, `feature/fdroid-docs`, `fix/queue-backoff`.
+
+### CI
+
+| Workflow | Trigger | Role |
+|----------|---------|------|
+| `.github/workflows/ci.yml` | PRs + pushes to `main` | Unit tests + unsigned `assembleRelease` |
+| `.github/workflows/release.yml` | Tags `v*` | Re-check build; attach CI unsigned APK to the GitHub Release |
+
+### Version release (F-Droid / GitHub)
+
+Only when shipping a new store/F-Droid version — **not** for every feature merge:
+
+1. Ensure the work is **merged to `main`**, tree clean, `main == origin/main`.
+2. Run (from repo root, on `main`):
+   ```bash
+   scripts/create-release.sh                 # patch bump, versionCode +1
+   scripts/create-release.sh 1.3 --notes "…"
+   scripts/create-release.sh 1.3 --dry-run
+   ```
+3. The script bumps `versionName` / `versionCode` in `composeApp/build.gradle.kts` (what F-Droid `UpdateCheckData` reads), writes Fastlane `changelogs/<versionCode>.txt`, commits, tags `vX.Y`, builds a **signed** release APK (local keystore), pushes `main` + tag, and uploads `com.domivega.gps_car_<versionCode>.apk` to the GitHub Release.
+
+Do **not** hand-edit version fields or move tags unless fixing a broken release with explicit user approval.
+
+### Agent do / don’t
+
+| Do | Don’t |
+|----|--------|
+| Branch off latest `main` as `feature/…` | Commit features on `main` |
+| Open a PR and rely on CI | Bypass branch protection without asking |
+| Merge only after tests/CI are green | Weaken tests to go green |
+| Use `create-release.sh` for version tags | Invent ad-hoc version commits on a feature branch |
+| Ask before force-push / history rewrite | Force-push `main` or rewrite shared history |
+
+Full detail: `docs/RELEASE.md`. F-Droid notes: `docs/fdroid/SUBMISSION.md`.
 
 ## Out of scope unless asked
 

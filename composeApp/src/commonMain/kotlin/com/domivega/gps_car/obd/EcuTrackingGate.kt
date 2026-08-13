@@ -4,6 +4,8 @@ package com.domivega.gps_car.obd
  * Decides when ECU connect/disconnect should start/stop the tracking trip.
  *
  * Transient OBD blips (UDS header restore, short ELM re-init) must not end a trip.
+ * Evaluation is level-based (not edge-only): tracking while already offline must arm
+ * the disconnect grace even when there was no true→false transition observed.
  */
 object EcuTrackingGate {
     /** Continuous ECU-off time before auto-stop ends the trip. */
@@ -22,4 +24,57 @@ object EcuTrackingGate {
         if (graceMs <= 0L) return true
         return nowMs - disconnectStartedAtMs >= graceMs
     }
+
+    /** Server `/start` bind only while the ECU is live — avoids ghost trips from GPS-only starts. */
+    fun shouldBindServerSession(ecuConnected: Boolean): Boolean = ecuConnected
+
+    /**
+     * Pure reconcile of ECU + local tracking prefs.
+     *
+     * @param disconnectStartedAtMs prior armed timer, or null when not in disconnect grace.
+     */
+    fun evaluate(
+        ecuConnected: Boolean,
+        isTracking: Boolean,
+        disconnectStartedAtMs: Long?,
+        nowMs: Long,
+        graceMs: Long = DEFAULT_STOP_GRACE_MS,
+    ): EcuTrackingDecision {
+        if (ecuConnected) {
+            return EcuTrackingDecision(
+                action = EcuTrackingAction.EnsureStart,
+                disconnectStartedAtMs = null,
+            )
+        }
+
+        if (!isTracking) {
+            return EcuTrackingDecision(
+                action = EcuTrackingAction.None,
+                disconnectStartedAtMs = null,
+            )
+        }
+
+        val armedAt = disconnectStartedAtMs ?: nowMs
+        if (shouldStopForDisconnect(armedAt, nowMs, graceMs)) {
+            return EcuTrackingDecision(
+                action = EcuTrackingAction.Shutdown,
+                disconnectStartedAtMs = null,
+            )
+        }
+        return EcuTrackingDecision(
+            action = EcuTrackingAction.None,
+            disconnectStartedAtMs = armedAt,
+        )
+    }
 }
+
+enum class EcuTrackingAction {
+    None,
+    EnsureStart,
+    Shutdown,
+}
+
+data class EcuTrackingDecision(
+    val action: EcuTrackingAction,
+    val disconnectStartedAtMs: Long?,
+)
