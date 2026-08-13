@@ -5,21 +5,15 @@
 #
 # applicationId / package: com.domivega.gps_car
 # Upstream Fastlane: fastlane/metadata/android/en-US/
+# gradle "yes" + subdir composeApp → assembleRelease (not a flavor named composeApp).
 
 Categories:
-  - Navigation
   - Connectivity
-
+  - Navigation
 License: MIT
-
 AuthorName: Luis Felipe Domínguez Vega
-
 SourceCode: https://github.com/lfdominguez/my-car-tracking-mobile-app
 IssueTracker: https://github.com/lfdominguez/my-car-tracking-mobile-app/issues
-
-# Companion server (optional; not required to install the app):
-#   https://github.com/lfdominguez/my-car-tracking-platform
-# Optional hosted instance: https://mycar.domivega.com
 
 RepoType: git
 Repo: https://github.com/lfdominguez/my-car-tracking-mobile-app.git
@@ -28,13 +22,14 @@ Builds:
   - versionName: '1.0'
     versionCode: 1
     commit: v1.0
+    subdir: composeApp
     sudo:
       - apt-get update
       - apt-get install -y openjdk-21-jdk-headless
       - update-alternatives --auto java
     gradle:
-      - composeApp
-    output: composeApp/build/outputs/apk/release/composeApp-release-unsigned.apk
+      - yes
+    output: build/outputs/apk/release/composeApp-release-unsigned.apk
     rm:
       - devenv.nix
       - devenv.yaml
