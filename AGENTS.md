@@ -86,6 +86,13 @@ Changing defaults in code: keep them **non-secret** and documented in README.
 - [ ] `git log -S'password-or-token-fragment'` clean **or** history rewritten + server credential rotated  
 - [ ] `.gitignore` still covers `local.properties`, `.idea`, `build/`, `.worktrees/`  
 
+## Branching & releases
+
+- **`main` is production** — protected; land work via `feature/*` branches and PRs.
+- CI: `.github/workflows/ci.yml` (PR/`main`) and `release.yml` (tags `v*`).
+- Ship a store/F-Droid version with `scripts/create-release.sh` (bumps `versionCode` / `versionName` in `composeApp/build.gradle.kts`, Fastlane changelog, tag, signed GitHub Release APK).
+- Details: `docs/RELEASE.md`.
+
 ## Out of scope unless asked
 
 - Renaming applicationId / package (`com.domivega.gps_car`)  

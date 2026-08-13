@@ -195,6 +195,20 @@ See **[AGENTS.md](AGENTS.md)** for conventions when contributing with AI coding 
 
 ---
 
+## 🌿 Branching & releases
+
+Production is **`main`** (protected). Develop on `feature/*`, open a PR, merge when CI is green.
+
+To cut a user-facing / F-Droid version (bumps Gradle `versionName` / `versionCode`, tags, signed GitHub Release APK):
+
+```bash
+scripts/create-release.sh 1.1 --notes "Your release notes"
+```
+
+Full workflow: [`docs/RELEASE.md`](docs/RELEASE.md).
+
+---
+
 ## 📦 F-Droid / free builds
 
 Built to stay **F-Droid-friendly**:

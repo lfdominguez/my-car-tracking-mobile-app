@@ -93,7 +93,14 @@ Add a new `changelogs/<versionCode>.txt` for every bump. Screenshots help review
 
 ## 5. After inclusion (later releases)
 
-For each new version **after** the app is listed, you normally do **not** open a new fdroiddata MR:
+For each new version **after** the app is listed, you normally do **not** open a new fdroiddata MR. Prefer the release script (see `docs/RELEASE.md`):
+
+```bash
+# on clean main — bumps Gradle versions, changelog, tag, signed GitHub APK
+scripts/create-release.sh 1.1 --notes "…"
+```
+
+Manual equivalent:
 
 1. Bump `versionCode` + `versionName` in `composeApp/build.gradle.kts` (monotonic `versionCode`).
 2. Add Fastlane notes: `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`.
@@ -104,7 +111,8 @@ For each new version **after** the app is listed, you normally do **not** open a
    git push origin v1.1
    ```
 
-4. Rely on the recipe’s `UpdateCheckMode: Tags` and `UpdateCheckData` (parses Gradle versions). F-Droid’s updater should propose/build the new tag.
+4. Publish signed `com.domivega.gps_car_<versionCode>.apk` on the GitHub Release (reproducible builds).
+5. Rely on the recipe’s `UpdateCheckMode: Tags` and `UpdateCheckData` (parses Gradle versions). F-Droid’s updater should propose/build the new tag.
 
 Open a **metadata follow-up MR** only if the build recipe breaks, for example:
 
