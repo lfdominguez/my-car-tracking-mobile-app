@@ -1,0 +1,5 @@
+F-Droid reproducible-build packaging fixes.
+
+• Keep AGP Dependency metadata out of release APKs (dependenciesInfo)
+• Ship signed GitHub Release APK built from the clean tagged commit (VCS info matches F-Droid)
+• Metadata/docs alignment for fdroiddata inclusion
