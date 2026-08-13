@@ -72,6 +72,7 @@
                 <action android:name="com.domivega.gps_car.action.TOGGLE_FROM_NOTIFICATION" />
                 <action android:name="com.domivega.gps_car.action.START_TRACKING" />
                 <action android:name="com.domivega.gps_car.action.STOP_TRACKING" />
+                <action android:name="com.domivega.gps_car.action.IDLE_CONNECT" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />

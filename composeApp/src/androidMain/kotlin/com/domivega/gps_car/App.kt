@@ -260,9 +260,7 @@ fun App() {
             onBleDeviceSelected = { address, name ->
                 ObdBleManager.selectDevice(address, name)
                 settingsViewModel.updateBleDevice(address, name.orEmpty())
-                (context as? android.app.Activity)?.let { activity ->
-                    ObdPresenceController.requestAssociationIfNeeded(activity, address)
-                }
+                ObdPresenceController.arm(context)
                 connectWithPermissions()
             },
             onBleConnectClick = { connectWithPermissions() },

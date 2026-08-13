@@ -1,28 +1,22 @@
 package com.domivega.gps_car.obd
 
 /**
- * Idle “waiting for car” reconnect policy: Companion presence when possible,
- * otherwise a slow jittered fallback delay (meets ~1 minute connect SLA).
+ * Idle reconnect: poll connect every minute. Do not wait for Companion / scan
+ * "device found" callbacks — those can leave the adapter idle until the app is opened.
  */
 object IdleReconnectPolicy {
-    const val FALLBACK_MIN_MS: Long = 30_000L
-    const val FALLBACK_MAX_MS: Long = 45_000L
+    const val INTERVAL_MS: Long = 60_000L
+    const val FALLBACK_MIN_MS: Long = INTERVAL_MS
+    const val FALLBACK_MAX_MS: Long = INTERVAL_MS
     const val MIN_PRESENCE_API: Int = 31
 
     fun shouldUsePresenceObservation(
-        apiLevel: Int,
-        transportIsBle: Boolean,
-        hasDeviceAddress: Boolean,
-        presenceAvailable: Boolean,
-    ): Boolean =
-        apiLevel >= MIN_PRESENCE_API &&
-            transportIsBle &&
-            hasDeviceAddress &&
-            presenceAvailable
+        @Suppress("UNUSED_PARAMETER") apiLevel: Int,
+        @Suppress("UNUSED_PARAMETER") transportIsBle: Boolean,
+        @Suppress("UNUSED_PARAMETER") hasDeviceAddress: Boolean,
+        @Suppress("UNUSED_PARAMETER") presenceAvailable: Boolean,
+    ): Boolean = false
 
-    /** Inclusive jitter between [FALLBACK_MIN_MS] and [FALLBACK_MAX_MS]. [random01] in 0.0..1.0 */
-    fun nextDelayMs(random01: Double): Long {
-        val t = random01.coerceIn(0.0, 1.0)
-        return FALLBACK_MIN_MS + ((FALLBACK_MAX_MS - FALLBACK_MIN_MS) * t).toLong()
-    }
+    /** Idle gap between connect attempts. [random01] kept for call-site compatibility. */
+    fun nextDelayMs(@Suppress("UNUSED_PARAMETER") random01: Double): Long = INTERVAL_MS
 }

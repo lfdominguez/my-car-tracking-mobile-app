@@ -18,8 +18,9 @@ import java.util.concurrent.Executor
 import java.util.regex.Pattern
 
 /**
- * Arms idle “wait for car” mode: Companion Device presence when possible,
- * otherwise [ObdBleManager.startAutoReconnect] with [IdleReconnectPolicy] delays.
+ * Arms idle connect: [ObdBleManager.startAutoReconnect] every
+ * [IdleReconnectPolicy.INTERVAL_MS], plus an alarm so the process can wake
+ * after the tracking service has stopped. Does not wait for Companion presence.
  */
 object ObdPresenceController {
     private const val TAG = "ObdPresence"
@@ -125,35 +126,22 @@ object ObdPresenceController {
         val presenceAvailable = cdm != null &&
             hasAssociatedDevice(cdm, address)
 
-        val usePresence = IdleReconnectPolicy.shouldUsePresenceObservation(
-            apiLevel = Build.VERSION.SDK_INT,
-            transportIsBle = transportIsBle,
-            hasDeviceAddress = hasAddress,
-            presenceAvailable = presenceAvailable,
+        // Never wait for Companion / scan "device found" — that path stopped the
+        // reconnect loop and required opening the app. Always poll connect.
+        stopObserving(app)
+        Log.i(
+            TAG,
+            "Idle arm: ${IdleReconnectPolicy.INTERVAL_MS / 1000}s connect poll " +
+                "(api=${Build.VERSION.SDK_INT} ble=$transportIsBle addr=$hasAddress " +
+                "assoc=$presenceAvailable)",
         )
-
-        if (usePresence) {
-            ObdBleManager.stopAutoReconnect()
-            val started = startObserving(app, cdm!!, address)
-            if (started) {
-                Log.i(TAG, "Idle arm: CDM presence for $address")
-                return
-            }
-            Log.w(TAG, "Presence observe failed — falling back to reconnect loop")
-        } else {
-            stopObserving(app)
-            Log.i(
-                TAG,
-                "Idle arm: fallback reconnect " +
-                    "(api=${Build.VERSION.SDK_INT} ble=$transportIsBle addr=$hasAddress " +
-                    "assoc=$presenceAvailable)",
-            )
-        }
 
         if (hasAddress) {
             ObdBleManager.startAutoReconnect()
+            ObdIdleConnectScheduler.schedule(app)
         } else {
             ObdBleManager.stopAutoReconnect()
+            ObdIdleConnectScheduler.cancel(app)
         }
     }
 

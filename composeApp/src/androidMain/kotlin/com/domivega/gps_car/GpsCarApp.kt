@@ -11,7 +11,7 @@ class GpsCarApp : Application() {
 
         // Native BLE ELM327 OBD
         ObdBleManager.initialize(this)
-        // Presence wake or cheap fallback — not a 7s reconnect hammer.
+        // Idle 1-minute connect poll (no Companion "wait for device").
         ObdPresenceController.arm(this)
 
         // Auto start/stop tracking based on ECU connectivity

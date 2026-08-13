@@ -525,13 +525,12 @@ object ObdBleManager {
     }
 
     /**
-     * Cheap idle fallback reconnect (jittered 30–45s). Prefer Companion presence via
-     * [ObdPresenceController] when BLE + API 31+ association is available.
+     * Idle reconnect: try connect, then wait [IdleReconnectPolicy.INTERVAL_MS].
      */
     fun startAutoReconnect() {
         ensureInit()
         if (reconnectJob?.isActive == true) return
-        logI("Idle fallback reconnect loop started")
+        logI("Idle reconnect loop started (${IdleReconnectPolicy.INTERVAL_MS / 1000}s)")
         reconnectJob = scope.launch {
             while (isActive) {
                 try {
@@ -546,7 +545,7 @@ object ObdBleManager {
                         !transport.isLinked
 
                     if (canTry) {
-                        logI("Idle fallback reconnect → $address")
+                        logI("Idle reconnect → $address")
                         connect()
                     } else if (!hasConnectPermission() && !address.isNullOrBlank()) {
                         // Avoid spamming; status already set on manual connect.

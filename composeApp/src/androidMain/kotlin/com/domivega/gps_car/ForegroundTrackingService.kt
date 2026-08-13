@@ -74,6 +74,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     private var lastSessionStartAttempt = 0L
     /** Bumped on Stop (and Start) so late GPS/bind coroutines cannot recreate a session. */
     private val collectionEpoch = AtomicLong(0L)
+    /** Invalidates an in-flight shutdown flush so a later START does not get stopSelf(). */
+    private val shutdownEpoch = AtomicLong(0L)
+    private val shuttingDown = AtomicBoolean(false)
 
     private var currentState: TrackingState = TrackingState.WAITING
 
@@ -112,7 +115,10 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             ACTION_START_WAITING -> startWaiting()
             ACTION_START -> startTracking()
             ACTION_STOP -> stopTracking()
-            ACTION_SHUTDOWN -> shutdownService()
+            ACTION_SHUTDOWN -> {
+                shutdownService()
+                return START_NOT_STICKY
+            }
             else -> {
                 // Sticky restart (null intent) or unknown action:
                 // resume TRACKING if a session id is still in prefs.
@@ -129,6 +135,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     private fun startWaiting() {
         Log.d(TAG, "Entering waiting state")
+        cancelPendingShutdown()
         currentState = TrackingState.WAITING
         startForeground(NOTIF_ID, buildNotification("Tracking Paused", TrackingState.WAITING))
         maybeSuggestDisableBatteryOptimization()
@@ -222,6 +229,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             Log.d(TAG, "Already tracking, ignoring start request.")
             return
         }
+        cancelPendingShutdown()
         // New collection generation so work from a prior trip cannot resume.
         val epoch = collectionEpoch.incrementAndGet()
         currentState = TrackingState.TRACKING
@@ -305,11 +313,14 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
             val hasGoodAccuracy = accMeters <= maxAccurancyMetters
             if (!hasGoodAccuracy) {
-                updateNotification("Waiting for GPS accuracy… (${accMeters.toInt()} m)", TrackingState.TRACKING)
+                updateLiveTrackingNotification(
+                    "Waiting for GPS accuracy… (${accMeters.toInt()} m)",
+                    epochAtStart,
+                )
                 return@launch
             }
 
-            updateNotification("Tracking started", TrackingState.TRACKING)
+            updateLiveTrackingNotification("Tracking started", epochAtStart)
 
             // Snapshot latest OBD metrics (updated independently at max BLE rate).
             val pidValues = ObdBleManager.pidValues.value
@@ -375,7 +386,10 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             runCatching { queueRepo.enqueue(enqueueId, sample) }
                 .onFailure { Log.e(TAG, "Failed to enqueue sample", it) }
 
-            updateNotification("Running: v=${"%1$.1f".format(speedMps)} m/s a=${"%1$.2f".format(accMag)} m/s²", TrackingState.TRACKING)
+            updateLiveTrackingNotification(
+                "Running: v=${"%1$.1f".format(speedMps)} m/s a=${"%1$.2f".format(accMag)} m/s²",
+                epochAtStart,
+            )
         }
     }
 
@@ -429,10 +443,14 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     private fun shutdownService() {
         Log.d(TAG, "Shutting down service.")
+        val myShutdown = shutdownEpoch.incrementAndGet()
+        shuttingDown.set(true)
         val idToStop = stopTrackingInternal(updateWaitingNotification = false)
         if (idToStop != null) {
             rememberPendingStop(idToStop)
         }
+        // Drop the "Running v=…" banner immediately — do not wait for leftover flush.
+        stopForeground(STOP_FOREGROUND_REMOVE)
         // Keep service alive until bounded flush completes, then stopSelf.
         serviceScope.launch(Dispatchers.IO) {
             try {
@@ -441,11 +459,18 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             } finally {
                 SampleUploadScheduler.enqueue(this@ForegroundTrackingService)
                 withContext(Dispatchers.Main) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                    if (shutdownEpoch.get() == myShutdown && shuttingDown.get()) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }
                 }
             }
         }
+    }
+
+    private fun cancelPendingShutdown() {
+        shuttingDown.set(false)
+        shutdownEpoch.incrementAndGet()
     }
 
     private fun rememberPendingStop(trackingId: String) {
@@ -585,7 +610,21 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         runCatching { nm.cancel(ALERT_NOTIF_ID) }
     }
 
+    private fun updateLiveTrackingNotification(text: String, epochAtStart: Long) {
+        if (!TrackingNotificationGate.shouldPublishLiveTrackingStatus(
+                isTracking = currentState == TrackingState.TRACKING,
+                shuttingDown = shuttingDown.get(),
+                epochAtStart = epochAtStart,
+                currentEpoch = collectionEpoch.get(),
+            )
+        ) {
+            return
+        }
+        updateNotification(text, TrackingState.TRACKING)
+    }
+
     private fun updateNotification(text: String, state: TrackingState) {
+        if (shuttingDown.get() && state == TrackingState.TRACKING) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIF_ID, buildNotification(text, state))
     }

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.domivega.gps_car.obd.ObdBleManager
+import com.domivega.gps_car.obd.ObdIdleConnectScheduler
 import com.domivega.gps_car.obd.ObdPresenceController
 
 /**
@@ -16,12 +17,16 @@ class ServiceControlReceiver : BroadcastReceiver() {
             ForegroundTrackingService.ACTION_START -> context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START)
             ForegroundTrackingService.ACTION_STOP -> context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_STOP)
             ForegroundTrackingService.ACTION_SHUTDOWN -> context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_SHUTDOWN)
+            ObdIdleConnectScheduler.ACTION -> {
+                ObdBleManager.initialize(context.applicationContext)
+                ObdPresenceController.arm(context.applicationContext)
+            }
 
             "android.intent.action.BOOT_COMPLETED",
             "android.intent.action.QUICKBOOT_POWERON",
             "com.htc.intent.action.QUICKBOOT_POWERON",
             "android.intent.action.MY_PACKAGE_REPLACED" -> {
-                // Re-arm idle OBD wait (presence or cheap fallback). Do not start forever WAITING FGS.
+                // Re-arm idle 1-minute connect poll. Do not start forever WAITING FGS.
                 ObdBleManager.initialize(context.applicationContext)
                 ObdPresenceController.arm(context.applicationContext)
             }
