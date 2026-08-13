@@ -23,7 +23,7 @@ Binaries: https://github.com/lfdominguez/my-car-tracking-mobile-app/releases/dow
 Builds:
   - versionName: '1.0'
     versionCode: 1
-    commit: PLACEHOLDER_FULL_COMMIT
+    commit: 166097568c132a9e0089331d146282fdc55c5038
     subdir: composeApp
     sudo:
       - apt-get update
