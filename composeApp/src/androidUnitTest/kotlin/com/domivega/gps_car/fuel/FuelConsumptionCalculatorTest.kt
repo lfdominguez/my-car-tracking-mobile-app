@@ -152,4 +152,108 @@ class FuelConsumptionCalculatorTest {
         assertEquals(1.3, FuelConsumptionCalculator.trimFactor(25.0, 25.0), 1e-9)
         assertEquals(0.7, FuelConsumptionCalculator.trimFactor(-25.0, -25.0), 1e-9)
     }
+
+    private val corollaConfig = FuelCalcConfig(
+        stoichAfr = 14.08,
+        densityGl = 740.0,
+        displacementL = 2.0,
+        ve = 0.85,
+    )
+
+    @Test
+    fun `peak air mass at idle rpm matches atmospheric 100pct VE`() {
+        // 2.0 L × 650 rpm × 1.184 / 120
+        val peak = FuelConsumptionCalculator.peakAirMassGs(2.0, 650.0)!!
+        assertEquals(2.0 * 650.0 * 1.184 / 120.0, peak, 1e-9)
+    }
+
+    @Test
+    fun `rejects peak-air idle MAF and uses max-plausible idle bound`() {
+        // Trip 079acb97: stopped ~650 rpm, MAF ~13.68 g/s ≈ peak air (not real idle).
+        val maf = 13.68
+        val rpm = 650.0
+        val peak = FuelConsumptionCalculator.peakAirMassGs(2.0, rpm)!!
+        assertTrue(maf >= peak * 0.70)
+
+        val air = FuelConsumptionCalculator.airMassGs(
+            corollaConfig,
+            FuelCalcSensors(mafGs = maf, rpm = rpm, speedKph = 0.0),
+        )!!
+        val expect = peak * corollaConfig.ve * FuelConsumptionCalculator.IDLE_MAP_FRACTION
+        assertEquals(expect, air, 1e-9)
+        assertTrue(air in 1.4..1.7)
+
+        val lh = FuelConsumptionCalculator.litersPerHour(
+            corollaConfig,
+            FuelCalcSensors(mafGs = maf, rpm = rpm, speedKph = 0.0, lambda = 1.0),
+        )!!
+        // ~0.52 L/h bound — not the bogus ~4.7 L/h
+        assertTrue(lh < 0.7 && lh > 0.4)
+        assertTrue(
+            !FuelConsumptionCalculator.isTrustedSensorMaf(
+                corollaConfig,
+                FuelCalcSensors(mafGs = maf, rpm = rpm, speedKph = 0.0),
+            ),
+        )
+    }
+
+    @Test
+    fun `keeps realistic idle MAF from sister corolla trip`() {
+        // c4c7335b: ~2.86 g/s idle is already plausible vs peak ~14 g/s.
+        val air = FuelConsumptionCalculator.airMassGs(
+            corollaConfig,
+            FuelCalcSensors(mafGs = 2.86, rpm = 737.0, speedKph = 0.0),
+        )!!
+        assertEquals(2.86, air, 1e-9)
+        assertTrue(
+            FuelConsumptionCalculator.isTrustedSensorMaf(
+                corollaConfig,
+                FuelCalcSensors(mafGs = 2.86, rpm = 737.0, speedKph = 0.0),
+            ),
+        )
+    }
+
+    @Test
+    fun `does not sanitize peak-like MAF while moving`() {
+        val air = FuelConsumptionCalculator.airMassGs(
+            corollaConfig,
+            FuelCalcSensors(mafGs = 13.68, rpm = 650.0, speedKph = 30.0),
+        )!!
+        assertEquals(13.68, air, 1e-9)
+    }
+
+    @Test
+    fun `peak-air idle prefers MAP estimate over idle bound when MAP present`() {
+        val mapAir = FuelConsumptionCalculator.airMassGs(
+            corollaConfig,
+            FuelCalcSensors(
+                mafGs = null,
+                mapKpa = 30.0,
+                rpm = 650.0,
+                iatC = 25.0,
+            ),
+        )!!
+        val air = FuelConsumptionCalculator.airMassGs(
+            corollaConfig,
+            FuelCalcSensors(
+                mafGs = 13.68,
+                mapKpa = 30.0,
+                rpm = 650.0,
+                iatC = 25.0,
+                speedKph = 0.0,
+            ),
+        )!!
+        assertEquals(mapAir, air, 1e-9)
+        assertTrue(air < 5.0)
+    }
+
+    @Test
+    fun `null speed treated as stopped for idle peak-air detect`() {
+        val peak = FuelConsumptionCalculator.peakAirMassGs(2.0, 650.0)!!
+        val air = FuelConsumptionCalculator.airMassGs(
+            corollaConfig,
+            FuelCalcSensors(mafGs = 13.68, rpm = 650.0, speedKph = null),
+        )!!
+        assertEquals(peak * 0.85 * FuelConsumptionCalculator.IDLE_MAP_FRACTION, air, 1e-9)
+    }
 }

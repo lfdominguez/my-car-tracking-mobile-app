@@ -33,7 +33,7 @@
 | 🚦 **ECU-driven session** | Tracking starts when the ECU responds and stops when it drops |
 | ⚡ **Prioritized PID poll** | Hot PIDs (RPM, speed, load, MAF, …) every round; slow PIDs every 5th round at max adapter rate |
 | 📬 **Durable send queue** | Room-backed pending samples; ~60 s batch flush with retry / backoff |
-| ⛽ **Vehicle & fuel math** | Presets (E0/E10/E27/E100/Custom), AFR, density, displacement, VE → estimated L/h from MAF + λ (MAP fallback) |
+| ⛽ **Vehicle & fuel math** | Presets (E0/E10/E27/E100/Custom), AFR, density, displacement, VE → estimated L/h from MAF + λ (MAP fallback; peak-air idle MAF sanitized) |
 | 🧪 **OBD debug log** | Init steps, BLE lifecycle, errors (Debug tab) — not full successful TX/RX spam |
 | 📊 **Dashboard** | Live gauges and metrics while tracking |
 | 📱 **QR bootstrap** | Scan platform provisioning QR for token, track URLs, fuel/engine, optional car name |
