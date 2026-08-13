@@ -50,7 +50,7 @@ devenv shell -- ./gradlew :composeApp:compileDebugKotlinAndroid
 - **GPS** (~1 Hz) only **snapshots** latest `pidValues`; never block samples on BLE.
 - **Queue**: enqueue on accept; flusher batch-posts `/samples`; mark sent only after success.
 - **ECU auto tracking**: connect/responding → start; drop → stop (unless product decision changes).
-- **Fuel L/h** (`ff125a`): `FuelConsumptionCalculator` + settings (not a fixed ×0.339 gasoline hack).
+- **Fuel L/h** (`ff125a`): `FuelConsumptionCalculator` + settings (not a fixed ×0.339 gasoline hack). Rejects peak-air idle MAF (`peak×VE×0.14` bound; MAP preferred when present).
 - **OBD debug log**: errors + init/lifecycle; not full successful PID TX/RX spam.
 
 ## Settings surface

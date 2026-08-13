@@ -981,15 +981,17 @@ object ObdBleManager {
             stftPct = into["06"],
             ltftPct = into["07"],
             ecuFuelRateLh = into["5e"],
+            speedKph = into["0d"],
         )
-        // When ECU has no PID 0x10 MAF, still publish air mass from MAP path for samples/UI.
-        if (into["10"] == null) {
-            val estimated = FuelConsumptionCalculator.airMassGs(
-                config,
-                sensors.copy(mafGs = null),
-            )
+        // Publish estimated air mass when ECU has no MAF, or MAF is peak-air idle fraud.
+        // Samples prefer ESTIMATED_MAF_KEY over raw PID 0x10 so stored mass_air_flow is sane.
+        val trustedMaf = FuelConsumptionCalculator.isTrustedSensorMaf(config, sensors)
+        if (!trustedMaf) {
+            val estimated = FuelConsumptionCalculator.airMassGs(config, sensors)
             if (estimated != null && isValidPidValue(ESTIMATED_MAF_KEY, estimated)) {
                 into[ESTIMATED_MAF_KEY] = estimated
+            } else {
+                into.remove(ESTIMATED_MAF_KEY)
             }
         } else {
             into.remove(ESTIMATED_MAF_KEY)

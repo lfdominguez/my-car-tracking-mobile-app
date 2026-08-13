@@ -376,8 +376,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 manifoldAbsolutePressureKpa = pidValues["0b"],
                 controlModuleVoltage = pidValues["42"],
                 engineOnTime = pidValues["1f"],
-                massAirFlow = pidValues["10"]
-                    ?: pidValues[ObdBleManager.ESTIMATED_MAF_KEY],
+                // Prefer estimated when peak-air idle MAF was replaced (or no PID 0x10).
+                massAirFlow = pidValues[ObdBleManager.ESTIMATED_MAF_KEY]
+                    ?: pidValues["10"],
                 lambdaCmd = pidValues["44"],
                 atmosphericPressure = pidValues["33"],
                 intakeAirTemperature = pidValues["0f"],
