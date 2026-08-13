@@ -45,6 +45,7 @@ ls composeApp/build/outputs/apk/release/
   - `keystore.properties` at the repo root (gitignored)
 - Publish: `com.domivega.gps_car_<versionCode>.apk` on tag `v<versionName>` (see recipe `Binaries` / `AllowedAPKSigningKeys`).
 - `full_description.txt` must be **HTML** (not Markdown) for F-Droid.
+- Release APKs must set `dependenciesInfo { includeInApk = false; includeInBundle = false }` (no AGP **Dependency metadata** signing block).
 
 ## 3. Fork fdroiddata and add metadata
 
