@@ -2,6 +2,9 @@
 
 This repo is prepared for inclusion in the main [F-Droid](https://f-droid.org) repository. Official listing still requires a merge request against [fdroiddata](https://gitlab.com/fdroid/fdroiddata).
 
+**First inclusion MR:** https://gitlab.com/fdroid/fdroiddata/-/merge_requests/45659  
+**First release tag:** `v1.0` (`versionName` 1.0 / `versionCode` 1)
+
 ## Prerequisites (already done in-app)
 
 | Check | Status |
@@ -83,11 +86,28 @@ fastlane/metadata/android/en-US/
 
 Add a new `changelogs/<versionCode>.txt` for every bump. Screenshots help review but are not mandatory for a first MR.
 
-## 5. After inclusion
+## 5. After inclusion (later releases)
 
-- Bump `versionCode` + `versionName` in Gradle for each release  
-- Tag (`v1.1`, …) and push  
-- With `UpdateCheckMode: Tags`, F-Droid can pick up new tags; you may still need recipe tweaks for major Gradle/AGP jumps  
+For each new version **after** the app is listed, you normally do **not** open a new fdroiddata MR:
+
+1. Bump `versionCode` + `versionName` in `composeApp/build.gradle.kts` (monotonic `versionCode`).
+2. Add Fastlane notes: `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`.
+3. Merge to `main`, then tag and push:
+
+   ```bash
+   git tag -a v1.1 -m "Release 1.1"
+   git push origin v1.1
+   ```
+
+4. Rely on the recipe’s `UpdateCheckMode: Tags` and `UpdateCheckData` (parses Gradle versions). F-Droid’s updater should propose/build the new tag.
+
+Open a **metadata follow-up MR** only if the build recipe breaks, for example:
+
+- Gradle module rename or release APK `output` path change
+- JDK / AGP requirements that need different `sudo` or build flags
+- New non-free deps or scan issues needing `scanignore` / recipe changes
+
+Keep `docs/fdroid/com.domivega.gps_car.yml` in sync when you change the live recipe so the next edit starts from a known-good file.
 
 ## Related links
 

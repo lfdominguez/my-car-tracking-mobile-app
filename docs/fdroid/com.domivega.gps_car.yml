@@ -1,6 +1,7 @@
-# Draft fdroiddata metadata for GPS Car Tracking.
-# Copy to: fdroiddata/metadata/com.domivega.gps_car.yml
-# Then set Builds[].commit to a signed release tag (e.g. v1.0) that exists on GitHub.
+# fdroiddata metadata for GPS Car Tracking (draft mirror of submitted recipe).
+# Submitted MR: https://gitlab.com/fdroid/fdroiddata/-/merge_requests/45659
+# Copy path for updates: fdroiddata/metadata/com.domivega.gps_car.yml
+# Builds[].commit is the published release tag on GitHub.
 #
 # applicationId / package: com.domivega.gps_car
 # Upstream Fastlane: fastlane/metadata/android/en-US/
@@ -26,7 +27,7 @@ Repo: https://github.com/lfdominguez/my-car-tracking-mobile-app.git
 Builds:
   - versionName: "1.0"
     versionCode: 1
-    # REPLACE with the git tag of the release you submit (must match versionName/versionCode in composeApp).
+    # Release tag must match versionName/versionCode in composeApp/build.gradle.kts.
     commit: v1.0
     sudo:
       - apt-get update
