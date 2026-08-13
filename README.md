@@ -1,107 +1,188 @@
-# GPS Car Tracking
+<div align="center">
 
-Android (Kotlin Multiplatform / Compose) app that records **GPS tracks** enriched with **live OBD-II metrics** from an ELM327 adapter (BLE GATT or Classic Bluetooth SPP), queues samples offline, and uploads them in batches to your own backend.
+# 📍 GPS Car Tracking
+
+### Android telemetry client · GPS + OBD-II · offline queue · your backend
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+[![Kotlin](https://img.shields.io/badge/Kotlin-Multiplatform-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
+[![Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4.svg?style=for-the-badge&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![JDK](https://img.shields.io/badge/JDK-21-007396.svg?style=for-the-badge&logo=openjdk&logoColor=white)](https://openjdk.org/)
+[![F-Droid](https://img.shields.io/badge/F--Droid-ready-1976D2.svg?style=for-the-badge&logo=f-droid&logoColor=white)](docs/fdroid/)
+
+**Phone GPS and live ELM327 metrics → Room queue → batch upload to a server you control.**
+
+🛰️ ~1 Hz GPS snapshots · 🔌 BLE or Classic SPP OBD · 📦 durable offline queue · 🔓 MIT · no GMS
+
+<br/>
+
+| 📡 **Capture** | 🔧 **OBD** | 📤 **Upload** | 🏠 **Own it** |
+|:---:|:---:|:---:|:---:|
+| Foreground GPS + session | Hot/slow PID poll | Room queue + batch POST | Self-host or any compatible API |
+
+</div>
+
+---
+
+## ✨ Features
+
+| | |
+|:---|:---|
+| 🔔 **Foreground tracking** | Continuous platform location (system fused on Android 12+, else GPS) with notification controls |
+| 📶 **Native OBD** | ELM327 over **BLE GATT** (default) or **Classic Bluetooth SPP**; selectable protocol (default ISO 15765-4 CAN 11-bit 500 kbaud); auto-reconnect |
+| 🚦 **ECU-driven session** | Tracking starts when the ECU responds and stops when it drops |
+| ⚡ **Prioritized PID poll** | Hot PIDs (RPM, speed, load, MAF, …) every round; slow PIDs every 5th round at max adapter rate |
+| 📬 **Durable send queue** | Room-backed pending samples; ~60 s batch flush with retry / backoff |
+| ⛽ **Vehicle & fuel math** | Presets (E0/E10/E27/E100/Custom), AFR, density, displacement, VE → estimated L/h from MAF + λ (MAP fallback) |
+| 🧪 **OBD debug log** | Init steps, BLE lifecycle, errors (Debug tab) — not full successful TX/RX spam |
+| 📊 **Dashboard** | Live gauges and metrics while tracking |
+| 📱 **QR bootstrap** | Scan platform provisioning QR for token, track URLs, fuel/engine, optional car name |
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart TD
+    GPS[Platform GPS ~1Hz] -->|snapshot| Svc[ForegroundTrackingService]
+    OBD[ELM327 BLE or SPP] -->|pidValues| Svc
+    Svc -->|enqueue| Queue[(Room pending samples)]
+    Queue -->|batch POST| API[ApiClient OkHttp]
+    API -->|Basic device token| Backend[car-tracking-platform or compatible]
+    UI[Compose UI] --> Settings[AppSettings]
+    Settings --> Svc
+    Settings --> OBD
+    Settings --> API
+```
 
 ```text
 Phone GPS (~1 Hz)  ──►  sample + latest OBD snapshot  ──►  local queue  ──►  batch HTTP API
 OBD (BLE or SPP)  ──►  pidValues (hot/slow PIDs)  ──────┘
 ```
 
-### Features
+| Layer | Role |
+|:------|:-----|
+| `ForegroundTrackingService` | GPS fixes, build samples, enqueue, session start/stop |
+| `ObdBleManager` | ELM session (GATT or RFCOMM), PID poll, `pidValues` / `ecuConnected` |
+| `SampleQueueRepository` + `SampleQueueUploader` | Persist unsent rows; batch POST |
+| `ApiClient` | OkHttp `start` / `stop` / `sample` / `samples` |
+| `AppSettings` | SharedPreferences (URLs, token, BLE, protocol, fuel) |
+| Compose UI | Dashboard, Settings, Debug console, About |
 
-- **Foreground tracking service** — continuous platform location (system fused on Android 12+, else GPS) with notification controls
-- **Native OBD (BLE + Classic SPP)** — ELM327 AT init over BLE GATT (default) or Classic RFCOMM; selectable protocol (default ISO 15765-4 CAN 11-bit 500 kbaud); auto-reconnect to last adapter
-- **ECU-driven session** — tracking starts/stops with ECU connectivity
-- **Prioritized OBD polling** — hot PIDs (RPM, speed, load, MAF, …) every round; slow PIDs every 5th round at max BLE rate
-- **Durable send queue** — Room-backed pending samples; ~60s batch flush with retry/backoff
-- **Vehicle & fuel settings** — fuel preset (E0/E10/E27/E100/Custom), AFR, density, displacement, VE → estimated L/h from MAF + λ (MAP fallback)
-- **In-app OBD debug log** — init steps, BLE lifecycle, errors (Debug tab)
-- **Dashboard** — gauges and live metrics
+```text
+GPSCarTracking/
+├── composeApp/
+│   ├── src/androidMain/      # 🤖 service · OBD BLE/SPP · Room queue · API
+│   ├── src/commonMain/       # ✨ Compose UI · fuel math · shared models
+│   └── src/androidUnitTest/  # 🧪 JUnit
+├── fastlane/metadata/        # 🏪 F-Droid / store text
+├── docs/fdroid/              # 📦 recipe draft + submission notes
+├── docs/plans/               # 📝 design notes
+└── devenv.nix                # 🧰 JDK 21 + Android SDK shell
+```
 
-### Requirements
+Design notes for recent work live under [`docs/plans/`](docs/plans/).
+
+---
+
+## 📋 Requirements
 
 | Item | Notes |
-|------|--------|
-| Android device | BLE + location; Android 8+ recommended |
-| JDK | **21** (see `devenv.nix` / `JAVA_HOME`) |
-| Android SDK | Via Android Studio or [devenv](https://devenv.sh) |
-| OBD adapter | ELM327-compatible **BLE** (GATT UART) and/or **Classic Bluetooth SPP** (RFCOMM). Dual-mode sticks: pick transport in Settings. |
-| Backend | Rust **car-tracking-platform** (or any wire-compatible `/api/track/*` API). Provision via web QR. |
+|:-----|:------|
+| 📱 **Android device** | BLE + location; Android 8+ recommended |
+| ☕ **JDK** | **21** (see `devenv.nix` / `JAVA_HOME`) |
+| 🛠️ **Android SDK** | Android Studio or [devenv](https://devenv.sh) |
+| 🔌 **OBD adapter** | ELM327-compatible **BLE** and/or **Classic SPP**. Dual-mode sticks: pick transport in Settings |
+| 🖥️ **Backend** | [my-car-tracking-platform](https://github.com/lfdominguez/my-car-tracking-platform) or any wire-compatible `/api/track/*` API |
 
-### Quick start
+---
+
+## 🚀 Quick start
+
+### 1️⃣ Dev shell & SDK path
 
 ```bash
 # Optional: reproducible shell (Nix + devenv)
 devenv shell
 
-cp local.properties.example local.properties   # or create manually
+cp local.properties.example local.properties
 # local.properties:
 #   sdk.dir=/path/to/Android/Sdk
+```
 
+### 2️⃣ Build & install
+
+```bash
 ./gradlew :composeApp:assembleDebug
 # APK: composeApp/build/outputs/apk/debug/composeApp-debug.apk
 ```
 
-Install the debug APK, open **Settings**, and configure the backend:
+### 3️⃣ Configure in the app
 
-1. **Preferred:** on the web platform, create a car → create a **device** → scan the **QR** (token, track URLs, fuel/engine, optional car name)
-2. Or set manually: **API token** (raw device token for `Authorization: Basic <token>`), plus absolute `/api/track/start|stop|sample|samples` URLs
-3. Tap **Test connection** — hits public `/health`, then a short start/stop smoke with your device token
-4. **Bluetooth transport** — **BLE (GATT)** default, or **Classic Bluetooth (SPP)** for RFCOMM “OBDII” sticks. Classic: pair in system Bluetooth first (PIN often `1234`/`0000`), fully quit Torque/other OBD apps, then Scan.
+Install the debug APK, open **Settings**, then:
+
+1. **Preferred:** on the web platform → car → **device** → scan the **QR** (token, track URLs, fuel/engine, optional car name)
+2. **Or manual:** **API token** (raw device token for `Authorization: Basic <token>`) + absolute `/api/track/start|stop|sample|samples` URLs
+3. Tap **Test connection** — public `/health`, then a short start/stop smoke with your device token
+4. **Bluetooth transport** — **BLE (GATT)** default, or **Classic SPP** for RFCOMM “OBDII” sticks  
+   Classic: pair in system Bluetooth first (PIN often `1234` / `0000`), fully quit Torque/other OBD apps, then Scan
 5. **Adapter** — scan, select, save (auto-reconnect next time)
 6. **OBD protocol** — leave default CAN 11/500 unless your car needs another
 7. **Vehicle & fuel** — usually filled from QR; adjust if needed
 
 Grant **location (always)** and **Bluetooth** permissions when prompted.
 
-### Rust platform notes
+---
+
+## 🔐 Configuration & secrets
+
+**Never commit real tokens, private hostnames, or `local.properties`.**
+
+| Setting | Public default |
+|:--------|:---------------|
+| API token | empty — set in-app |
+| API URLs | `https://YOUR_SERVER.example/api/track/...` |
+| `local.properties` | gitignored (`sdk.dir`) |
+| BLE MAC | on-device only |
+
+If a credential was ever committed, **rotate it on the server** and consider rewriting history so the old blob is unreachable.
+
+---
+
+## 📡 Backend contract
+
+Companion platform: [my-car-tracking-platform](https://github.com/lfdominguez/my-car-tracking-platform) · optional hosted instance: [mycar.domivega.com](https://mycar.domivega.com) (user-configured only).
+
+| Method | Path | Notes |
+|:-------|:-----|:------|
+| `POST` | `…/start` | Body `{ "timestamp_start": "<RFC3339>" }` · tracking id from JSON `id` if present, else client millis string |
+| `POST` | `…/stop` | `{ "id": "<tracking_id>" }` |
+| `POST` | `…/sample` | Single sample (legacy) |
+| `POST` | `…/samples` | `{ "samples": [ … ] }` batch (**preferred**) |
+| `GET` / `HEAD` | `/health` | Public probe used by **Test connection** |
+
+Header: `Authorization: Basic <device_token>` (plaintext device token from the web platform).
+
+OBD metric fields may be missing — backends should treat them as optional so GPS-only or partial OBD points are kept.
+
+<details>
+<summary>🦀 Rust platform notes</summary>
 
 - Start body sends `timestamp_start` as an **ISO-8601 / RFC3339** instant (not a raw millis number).
 - If start returns an empty body (current Rust API), the app uses the client epoch-millis string as `tracking_id` so samples still attach.
 - Platform QR JSON is camelCase (`apiToken`, `startUrl`, `fuelType`, `carId`, `carName`, …); unknown keys are ignored.
 
-### Architecture (high level)
+</details>
 
-| Layer | Role |
-|-------|------|
-| `ForegroundTrackingService` | GPS fixes, build samples, enqueue, session start/stop |
-| `ObdBleManager` | ELM session (BLE GATT or Classic SPP transport), PID poll, `pidValues` / `ecuConnected` |
-| `SampleQueueRepository` + `SampleQueueUploader` | Persist unsent rows; batch POST |
-| `ApiClient` | OkHttp start/stop/sample/samples |
-| `AppSettings` | SharedPreferences (URLs, token, BLE, protocol, fuel) |
-| Compose UI | Dashboard, Settings, Debug console, About |
+---
 
-Design notes for recent work live under [`docs/plans/`](docs/plans/).
-
-### Backend contract (summary)
-
-- `POST .../start` with `{ "timestamp_start": "<RFC3339>" }` — tracking id from JSON `id` if present, else client millis string  
-- `POST .../stop` with `{ "id": "<tracking_id>" }`  
-- `POST .../sample` — single sample (legacy)  
-- `POST .../samples` — `{ "samples": [ ... ] }` batch (preferred by the app)  
-- Auth: `Authorization: Basic <device_token>` (plaintext device token from the web platform)  
-- `GET /health` — public probe used by **Test connection**
-
-Metric fields from OBD may be missing; the backend should treat them as optional so GPS-only or partial OBD points are not dropped.
-
-### Configuration & secrets
-
-**Never commit real tokens, server hostnames you want private, or `local.properties`.**
-
-| File / setting | Public default |
-|----------------|----------------|
-| API token | empty — set in app Settings |
-| API URLs | `https://YOUR_SERVER.example/api/track/...` |
-| `local.properties` | gitignored (`sdk.dir`) |
-| BLE MAC | stored on device only |
-
-If a credential was ever committed historically, **rotate it on the server** before going public and consider rewriting git history (`git filter-repo`) so the old blob is not reachable.
-
-### Development
+## 🧰 Development
 
 ```bash
 ./gradlew :composeApp:testDebugUnitTest
 ./gradlew :composeApp:assembleDebug
+./gradlew :composeApp:assembleRelease
+# release: composeApp/build/outputs/apk/release/composeApp-release-unsigned.apk
 ```
 
 With devenv:
@@ -112,41 +193,43 @@ devenv shell -- ./gradlew :composeApp:testDebugUnitTest
 
 See **[AGENTS.md](AGENTS.md)** for conventions when contributing with AI coding agents.
 
-### Project layout
+---
 
-```text
-composeApp/
-  src/androidMain/   # Android service, OBD BLE/SPP, Room queue, API
-  src/commonMain/    # Compose UI, fuel math, shared models
-  src/androidUnitTest/
-docs/plans/          # Design & implementation notes
-devenv.nix           # Dev shell (JDK 21 + Android SDK)
-```
+## 📦 F-Droid / free builds
 
-### F-Droid / free builds
+Built to stay **F-Droid-friendly**:
 
-The app is intended to be **F-Droid-compatible**:
+| Check | Status |
+|:------|:-------|
+| License | **MIT** ([`LICENSE`](LICENSE)) |
+| Play Services / Firebase | **None** — platform `LocationManager` / system fused on 12+ |
+| Ads / crash SDKs | **None** |
+| Build-time secrets | **None** — token & URLs in Settings |
+| Store text | [`fastlane/metadata/android/en-US/`](fastlane/metadata/android/en-US/) |
+| Recipe + steps | [`docs/fdroid/`](docs/fdroid/) · [fdroiddata MR](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/45659) |
 
-- **MIT** license (`LICENSE`)
-- **No Google Play Services** location (platform `LocationManager` / system fused on Android 12+)
-- **No** Firebase, ads, or crash-analytics SDKs
-- Build needs only the Android SDK + JDK 21 — no API keys at compile time
-- Store listing text lives in [`fastlane/metadata/android/en-US/`](fastlane/metadata/android/en-US/)
-- Draft [fdroiddata](https://gitlab.com/fdroid/fdroiddata) recipe + submission steps: [`docs/fdroid/`](docs/fdroid/)
+Package id: `com.domivega.gps_car` · first tag: `v1.0`.
 
-**Backend:** self-host the companion platform ([my-car-tracking-platform](https://github.com/lfdominguez/my-car-tracking-platform)), point Settings at any compatible API, or optionally use the free instance at [mycar.domivega.com](https://mycar.domivega.com). Nothing is hard-wired as a required proprietary cloud.
+F-Droid signs its own builds; ship the **unsigned** release APK path only.
 
-Release APK (unsigned; F-Droid signs its own builds):
+---
 
-```bash
-./gradlew :composeApp:assembleRelease
-# composeApp/build/outputs/apk/release/composeApp-release-unsigned.apk
-```
+## ⚠️ Disclaimer
 
-### License
+OBD fuel rate is **estimated** unless you extend the stack to prefer ECU PIDs such as `01 5E`. Use at your own risk; **do not interact with the phone while driving**.
 
-MIT — see [LICENSE](LICENSE).
+---
 
-### Disclaimer
+<div align="center">
 
-OBD fuel rate is **estimated** unless you extend the stack to prefer ECU PIDs such as `01 5E`. Use at your own risk; do not interact with the phone while driving.
+## 📜 License
+
+**[MIT License](LICENSE)** · `MIT`
+
+<br/>
+
+**Kotlin · Compose · your car · your server**
+
+`⭐` If this helps your garage — star the repo
+
+</div>
