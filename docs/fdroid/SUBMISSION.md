@@ -37,10 +37,14 @@ Ensure the tag’s `versionCode` / `versionName` match the draft YAML (`CurrentV
 # JDK 21 recommended (see devenv.nix)
 ./gradlew :composeApp:assembleRelease :composeApp:testDebugUnitTest
 ls composeApp/build/outputs/apk/release/
-# expect: composeApp-release-unsigned.apk (F-Droid will sign)
 ```
 
-No keystore is required for F-Droid builds.
+- **F-Droid CI** builds an **unsigned** APK (`composeApp-release-unsigned.apk`) when no keystore props are present.
+- **Reproducible builds** need a **developer-signed** APK on GitHub Releases matching that build. Optional local signing reads (never commit these):
+  - `~/.config/gps-car-tracking/keystore.properties` + `release.jks`, or
+  - `keystore.properties` at the repo root (gitignored)
+- Publish: `com.domivega.gps_car_<versionCode>.apk` on tag `v<versionName>` (see recipe `Binaries` / `AllowedAPKSigningKeys`).
+- `full_description.txt` must be **HTML** (not Markdown) for F-Droid.
 
 ## 3. Fork fdroiddata and add metadata
 
@@ -53,9 +57,10 @@ No keystore is required for F-Droid builds.
    ```
 
 3. Edit the copy:
-   - Set `Builds[0].commit` to the **exact tag or commit** you published (`v1.0`)
+   - Set `Builds[0].commit` to the **full 40-char commit hash** of the release (not the `v1.0` tag name)
    - Align `versionName` / `versionCode` / `CurrentVersion*` with that tag
-   - Drop or adjust `sudo` / `rm` / `scanignore` if reviewers prefer leaner recipes
+   - Keep `Binaries` + `AllowedAPKSigningKeys` for reproducible builds
+   - Drop or adjust `sudo` / `rm` if reviewers prefer leaner recipes
 4. Optional local checks (if you install [fdroidserver](https://gitlab.com/fdroid/fdroidserver)):
 
    ```bash

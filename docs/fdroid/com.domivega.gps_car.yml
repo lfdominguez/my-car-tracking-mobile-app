@@ -1,11 +1,12 @@
 # fdroiddata metadata for GPS Car Tracking (draft mirror of submitted recipe).
 # Submitted MR: https://gitlab.com/fdroid/fdroiddata/-/merge_requests/45659
 # Copy path for updates: fdroiddata/metadata/com.domivega.gps_car.yml
-# Builds[].commit is the published release tag on GitHub.
+# Builds[].commit must be the full git commit hash of the release tag.
 #
 # applicationId / package: com.domivega.gps_car
-# Upstream Fastlane: fastlane/metadata/android/en-US/
+# Upstream Fastlane: fastlane/metadata/android/en-US/ (full_description is HTML)
 # gradle "yes" + subdir composeApp → assembleRelease (not a flavor named composeApp).
+# Reproducible builds: Binaries points at GitHub Releases; AllowedAPKSigningKeys is cert SHA-256.
 
 Categories:
   - Connectivity
@@ -17,11 +18,12 @@ IssueTracker: https://github.com/lfdominguez/my-car-tracking-mobile-app/issues
 
 RepoType: git
 Repo: https://github.com/lfdominguez/my-car-tracking-mobile-app.git
+Binaries: https://github.com/lfdominguez/my-car-tracking-mobile-app/releases/download/v%v/com.domivega.gps_car_%c.apk
 
 Builds:
   - versionName: '1.0'
     versionCode: 1
-    commit: v1.0
+    commit: PLACEHOLDER_FULL_COMMIT
     subdir: composeApp
     sudo:
       - apt-get update
@@ -34,6 +36,8 @@ Builds:
       - devenv.nix
       - devenv.yaml
       - devenv.lock
+
+AllowedAPKSigningKeys: 99b333a9c90167524c05aec416e712e83285df80fa01e2e49eb318b1f2b1cee1
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags

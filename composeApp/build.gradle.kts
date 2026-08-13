@@ -1,5 +1,6 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -9,6 +10,22 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.ksp)
 }
+
+// Optional release signing for GitHub/F-Droid reproducible builds.
+// Never commit keystore files or passwords. Defaults (F-Droid CI): unsigned release APK.
+val releaseSigningProps = Properties().apply {
+    val candidates = listOf(
+        rootProject.file("keystore.properties"),
+        file("${System.getProperty("user.home")}/.config/gps-car-tracking/keystore.properties"),
+    )
+    candidates.firstOrNull { it.isFile }?.inputStream()?.use { load(it) }
+}
+val releaseStoreFilePath = releaseSigningProps.getProperty("storeFile")
+val hasReleaseSigning = !releaseStoreFilePath.isNullOrBlank() &&
+    file(releaseStoreFilePath).isFile &&
+    !releaseSigningProps.getProperty("storePassword").isNullOrBlank() &&
+    !releaseSigningProps.getProperty("keyAlias").isNullOrBlank() &&
+    !releaseSigningProps.getProperty("keyPassword").isNullOrBlank()
 
 
 kotlin {
@@ -70,9 +87,22 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFilePath!!)
+                storePassword = releaseSigningProps.getProperty("storePassword")
+                keyAlias = releaseSigningProps.getProperty("keyAlias")
+                keyPassword = releaseSigningProps.getProperty("keyPassword")
+            }
+        }
+    }
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
