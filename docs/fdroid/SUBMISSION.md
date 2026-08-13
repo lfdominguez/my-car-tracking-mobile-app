@@ -3,7 +3,7 @@
 This repo is prepared for inclusion in the main [F-Droid](https://f-droid.org) repository. Official listing still requires a merge request against [fdroiddata](https://gitlab.com/fdroid/fdroiddata).
 
 **First inclusion MR:** https://gitlab.com/fdroid/fdroiddata/-/merge_requests/45659  
-**First release tag:** `v1.0` (`versionName` 1.0 / `versionCode` 1)
+**First inclusion target:** `v1.2` (`versionName` 1.2 / `versionCode` 3) — clean tag build for reproducible VCS info
 
 ## Prerequisites (already done in-app)
 
@@ -46,6 +46,8 @@ ls composeApp/build/outputs/apk/release/
 - Publish: `com.domivega.gps_car_<versionCode>.apk` on tag `v<versionName>` (see recipe `Binaries` / `AllowedAPKSigningKeys`).
 - `full_description.txt` must be **HTML** (not Markdown) for F-Droid.
 - Release APKs must set `dependenciesInfo { includeInApk = false; includeInBundle = false }` (no AGP **Dependency metadata** signing block).
+- Build the signed GitHub Release APK from a **clean tagged commit** so `META-INF/version-control-info.textproto` matches F-Droid’s build (do not disable `vcsInfo` unless necessary).
+- In fdroiddata YAML, write `Binaries: ` with a trailing space before the URL line (rewritemeta).
 
 ## 3. Fork fdroiddata and add metadata
 
