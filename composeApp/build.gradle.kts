@@ -87,6 +87,11 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    // F-Droid rejects AGP "Dependency metadata" in the APK Signing Block.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
