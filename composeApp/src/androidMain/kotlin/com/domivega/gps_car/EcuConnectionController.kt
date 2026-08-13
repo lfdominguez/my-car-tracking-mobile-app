@@ -1,7 +1,9 @@
 package com.domivega.gps_car
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
+import com.domivega.gps_car.obd.EcuTrackingAction
 import com.domivega.gps_car.obd.EcuTrackingGate
 import com.domivega.gps_car.obd.ObdBleManager
 import kotlinx.coroutines.CoroutineScope
@@ -11,6 +13,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Observes native OBD ECU connection status and automatically starts/stops
@@ -18,17 +22,28 @@ import kotlinx.coroutines.launch
  *
  * Start is immediate on ECU online. Stop waits for a sustained disconnect grace
  * so transient UDS/ELM blips do not split one drive into multiple trips.
+ *
+ * Reconcile is **level-based**: if tracking is active while ECU is already offline
+ * (manual start, sticky resume, missed edge), grace still arms and eventually shuts down.
  */
 object EcuConnectionController {
     private const val TAG = "EcuCtl"
-    private const val GRACE_POLL_MS = 5_000L
+    private const val RECONCILE_POLL_MS = 5_000L
 
     @Volatile private var initialized = false
     private lateinit var appContext: Context
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val evaluateMutex = Mutex()
 
     @Volatile
     private var disconnectStartedAtMs: Long? = null
+
+    private val prefsListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == ForegroundTrackingService.KEY_TRACKING_ID) {
+                scope.launch { reconcile(reason = "tracking_prefs") }
+            }
+        }
 
     fun initialize(context: Context) {
         if (initialized) return
@@ -39,56 +54,85 @@ object EcuConnectionController {
             appContext = context.applicationContext
             initialized = true
 
+            val prefs = trackingPrefs()
+            prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+
             startCollecting()
+            startReconcileLoop()
+            scope.launch { reconcile(reason = "init") }
         }
     }
 
+    private fun trackingPrefs(): SharedPreferences =
+        appContext.getSharedPreferences("tracking_prefs", Context.MODE_PRIVATE)
+
+    private fun isTrackingActive(): Boolean =
+        trackingPrefs().getString(ForegroundTrackingService.KEY_TRACKING_ID, null) != null
+
     private fun startCollecting() {
         scope.launch {
-            ObdBleManager.ecuConnected.collectLatest { connected ->
-                val prefs = appContext.getSharedPreferences("tracking_prefs", Context.MODE_PRIVATE)
-                val isRunning = prefs.getString(ForegroundTrackingService.KEY_TRACKING_ID, null) != null
+            ObdBleManager.ecuConnected.collectLatest {
+                reconcile(reason = "ecu_flow")
+            }
+        }
+    }
 
-                if (connected) {
-                    disconnectStartedAtMs = null
-                    // Always assert START: service no-ops if already TRACKING, and
-                    // recovers sticky-restart WAITING-while-prefs-still-set cases.
-                    Log.i(TAG, "ECU connected → ensure tracking service START (wasRunning=$isRunning)")
-                    appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START)
-                    return@collectLatest
-                }
+    private fun startReconcileLoop() {
+        // Backup when prefs listener misses a write or process resumes mid-trip.
+        scope.launch {
+            while (isActive) {
+                delay(RECONCILE_POLL_MS)
+                reconcile(reason = "poll")
+            }
+        }
+    }
 
-                // ECU offline: do not stop immediately — wait for sustained disconnect.
-                if (!isRunning) {
-                    disconnectStartedAtMs = null
-                    return@collectLatest
-                }
+    private suspend fun reconcile(reason: String) {
+        evaluateMutex.withLock {
+            val connected = ObdBleManager.ecuConnected.value
+            val tracking = isTrackingActive()
+            val priorGrace = disconnectStartedAtMs
+            val decision = EcuTrackingGate.evaluate(
+                ecuConnected = connected,
+                isTracking = tracking,
+                disconnectStartedAtMs = priorGrace,
+                nowMs = System.currentTimeMillis(),
+            )
+            disconnectStartedAtMs = decision.disconnectStartedAtMs
 
-                val started = disconnectStartedAtMs ?: System.currentTimeMillis().also {
-                    disconnectStartedAtMs = it
+            if (decision.disconnectStartedAtMs != null &&
+                priorGrace == null &&
+                decision.action == EcuTrackingAction.None
+            ) {
+                Log.i(
+                    TAG,
+                    "ECU offline while tracking — grace " +
+                        "${EcuTrackingGate.DEFAULT_STOP_GRACE_MS / 1000}s before stop ($reason)",
+                )
+            }
+
+            when (decision.action) {
+                EcuTrackingAction.EnsureStart -> {
+                    // Poll backup must not spam START every 5s while already tracking.
+                    // Still assert START on ECU edges / init / prefs to recover WAITING+prefs.
+                    if (tracking && reason == "poll") return@withLock
                     Log.i(
                         TAG,
-                        "ECU disconnected — grace ${EcuTrackingGate.DEFAULT_STOP_GRACE_MS / 1000}s " +
-                            "before stopping trip",
+                        "ECU connected → ensure tracking service START " +
+                            "(wasTracking=$tracking reason=$reason)",
                     )
+                    appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START)
                 }
-
-                while (isActive && disconnectStartedAtMs == started) {
-                    val now = System.currentTimeMillis()
-                    if (EcuTrackingGate.shouldStopForDisconnect(disconnectStartedAtMs, now)) {
-                        // Re-check still offline and still tracking.
-                        val stillRunning =
-                            prefs.getString(ForegroundTrackingService.KEY_TRACKING_ID, null) != null
-                        if (!ObdBleManager.ecuConnected.value && stillRunning) {
-                            Log.i(TAG, "ECU disconnected past grace → shutting down tracking service")
-                            // Full shutdown (not forever WAITING) to cut idle battery.
-                            appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_SHUTDOWN)
-                        }
-                        disconnectStartedAtMs = null
-                        break
+                EcuTrackingAction.Shutdown -> {
+                    // Re-check: ECU may have returned during evaluate.
+                    if (!ObdBleManager.ecuConnected.value && isTrackingActive()) {
+                        Log.i(TAG, "ECU disconnected past grace → shutting down ($reason)")
+                        appContext.startForegroundServiceCompat(
+                            ForegroundTrackingService.ACTION_SHUTDOWN,
+                        )
                     }
-                    delay(GRACE_POLL_MS)
                 }
+                EcuTrackingAction.None -> Unit
             }
         }
     }

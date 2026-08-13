@@ -38,6 +38,7 @@ import com.domivega.gps_car.data.queue.SampleQueueUploader
 import com.domivega.gps_car.data.queue.SampleUploadScheduler
 import com.domivega.gps_car.network.ApiClient
 import com.domivega.gps_car.network.Sample
+import com.domivega.gps_car.obd.EcuTrackingGate
 import com.domivega.gps_car.obd.FuelLevelReading
 import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.OdometerReading
@@ -149,6 +150,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     private suspend fun tryBindServerSession(epochAtStart: Long = collectionEpoch.get()) {
         if (currentState != TrackingState.TRACKING) return
         if (epochAtStart != collectionEpoch.get()) return
+        // Do not open a server trip until the ECU is actually online. GPS-only /
+        // failed OBD idle reconnect must not create ghost tracks on the backend.
+        if (!EcuTrackingGate.shouldBindServerSession(ObdBleManager.ecuConnected.value)) return
 
         val current = trackingId ?: prefs.getString(KEY_TRACKING_ID, null) ?: return
         if (LocalTrackingIds.isUploadable(current)) return
