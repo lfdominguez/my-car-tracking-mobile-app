@@ -1,0 +1,6 @@
+Sanitize peak-air idle MAF estimates (MAP preferred; peak×VE×0.14 bound).
+
+• Reject fraudulent wide-open MAF while stopped at idle RPM
+• Prefer MAP speed-density air mass when available
+• Pass vehicle speed into fuel sensors for idle detection
+• Unit tests for peak-air idle sanitizing
