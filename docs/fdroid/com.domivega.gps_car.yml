@@ -25,9 +25,8 @@ RepoType: git
 Repo: https://github.com/lfdominguez/my-car-tracking-mobile-app.git
 
 Builds:
-  - versionName: "1.0"
+  - versionName: '1.0'
     versionCode: 1
-    # Release tag must match versionName/versionCode in composeApp/build.gradle.kts.
     commit: v1.0
     sudo:
       - apt-get update
@@ -35,21 +34,14 @@ Builds:
       - update-alternatives --auto java
     gradle:
       - composeApp
-    # Confirmed local path from :composeApp:assembleRelease (unsigned; F-Droid signs).
     output: composeApp/build/outputs/apk/release/composeApp-release-unsigned.apk
     rm:
       - devenv.nix
       - devenv.yaml
       - devenv.lock
-    scanignore:
-      - docs/plans
-      - .junie
-
-# Prefer Fastlane metadata from the git tree when present.
-# AntiFeatures: none — backend is user-configured; FLOSS self-host is first-class.
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-UpdateCheckData: composeApp/build.gradle.kts|versionCode\\s*=\\s*(\\d+)|.|versionName\\s*=\\s*"([^"]+)"
-CurrentVersion: "1.0"
+UpdateCheckData: composeApp/build.gradle.kts|versionCode = (\d+)|.|versionName = "(.*)"
+CurrentVersion: '1.0'
 CurrentVersionCode: 1
