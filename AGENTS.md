@@ -133,8 +133,8 @@ Examples: `feature/obd-idle-reconnect`, `feature/fdroid-docs`, `fix/queue-backof
 
 | Workflow | Trigger | Role |
 |----------|---------|------|
-| `.github/workflows/ci.yml` | PRs + pushes to `main` | Unit tests + unsigned `assembleRelease` |
-| `.github/workflows/latest.yml` | Pushes to `main` | Release-signed rolling APK → GitHub Release `latest` |
+| `.github/workflows/ci.yml` | PRs + pushes to `main` | Unit tests; unsigned `assembleRelease` on **PRs only** |
+| `.github/workflows/latest.yml` | After CI success on `main` | One signed `assembleRelease` → GitHub Release `latest` (no second test) |
 | `.github/workflows/release.yml` | Tags `v*` | Re-check build; attach CI unsigned APK to the GitHub Release |
 
 ### Version release (F-Droid / GitHub)

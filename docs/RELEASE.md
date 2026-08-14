@@ -28,15 +28,22 @@ Do **not** commit directly to `main` for features. Version bumps from `scripts/c
 
 | Workflow | Trigger | What it does |
 |----------|---------|----------------|
-| `.github/workflows/ci.yml` | PRs + pushes to `main` | JDK 21, unit tests, unsigned `assembleRelease` |
-| `.github/workflows/latest.yml` | Pushes to `main` | Tests + **release-signed** rolling APK on GitHub Release tag `latest` |
+| `.github/workflows/ci.yml` | PRs + pushes to `main` | JDK 21 + unit tests; on **PRs only** also unsigned `assembleRelease` + artifact |
+| `.github/workflows/latest.yml` | After **CI succeeds** on `main` (`workflow_run`) | Single **release-signed** `assembleRelease` → GitHub Release tag `latest` (no re-test) |
 | `.github/workflows/release.yml` | Tags `v*` | Re-check tests/build; attach a **CI unsigned** APK to the GitHub Release |
 
 Required check name for branch protection: **`ci`**.
 
+On `main`, Gradle work is split so you do **not** pay twice:
+
+1. **CI** — unit tests only (required check).
+2. **Latest** — one signed release compile after CI is green (checks out the same commit SHA).
+
+PRs still run tests + one unsigned release assemble (no signing secrets on forks/PRs).
+
 ## Continuous signed APK (`latest`)
 
-On every push to `main`, workflow **Latest signed APK** (`.github/workflows/latest.yml`) builds a
+After **CI** succeeds on `main`, workflow **Latest signed APK** (`.github/workflows/latest.yml`) builds a
 **release-signed** APK and uploads it to the GitHub Release tag `latest`:
 
 `https://github.com/lfdominguez/my-car-tracking-mobile-app/releases/download/latest/com.domivega.gps_car-latest.apk`

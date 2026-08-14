@@ -36,11 +36,14 @@ jobs:
       - name: Unit tests
         run: ./gradlew :composeApp:testDebugUnitTest --no-daemon --stacktrace
 
+      # PRs only: prove release package builds without signing secrets.
+      # On main, Latest signed APK does the single assembleRelease after CI is green.
       - name: Assemble release (unsigned)
+        if: github.event_name == 'pull_request'
         run: ./gradlew :composeApp:assembleRelease --no-daemon --stacktrace
 
       - name: Upload unsigned release APK
-        if: success()
+        if: github.event_name == 'pull_request' && success()
         uses: actions/upload-artifact@v4
         with:
           name: composeApp-release-unsigned
