@@ -29,9 +29,55 @@ Do **not** commit directly to `main` for features. Version bumps from `scripts/c
 | Workflow | Trigger | What it does |
 |----------|---------|----------------|
 | `.github/workflows/ci.yml` | PRs + pushes to `main` | JDK 21, unit tests, unsigned `assembleRelease` |
+| `.github/workflows/latest.yml` | Pushes to `main` | Tests + **release-signed** rolling APK on GitHub Release tag `latest` |
 | `.github/workflows/release.yml` | Tags `v*` | Re-check tests/build; attach a **CI unsigned** APK to the GitHub Release |
 
 Required check name for branch protection: **`ci`**.
+
+## Continuous signed APK (`latest`)
+
+On every push to `main`, workflow **Latest signed APK** (`.github/workflows/latest.yml`) builds a
+**release-signed** APK and uploads it to the GitHub Release tag `latest`:
+
+`https://github.com/lfdominguez/my-car-tracking-mobile-app/releases/download/latest/com.domivega.gps_car-latest.apk`
+
+This is a **sideload / continuous** channel, not F-Droid. Same signing cert as `scripts/create-release.sh`.
+
+### One-time: Actions secrets
+
+Repo → **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+|--------|--------|
+| `RELEASE_KEYSTORE_BASE64` | `base64 -w0 /path/to/release.jks` |
+| `RELEASE_KEYSTORE_PASSWORD` | keystore password |
+| `RELEASE_KEY_ALIAS` | key alias (e.g. `gps-car-release`) |
+| `RELEASE_KEY_PASSWORD` | key password |
+
+Do **not** commit the keystore or passwords. Encode locally:
+
+```bash
+base64 -w0 ~/.config/gps-car-tracking/release.jks
+# paste into RELEASE_KEYSTORE_BASE64 only — never commit the output
+```
+
+### versionCode on `latest`
+
+CI sets (not committed):
+
+- `versionCode = baseVersionCode * 100000 + github.run_number`
+- `versionName = "<base>-latest.<run>"`
+
+via `-PciVersionCode` / `-PciVersionName` (see `baseVersionCode` / `baseVersionName` in `composeApp/build.gradle.kts`).
+
+- Rolling installs upgrade over previous `latest`.
+- Official F-Droid/store builds keep small monotonic `versionCode`s.
+- A device left on `latest` may **not** accept a store APK with a lower `versionCode` until uninstall (or a store code higher than the CI value, which is unlikely). Continuous ≠ store channel.
+
+### What stays unsigned
+
+- PR / `ci` workflow artifacts remain unsigned (no signing secrets on PRs).
+- Tag workflow may still attach a CI-unsigned APK; signed **versioned** assets come from `create-release.sh`.
 
 ## Cut a release (F-Droid-facing)
 

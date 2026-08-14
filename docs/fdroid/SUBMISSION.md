@@ -115,7 +115,10 @@ Manual equivalent:
    ```
 
 4. Publish signed `com.domivega.gps_car_<versionCode>.apk` on the GitHub Release (reproducible builds).
-5. Rely on the recipe’s `UpdateCheckMode: Tags` and `UpdateCheckData` (parses Gradle versions). F-Droid’s updater should propose/build the new tag.
+5. Rely on the recipe’s `UpdateCheckMode: Tags` and `UpdateCheckData` (parses
+   `baseVersionCode` / `baseVersionName` in `composeApp/build.gradle.kts`).
+   F-Droid’s updater should propose/build the new tag. If fdroiddata still has
+   the old `versionCode = (\d+)` pattern, open a metadata MR to match the draft recipe.
 
 Open a **metadata follow-up MR** only if the build recipe breaks, for example:
 

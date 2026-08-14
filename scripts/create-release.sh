@@ -94,10 +94,11 @@ mapfile -t CUR < <(python3 - <<'PY'
 from pathlib import Path
 import re
 text = Path("composeApp/build.gradle.kts").read_text()
-code = re.search(r"versionCode\s*=\s*(\d+)", text)
-name = re.search(r'versionName\s*=\s*"([^"]+)"', text)
+# Prefer baseVersion* (CI override hooks); fall back to plain versionCode/versionName.
+code = re.search(r"baseVersionCode\s*=\s*(\d+)", text) or re.search(r"versionCode\s*=\s*(\d+)", text)
+name = re.search(r'baseVersionName\s*=\s*"([^"]+)"', text) or re.search(r'versionName\s*=\s*"([^"]+)"', text)
 if not code or not name:
-    raise SystemExit("could not parse versionCode/versionName")
+    raise SystemExit("could not parse baseVersionCode/baseVersionName (or versionCode/versionName)")
 print(code.group(1))
 print(name.group(1))
 PY
@@ -143,10 +144,17 @@ from pathlib import Path
 import re
 path = Path("$GRADLE_FILE")
 text = path.read_text()
-text2, n1 = re.subn(r"(versionCode\s*=\s*)\d+", r"\g<1>${NEXT_CODE}", text, count=1)
-text3, n2 = re.subn(r'(versionName\s*=\s*)"[^"]+"', r'\g<1>"${NEXT_NAME}"', text2, count=1)
+# Bump store/F-Droid bases; CI latest uses -PciVersion* overrides separately.
+if re.search(r"baseVersionCode\s*=\s*\d+", text):
+    text2, n1 = re.subn(r"(baseVersionCode\s*=\s*)\d+", r"\g<1>${NEXT_CODE}", text, count=1)
+    text3, n2 = re.subn(r'(baseVersionName\s*=\s*)"[^"]+"', r'\g<1>"${NEXT_NAME}"', text2, count=1)
+    label = "baseVersionCode/baseVersionName"
+else:
+    text2, n1 = re.subn(r"(versionCode\s*=\s*)\d+", r"\g<1>${NEXT_CODE}", text, count=1)
+    text3, n2 = re.subn(r'(versionName\s*=\s*)"[^"]+"', r'\g<1>"${NEXT_NAME}"', text2, count=1)
+    label = "versionCode/versionName"
 if n1 != 1 or n2 != 1:
-    raise SystemExit(f"expected one versionCode and one versionName replace, got {n1}, {n2}")
+    raise SystemExit(f"expected one {label} replace, got {n1}, {n2}")
 path.write_text(text3)
 print(f"updated {path}")
 PY

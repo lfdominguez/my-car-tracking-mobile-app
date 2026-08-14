@@ -44,6 +44,7 @@ AllowedAPKSigningKeys: 99b333a9c90167524c05aec416e712e83285df80fa01e2e49eb318b1f
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-UpdateCheckData: composeApp/build.gradle.kts|versionCode = (\d+)|.|versionName = "(.*)"
+# baseVersion* are the store/F-Droid numbers; CI may override via -PciVersion* only in Actions.
+UpdateCheckData: composeApp/build.gradle.kts|baseVersionCode = (\d+)|.|baseVersionName = "(.*)"
 CurrentVersion: '1.2'
 CurrentVersionCode: 3
