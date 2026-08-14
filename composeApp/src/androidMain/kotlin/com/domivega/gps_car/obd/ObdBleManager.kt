@@ -9,10 +9,13 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.domivega.gps_car.ForegroundTrackingService
+import com.domivega.gps_car.WaitingFgsGate
 import com.domivega.gps_car.fuel.FuelCalcConfig
 import com.domivega.gps_car.fuel.FuelCalcSensors
 import com.domivega.gps_car.fuel.FuelConsumptionCalculator
 import com.domivega.gps_car.settings.AppSettings
+import com.domivega.gps_car.startForegroundServiceCompat
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -361,6 +364,10 @@ object ObdBleManager {
         // Re-arm idle wait (presence or cheap fallback) for the new target.
         runCatching { ObdPresenceController.arm(appContext) }
             .onFailure { Log.w(TAG, "ObdPresenceController.arm after selectDevice failed", it) }
+        // Fresh install / first pick never hit GpsCarApp's cold-start WAITING path.
+        if (WaitingFgsGate.shouldEnsureWaiting(address)) {
+            appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START_WAITING)
+        }
     }
 
     fun setProtocol(protocol: ObdProtocol) {

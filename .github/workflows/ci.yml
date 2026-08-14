@@ -36,18 +36,43 @@ jobs:
       - name: Unit tests
         run: ./gradlew :composeApp:testDebugUnitTest --no-daemon --stacktrace
 
-      # PRs only: prove release package builds without signing secrets.
-      # On main, Latest signed APK does the single assembleRelease after CI is green.
-      - name: Assemble release (unsigned)
+      # One unsigned release APK per run. On main, stamp rolling latest versions so
+      # Latest can sign this artifact without a second compile.
+      - name: Resolve rolling versions (main)
+        id: ver
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          CODE=$(sed -nE 's/.*val baseVersionCode = ([0-9]+).*/\1/p' composeApp/build.gradle.kts | head -1)
+          NAME=$(sed -nE 's/.*val baseVersionName = "([^"]+)".*/\1/p' composeApp/build.gradle.kts | head -1)
+          if [[ -z "${CODE}" || -z "${NAME}" ]]; then
+            echo "::error::Could not parse baseVersionCode/baseVersionName from composeApp/build.gradle.kts"
+            exit 1
+          fi
+          CI_CODE=$(( CODE * 100000 + ${{ github.run_number }} ))
+          CI_NAME="${NAME}-latest.${{ github.run_number }}"
+          echo "ci_code=$CI_CODE" >> "$GITHUB_OUTPUT"
+          echo "ci_name=$CI_NAME" >> "$GITHUB_OUTPUT"
+          echo "Rolling versionCode=$CI_CODE versionName=$CI_NAME"
+
+      - name: Assemble release (unsigned, main stamped)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          ./gradlew :composeApp:assembleRelease --no-daemon --stacktrace \
+            -PciVersionCode=${{ steps.ver.outputs.ci_code }} \
+            -PciVersionName=${{ steps.ver.outputs.ci_name }}
+
+      - name: Assemble release (unsigned, PR base versions)
         if: github.event_name == 'pull_request'
         run: ./gradlew :composeApp:assembleRelease --no-daemon --stacktrace
 
       - name: Upload unsigned release APK
-        if: github.event_name == 'pull_request' && success()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: composeApp-release-unsigned
           path: |
             composeApp/build/outputs/apk/release/*.apk
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14

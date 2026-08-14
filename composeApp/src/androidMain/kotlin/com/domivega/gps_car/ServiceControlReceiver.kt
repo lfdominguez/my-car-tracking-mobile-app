@@ -32,8 +32,7 @@ class ServiceControlReceiver : BroadcastReceiver() {
                 val app = context.applicationContext
                 ObdBleManager.initialize(app)
                 ObdPresenceController.arm(app)
-                val address = AppSettings(app).bleDeviceAddress.trim()
-                if (address.isNotEmpty()) {
+                if (WaitingFgsGate.shouldEnsureWaiting(AppSettings(app).bleDeviceAddress)) {
                     context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START_WAITING)
                 }
             }
@@ -58,6 +57,11 @@ internal fun Context.startForegroundServiceCompat(action: String) {
             startService(svc)
         }
     } catch (e: Throwable) {
-        // Ignore exceptions like IllegalStateException if app is in a state where it can't start services.
+        // Background limits can still fail; log so missing WAITING notification is diagnosable.
+        android.util.Log.w(
+            "ServiceControl",
+            "startForegroundServiceCompat failed action=$action",
+            e,
+        )
     }
 }

@@ -19,7 +19,7 @@ class GpsCarApp : Application() {
         EcuConnectionController.initialize(this)
 
         // Permanent WAITING when a dongle is configured (process start / after swipe-away).
-        if (AppSettings(this).bleDeviceAddress.trim().isNotEmpty()) {
+        if (WaitingFgsGate.shouldEnsureWaiting(AppSettings(this).bleDeviceAddress)) {
             startForegroundServiceCompat(ForegroundTrackingService.ACTION_START_WAITING)
         }
 
