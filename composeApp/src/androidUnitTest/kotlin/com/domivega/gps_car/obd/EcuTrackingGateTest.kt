@@ -135,7 +135,8 @@ class EcuTrackingGateTest {
     }
 
     @Test
-    fun `server bind requires live ECU`() {
+    fun `server bind requires live ECU flag`() {
+        // Flag is live-PID-backed upstream (0c/0d/42); gate only checks the boolean.
         assertFalse(EcuTrackingGate.shouldBindServerSession(ecuConnected = false))
         assertTrue(EcuTrackingGate.shouldBindServerSession(ecuConnected = true))
     }

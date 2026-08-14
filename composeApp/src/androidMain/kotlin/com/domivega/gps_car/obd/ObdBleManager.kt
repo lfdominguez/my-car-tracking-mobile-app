@@ -43,6 +43,8 @@ data class BleDeviceInfo(
  * ELM327 OBD session over BLE GATT or Classic Bluetooth SPP.
  *
  * Call [initialize] once from Application. Observe [pidValues] / [ecuConnected].
+ * [ecuConnected] is true only after a live decode of RPM (`0c`), speed (`0d`), or
+ * module voltage (`42`) — not from ELM init / bus contact alone.
  * Transport is selected via [setBluetoothTransport] / settings (default BLE).
  */
 object ObdBleManager {
@@ -98,10 +100,11 @@ object ObdBleManager {
         "0f" to "Intake Air Temp",
     )
 
-    /** High-dynamics PIDs polled every round. */
+    /** High-dynamics PIDs polled every round (includes live-session gates 0c/0d/42). */
     private val HOT_PIDS = listOf(
         "0c", // RPM
         "0d", // Speed
+        "42", // Module voltage (EV-friendly live signal)
         "04", // Engine load
         "43", // Absolute load
         "49", // Accelerator
@@ -120,7 +123,6 @@ object ObdBleManager {
         "31", // Distance since codes cleared (not dash odometer)
         "05", // Coolant
         "46", // Ambient
-        "42", // Module voltage
         "1f", // Engine run time
         "33", // Barometric
         "0f", // IAT (MAP fuel fallback)
@@ -185,6 +187,10 @@ object ObdBleManager {
     /** Consecutive engine command timeouts (null raw) in the poll loop. */
     @Volatile
     private var consecutiveEngineTimeouts: Int = 0
+
+    /** Consecutive live-PID (0c/0d/42) misses — gates ecuConnected offline. */
+    @Volatile
+    private var consecutiveLiveMisses: Int = 0
 
     private val parser = Elm327Parser()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -651,6 +657,7 @@ object ObdBleManager {
     private fun handleLinkLost(reason: String) {
         val wasReady = sessionReady.getAndSet(false)
         stopPollLoop()
+        consecutiveLiveMisses = 0
         _ecuConnected.value = false
         loggedFirstPollOk.set(false)
         failPendingResponse(reason)
@@ -713,10 +720,11 @@ object ObdBleManager {
                     _ecuConnected.value = false
                     return false
                 }
-                _ecuConnected.value = true
+                // ecuConnected only after live PID decode (probe may have stored 0c).
                 logI(
                     "ELM init OK — WWH-OBD only header=$sessionEngineHeader " +
-                        "hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size}",
+                        "hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size} " +
+                        "ecuLive=${_ecuConnected.value}",
                 )
                 return true
             }
@@ -740,11 +748,13 @@ object ObdBleManager {
                 // Live via 010C only — do not treat RPM payload as a support bitmap.
                 supportedMode01Pids = emptySet()
                 logI("Support discovery skipped (ECU proven via 010C)")
+                // Contact via 010C does not decode RPM here; poll loop will mark live.
             }
-            _ecuConnected.value = true
+            // Do not set ecuConnected from bus contact alone — wait for live PID decode.
             logI(
                 "ELM init OK — mode01 support=${supportedMode01Pids.size} " +
-                    "protocol=${protocol.name} hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size}",
+                    "protocol=${protocol.name} hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size} " +
+                    "(tracking waits for live 0c/0d/42)",
             )
             true
         } catch (t: Throwable) {
@@ -778,6 +788,16 @@ object ObdBleManager {
                         "ECU live via 010C on attempt ${attempt + 1}/$attempts " +
                             "(0100 still pending — support discovery may be empty)",
                     )
+                    val rpm = rpmRaw?.let { parser.decodePid("0c", it) }
+                    if (rpm != null && isValidPidValue("0c", rpm)) {
+                        val updated = LinkedHashMap(
+                            PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
+                        )
+                        recomputeFuelRate(updated)
+                        _pidValues.value = updated.toMap()
+                        engineOkCount += 1
+                        applyLiveSuccessToConnection()
+                    }
                     return rpmRaw
                 }
             }
@@ -821,6 +841,7 @@ object ObdBleManager {
                         recomputeFuelRate(updated)
                         _pidValues.value = updated.toMap()
                         engineOkCount += 1
+                        applyLiveSuccessToConnection()
                     }
                     if (attempt > 0 || header != "7DF") {
                         logI("WWH 22F40C OK header=$header attempt ${attempt + 1}/$attempts")
@@ -880,8 +901,37 @@ object ObdBleManager {
         udsHeaderRestoreFailed = false
         vwUdsNotBeforeMs = 0L
         consecutiveEngineTimeouts = 0
+        consecutiveLiveMisses = 0
         // Drop stale metrics (e.g. prior-trip engine run time PID 1F) before a new session.
         _pidValues.value = emptyMap()
+    }
+
+    private fun applyLiveSuccessToConnection() {
+        val next = LiveObdConnectionPolicy.onLiveSuccess(
+            currentlyConnected = _ecuConnected.value,
+            consecutiveMisses = consecutiveLiveMisses,
+        )
+        consecutiveLiveMisses = next.consecutiveMisses
+        if (!_ecuConnected.value && next.ecuConnected) {
+            setStatus("ECU online")
+        }
+        _ecuConnected.value = next.ecuConnected
+    }
+
+    private fun applyLiveMissToConnection() {
+        val next = LiveObdConnectionPolicy.onLiveMiss(
+            currentlyConnected = _ecuConnected.value,
+            consecutiveMisses = consecutiveLiveMisses,
+        )
+        consecutiveLiveMisses = next.consecutiveMisses
+        if (_ecuConnected.value && !next.ecuConnected) {
+            logW(
+                "Live OBD miss streak=${next.consecutiveMisses} (0c/0d/42) — " +
+                    "ECU offline for tracking (holding last-good pidValues)",
+            )
+            setStatus("ECU offline (no live PIDs)")
+        }
+        _ecuConnected.value = next.ecuConnected
     }
 
     /** Log first miss per PID per session; never disable or clear last-good values. */
@@ -1039,12 +1089,16 @@ object ObdBleManager {
                                         "(streak=$consecutiveEngineTimeouts) — session re-init",
                                 )
                                 sessionReady.set(false)
+                                consecutiveLiveMisses = 0
                                 _ecuConnected.value = false
                                 setStatus("OBD headers unhealthy — reconnecting")
                                 closeLinkInternal()
                                 break
                             }
                             notePidMiss(pid, null)
+                            if (LiveObdConnectionPolicy.isLivePid(pid)) {
+                                applyLiveMissToConnection()
+                            }
                             continue
                         }
                         consecutiveEngineTimeouts = 0
@@ -1061,10 +1115,16 @@ object ObdBleManager {
                         }
                         if (value == null) {
                             notePidMiss(pid, raw)
+                            if (LiveObdConnectionPolicy.isLivePid(pid)) {
+                                applyLiveMissToConnection()
+                            }
                             continue
                         }
                         if (!isValidPidValue(pid, value)) {
                             logW("Invalid value for PID $pid: $value")
+                            if (LiveObdConnectionPolicy.isLivePid(pid)) {
+                                applyLiveMissToConnection()
+                            }
                             continue
                         }
 
@@ -1086,9 +1146,8 @@ object ObdBleManager {
                         pidsOkWindow++
                         engineOkCount += 1
 
-                        if (!_ecuConnected.value) {
-                            _ecuConnected.value = true
-                            setStatus("ECU online")
+                        if (LiveObdConnectionPolicy.isLivePid(pid)) {
+                            applyLiveSuccessToConnection()
                         }
                         if (loggedFirstPollOk.compareAndSet(false, true)) {
                             val stack = if (wwhEngineOnly) "WWH" else "Mode01"
@@ -1551,6 +1610,7 @@ object ObdBleManager {
                 recomputeFuelRate(updated)
                 _pidValues.value = updated.toMap()
                 engineOkCount += 1
+                applyLiveSuccessToConnection()
             }
             true
         } else {
@@ -1564,6 +1624,7 @@ object ObdBleManager {
                 recomputeFuelRate(updated)
                 _pidValues.value = updated.toMap()
                 engineOkCount += 1
+                applyLiveSuccessToConnection()
             }
             true
         }
