@@ -1,14 +1,17 @@
 name: Latest signed APK
 
 # Rolling public release-signed APK from main (same cert as create-release.sh).
+# Runs only after CI succeeds on main — no second unit-test or unsigned rebuild.
 # Requires repo secrets: RELEASE_KEYSTORE_BASE64, RELEASE_KEYSTORE_PASSWORD,
 # RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD. See docs/RELEASE.md.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
 
 concurrency:
-  group: latest-apk-${{ github.ref }}
+  group: latest-apk-${{ github.event.workflow_run.head_sha }}
   cancel-in-progress: true
 
 permissions:
@@ -17,12 +20,15 @@ permissions:
 jobs:
   latest:
     name: latest-signed-apk
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
-      - name: Checkout
+      - name: Checkout CI commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -36,9 +42,6 @@ jobs:
 
       - name: Make gradlew executable
         run: chmod +x gradlew
-
-      - name: Unit tests
-        run: ./gradlew :composeApp:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Resolve base versions
         id: ver
@@ -57,6 +60,7 @@ jobs:
           echo "ci_code=$CI_CODE" >> "$GITHUB_OUTPUT"
           echo "ci_name=$CI_NAME" >> "$GITHUB_OUTPUT"
           echo "Base versionCode=$CODE versionName=$NAME → CI $CI_CODE / $CI_NAME"
+          echo "Source commit=${{ github.event.workflow_run.head_sha }}"
 
       - name: Materialize release keystore
         env:
