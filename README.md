@@ -199,6 +199,10 @@ See **[AGENTS.md](AGENTS.md)** for conventions when contributing with AI coding 
 
 Production is **`main`** (protected). Develop on `feature/*`, open a PR, merge when CI is green.
 
+**Continuous signed APK** (every push to `main`, same release cert):  
+[com.domivega.gps_car-latest.apk](https://github.com/lfdominguez/my-car-tracking-mobile-app/releases/download/latest/com.domivega.gps_car-latest.apk)  
+— sideload channel only; see [`docs/RELEASE.md`](docs/RELEASE.md) (Actions secrets + `versionCode` notes).
+
 To cut a user-facing / F-Droid version (bumps Gradle `versionName` / `versionCode`, tags, signed GitHub Release APK):
 
 ```bash

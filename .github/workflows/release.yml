@@ -41,8 +41,14 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          CODE=$(sed -nE 's/.*versionCode\s*=\s*([0-9]+).*/\1/p' composeApp/build.gradle.kts | head -1)
-          NAME=$(sed -nE 's/.*versionName\s*=\s*"([^"]+)".*/\1/p' composeApp/build.gradle.kts | head -1)
+          CODE=$(sed -nE 's/.*val baseVersionCode = ([0-9]+).*/\1/p' composeApp/build.gradle.kts | head -1)
+          NAME=$(sed -nE 's/.*val baseVersionName = "([^"]+)".*/\1/p' composeApp/build.gradle.kts | head -1)
+          if [[ -z "${CODE}" ]]; then
+            CODE=$(sed -nE 's/.*versionCode\s*=\s*([0-9]+).*/\1/p' composeApp/build.gradle.kts | head -1)
+          fi
+          if [[ -z "${NAME}" ]]; then
+            NAME=$(sed -nE 's/.*versionName\s*=\s*"([^"]+)".*/\1/p' composeApp/build.gradle.kts | head -1)
+          fi
           echo "version_code=$CODE" >> "$GITHUB_OUTPUT"
           echo "version_name=$NAME" >> "$GITHUB_OUTPUT"
           echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"

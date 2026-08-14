@@ -74,8 +74,12 @@ android {
         applicationId = "com.domivega.gps_car"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 3
-        versionName = "1.2"
+        // Base versions for F-Droid / local release. CI latest workflow may override:
+        //   -PciVersionCode=… -PciVersionName=…
+        val baseVersionCode = 3
+        val baseVersionName = "1.2"
+        versionCode = (findProperty("ciVersionCode") as String?)?.toIntOrNull() ?: baseVersionCode
+        versionName = (findProperty("ciVersionName") as String?) ?: baseVersionName
 
         // Configure your endpoints here or via gradle properties
     }
