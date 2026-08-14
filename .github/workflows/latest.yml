@@ -97,9 +97,11 @@ jobs:
           echo "apk_path=$OUT" >> "$GITHUB_OUTPUT"
           ls -la "$OUT"
 
+      # No checkout: gh would look for .git; pin the repo via GH_REPO.
       - name: Ensure prerelease latest exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           if gh release view latest >/dev/null 2>&1; then
@@ -114,6 +116,7 @@ jobs:
       - name: Upload latest APK
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           gh release upload latest "${{ steps.apk.outputs.apk_path }}" --clobber
