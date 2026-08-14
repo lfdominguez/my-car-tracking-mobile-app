@@ -1,6 +1,7 @@
 package com.domivega.gps_car.ui
 
 import com.domivega.gps_car.data.SettingsRepository
+import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import com.domivega.gps_car.ui.state.SettingsUiState
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -31,6 +32,7 @@ private class FakeSettingsRepository : SettingsRepository {
     override var engineDisplacementL: Double = 1.0
     override var engineVe: Double = 0.85
     override var tankCapacityL: Double = 0.0
+    override var sampleUploadFieldFlags: SampleUploadFieldFlags = SampleUploadFieldFlags.ALL_ENABLED
 }
 
 class SettingsQrParseTest {

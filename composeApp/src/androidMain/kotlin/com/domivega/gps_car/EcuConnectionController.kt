@@ -123,12 +123,14 @@ object EcuConnectionController {
                     )
                     appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START)
                 }
-                EcuTrackingAction.Shutdown -> {
+                EcuTrackingAction.EndTrip -> {
                     // Re-check: ECU may have returned during evaluate.
+                    // STOP ends the trip but keeps WAITING + permanent notification
+                    // so idle OBD reconnect stays alive without opening the app.
                     if (!ObdBleManager.ecuConnected.value && isTrackingActive()) {
-                        Log.i(TAG, "ECU disconnected past grace → shutting down ($reason)")
+                        Log.i(TAG, "ECU disconnected past grace → end trip, stay paused ($reason)")
                         appContext.startForegroundServiceCompat(
-                            ForegroundTrackingService.ACTION_SHUTDOWN,
+                            ForegroundTrackingService.ACTION_STOP,
                         )
                     }
                 }

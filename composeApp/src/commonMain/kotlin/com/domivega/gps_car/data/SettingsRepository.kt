@@ -1,5 +1,7 @@
 package com.domivega.gps_car.data
 
+import com.domivega.gps_car.settings.SampleUploadFieldFlags
+
 interface SettingsRepository {
     var apiToken: String
     var startUrl: String
@@ -22,4 +24,5 @@ interface SettingsRepository {
     var engineVe: Double
     /** Liters; 0 = unknown. */
     var tankCapacityL: Double
+    var sampleUploadFieldFlags: SampleUploadFieldFlags
 }

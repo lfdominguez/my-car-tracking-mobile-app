@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.domivega.gps_car.fuel.FuelTypePreset
 import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.VehicleObdProfile
+import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import com.domivega.gps_car.ui.state.SettingsUiState
 
 /**
@@ -81,6 +82,7 @@ fun SettingsScreen(
     onEngineDisplacementLChange: (Double) -> Unit = {},
     onEngineVeChange: (Double) -> Unit = {},
     onTankCapacityLChange: (Double) -> Unit = {},
+    onSampleUploadFieldFlagsChange: (SampleUploadFieldFlags) -> Unit = {},
 ) {
     val scrollState = rememberScrollState()
     var protocolExpanded by remember { mutableStateOf(false) }
@@ -510,6 +512,106 @@ fun SettingsScreen(
             onValueChange = onTankCapacityLChange,
             label = "Tank capacity (L, 0 = unknown)"
         )
+
+        HorizontalDivider()
+
+        Text(
+            text = "Data to upload",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            text = "Always sent: GPS lat/lon, velocity, RPM (plus tracking id and accuracy).",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        val flags = state.sampleUploadFieldFlags
+        UploadFieldSwitch(
+            label = "Fuel consumption rate (L/h)",
+            checked = flags.fuelConsumptionRate,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(fuelConsumptionRate = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Engine load %",
+            checked = flags.engineLoadPct,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(engineLoadPct = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Absolute engine load %",
+            checked = flags.absoluteEngineLoadPct,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(absoluteEngineLoadPct = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Short-term fuel trim %",
+            checked = flags.shortTermFuelTrimPct,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(shortTermFuelTrimPct = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Long-term fuel trim %",
+            checked = flags.longTermFuelTrimPct,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(longTermFuelTrimPct = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Fuel level %",
+            checked = flags.fuelLevelPct,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(fuelLevelPct = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Accelerator pedal %",
+            checked = flags.acceleratorPedalPct,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(acceleratorPedalPct = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Ambient air temp °C",
+            checked = flags.ambientAirTempC,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(ambientAirTempC = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Odometer km",
+            checked = flags.odometerValueKm,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(odometerValueKm = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Coolant temp °C",
+            checked = flags.engineCoolantTempC,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(engineCoolantTempC = it)) },
+        )
+        UploadFieldSwitch(
+            label = "MAP kPa",
+            checked = flags.manifoldAbsolutePressureKpa,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(manifoldAbsolutePressureKpa = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Control module voltage",
+            checked = flags.controlModuleVoltage,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(controlModuleVoltage = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Engine on time",
+            checked = flags.engineOnTime,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(engineOnTime = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Mass air flow",
+            checked = flags.massAirFlow,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(massAirFlow = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Lambda commanded",
+            checked = flags.lambdaCmd,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(lambdaCmd = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Atmospheric pressure",
+            checked = flags.atmosphericPressure,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(atmosphericPressure = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Intake air temperature",
+            checked = flags.intakeAirTemperature,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(intakeAirTemperature = it)) },
+        )
     }
 
     if (showDeviceDialog) {
@@ -568,6 +670,29 @@ fun SettingsScreen(
                     Text("Rescan")
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun UploadFieldSwitch(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
         )
     }
 }

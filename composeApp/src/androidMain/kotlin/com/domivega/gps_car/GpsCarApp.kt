@@ -4,6 +4,7 @@ import android.app.Application
 import com.domivega.gps_car.data.queue.SampleUploadScheduler
 import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.ObdPresenceController
+import com.domivega.gps_car.settings.AppSettings
 
 class GpsCarApp : Application() {
     override fun onCreate() {
@@ -17,7 +18,12 @@ class GpsCarApp : Application() {
         // Auto start/stop tracking based on ECU connectivity
         EcuConnectionController.initialize(this)
 
-        // Drain any leftover samples without requiring a forever WAITING FGS.
+        // Permanent WAITING when a dongle is configured (process start / after swipe-away).
+        if (AppSettings(this).bleDeviceAddress.trim().isNotEmpty()) {
+            startForegroundServiceCompat(ForegroundTrackingService.ACTION_START_WAITING)
+        }
+
+        // Drain leftover samples even if FGS is not running.
         SampleUploadScheduler.enqueue(this)
     }
 }

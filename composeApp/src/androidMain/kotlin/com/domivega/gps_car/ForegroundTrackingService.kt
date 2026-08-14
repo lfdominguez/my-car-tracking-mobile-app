@@ -38,6 +38,7 @@ import com.domivega.gps_car.data.queue.SampleQueueUploader
 import com.domivega.gps_car.data.queue.SampleUploadScheduler
 import com.domivega.gps_car.network.ApiClient
 import com.domivega.gps_car.network.Sample
+import com.domivega.gps_car.network.SampleFieldFilter
 import com.domivega.gps_car.obd.EcuTrackingGate
 import com.domivega.gps_car.obd.FuelLevelReading
 import com.domivega.gps_car.obd.ObdBleManager
@@ -66,6 +67,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     private var lastLocation: Location? = null
     private var trackingId: String? = null
     private lateinit var prefs: SharedPreferences
+    private lateinit var appSettings: AppSettings
     private lateinit var repo: TrackingRepository
     private lateinit var queueRepo: SampleQueueRepository
     private lateinit var uploader: SampleQueueUploader
@@ -92,7 +94,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         gpsLocator = GpsLocator(this)
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         prefs = getSharedPreferences("tracking_prefs", MODE_PRIVATE)
-        val api = ApiClient(AppSettings(this))
+        appSettings = AppSettings(this)
+        val api = ApiClient(appSettings)
         repo = TrackingRepository(api)
         queueRepo = SampleQueueRepository(this)
         uploader = SampleQueueUploader(this, api)
@@ -388,7 +391,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 intakeAirTemperature = pidValues["0f"],
             )
             // Local enqueue only — never block collection on network.
-            runCatching { queueRepo.enqueue(enqueueId, sample) }
+            val toEnqueue = SampleFieldFilter.apply(sample, appSettings.sampleUploadFieldFlags())
+            runCatching { queueRepo.enqueue(enqueueId, toEnqueue) }
                 .onFailure { Log.e(TAG, "Failed to enqueue sample", it) }
 
             updateLiveTrackingNotification(

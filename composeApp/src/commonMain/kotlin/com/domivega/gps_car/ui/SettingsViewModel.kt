@@ -8,6 +8,7 @@ import com.domivega.gps_car.data.SettingsRepository
 import com.domivega.gps_car.fuel.FuelTypePreset
 import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.VehicleObdProfile
+import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import com.domivega.gps_car.ui.state.SettingsUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +57,7 @@ class SettingsViewModel(
                 engineDisplacementL = repository.engineDisplacementL,
                 engineVe = repository.engineVe,
                 tankCapacityL = repository.tankCapacityL,
+                sampleUploadFieldFlags = repository.sampleUploadFieldFlags,
             )
         }
     }
@@ -177,6 +179,11 @@ class SettingsViewModel(
         val clamped = value.coerceAtLeast(0.0)
         repository.tankCapacityL = clamped
         _uiState.update { it.copy(tankCapacityL = clamped) }
+    }
+
+    fun updateSampleUploadFieldFlags(flags: SampleUploadFieldFlags) {
+        repository.sampleUploadFieldFlags = flags
+        _uiState.update { it.copy(sampleUploadFieldFlags = flags) }
     }
 
     fun clearQrError() {

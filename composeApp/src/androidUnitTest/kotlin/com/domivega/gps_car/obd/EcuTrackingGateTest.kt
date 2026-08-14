@@ -116,7 +116,7 @@ class EcuTrackingGateTest {
             nowMs = started + 90_000L,
             graceMs = 90_000L,
         )
-        assertEquals(EcuTrackingAction.Shutdown, decision.action)
+        assertEquals(EcuTrackingAction.EndTrip, decision.action)
         assertNull(decision.disconnectStartedAtMs)
     }
 

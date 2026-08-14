@@ -50,7 +50,8 @@ devenv shell -- ./gradlew :composeApp:compileDebugKotlinAndroid
 - **OBD loop** is independent of GPS: continuous hot/slow PID rounds (`ObdPollSchedule`), publish `pidValues` per PID; no 1 s full-cycle throttle.
 - **GPS** (~1 Hz) only **snapshots** latest `pidValues`; never block samples on BLE.
 - **Queue**: enqueue on accept; flusher batch-posts `/samples`; mark sent only after success.
-- **ECU auto tracking**: connect/responding → start; drop → stop (unless product decision changes).
+- **ECU auto tracking**: connect/responding → start; drop past grace → end trip but stay in WAITING FGS (permanent notification) until user Shutdown; boot/process start WAITING when a dongle address is configured.
+- **Sample upload fields**: Settings toggles optional metrics; always send lat/lon, velocity, RPM (plus tracking id / accuracy). Filter at enqueue via `SampleFieldFilter`.
 - **Fuel L/h** (`ff125a`): `FuelConsumptionCalculator` + settings (not a fixed ×0.339 gasoline hack). Rejects peak-air idle MAF (`peak×VE×0.14` bound; MAP preferred when present).
 - **OBD debug log**: errors + init/lifecycle; not full successful PID TX/RX spam.
 
@@ -61,6 +62,7 @@ Configurable in-app (and via `AppSettings` / `SettingsRepository`):
 - API URLs + token  
 - BLE device + OBD protocol  
 - Fuel type preset / AFR / density / displacement / VE  
+- Optional sample fields to upload (lat/lon, velocity, RPM always on)  
 
 Changing defaults in code: keep them **non-secret** and documented in README.
 

@@ -28,6 +28,24 @@ class AppSettings(context: Context) {
         private const val KEY_CAR_ID = "car_id"
         private const val KEY_CAR_NAME = "car_name"
 
+        private const val KEY_UPLOAD_FUEL_CONSUMPTION_RATE = "upload_fuel_consumption_rate"
+        private const val KEY_UPLOAD_ENGINE_LOAD_PCT = "upload_engine_load_pct"
+        private const val KEY_UPLOAD_ABSOLUTE_ENGINE_LOAD_PCT = "upload_absolute_engine_load_pct"
+        private const val KEY_UPLOAD_SHORT_TERM_FUEL_TRIM_PCT = "upload_short_term_fuel_trim_pct"
+        private const val KEY_UPLOAD_LONG_TERM_FUEL_TRIM_PCT = "upload_long_term_fuel_trim_pct"
+        private const val KEY_UPLOAD_FUEL_LEVEL_PCT = "upload_fuel_level_pct"
+        private const val KEY_UPLOAD_ACCELERATOR_PEDAL_PCT = "upload_accelerator_pedal_pct"
+        private const val KEY_UPLOAD_AMBIENT_AIR_TEMP_C = "upload_ambient_air_temp_c"
+        private const val KEY_UPLOAD_ODOMETER_VALUE_KM = "upload_odometer_value_km"
+        private const val KEY_UPLOAD_ENGINE_COOLANT_TEMP_C = "upload_engine_coolant_temp_c"
+        private const val KEY_UPLOAD_MANIFOLD_ABSOLUTE_PRESSURE_KPA = "upload_manifold_absolute_pressure_kpa"
+        private const val KEY_UPLOAD_CONTROL_MODULE_VOLTAGE = "upload_control_module_voltage"
+        private const val KEY_UPLOAD_ENGINE_ON_TIME = "upload_engine_on_time"
+        private const val KEY_UPLOAD_MASS_AIR_FLOW = "upload_mass_air_flow"
+        private const val KEY_UPLOAD_LAMBDA_CMD = "upload_lambda_cmd"
+        private const val KEY_UPLOAD_ATMOSPHERIC_PRESSURE = "upload_atmospheric_pressure"
+        private const val KEY_UPLOAD_INTAKE_AIR_TEMPERATURE = "upload_intake_air_temperature"
+
         // Empty/placeholder defaults — configure real values in Settings (do not commit secrets).
         const val DEFAULT_API_TOKEN = ""
         const val DEFAULT_START_URL = "https://YOUR_SERVER.example/api/track/start"
@@ -137,6 +155,114 @@ class AppSettings(context: Context) {
     var carName: String
         get() = prefs.getString(KEY_CAR_NAME, "") ?: ""
         set(value) = prefs.edit().putString(KEY_CAR_NAME, value).apply()
+
+    var uploadFuelConsumptionRate: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_FUEL_CONSUMPTION_RATE, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_FUEL_CONSUMPTION_RATE, value).apply()
+
+    var uploadEngineLoadPct: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_ENGINE_LOAD_PCT, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_ENGINE_LOAD_PCT, value).apply()
+
+    var uploadAbsoluteEngineLoadPct: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_ABSOLUTE_ENGINE_LOAD_PCT, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_ABSOLUTE_ENGINE_LOAD_PCT, value).apply()
+
+    var uploadShortTermFuelTrimPct: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_SHORT_TERM_FUEL_TRIM_PCT, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_SHORT_TERM_FUEL_TRIM_PCT, value).apply()
+
+    var uploadLongTermFuelTrimPct: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_LONG_TERM_FUEL_TRIM_PCT, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_LONG_TERM_FUEL_TRIM_PCT, value).apply()
+
+    var uploadFuelLevelPct: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_FUEL_LEVEL_PCT, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_FUEL_LEVEL_PCT, value).apply()
+
+    var uploadAcceleratorPedalPct: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_ACCELERATOR_PEDAL_PCT, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_ACCELERATOR_PEDAL_PCT, value).apply()
+
+    var uploadAmbientAirTempC: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_AMBIENT_AIR_TEMP_C, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_AMBIENT_AIR_TEMP_C, value).apply()
+
+    var uploadOdometerValueKm: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_ODOMETER_VALUE_KM, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_ODOMETER_VALUE_KM, value).apply()
+
+    var uploadEngineCoolantTempC: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_ENGINE_COOLANT_TEMP_C, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_ENGINE_COOLANT_TEMP_C, value).apply()
+
+    var uploadManifoldAbsolutePressureKpa: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_MANIFOLD_ABSOLUTE_PRESSURE_KPA, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_MANIFOLD_ABSOLUTE_PRESSURE_KPA, value).apply()
+
+    var uploadControlModuleVoltage: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_CONTROL_MODULE_VOLTAGE, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_CONTROL_MODULE_VOLTAGE, value).apply()
+
+    var uploadEngineOnTime: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_ENGINE_ON_TIME, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_ENGINE_ON_TIME, value).apply()
+
+    var uploadMassAirFlow: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_MASS_AIR_FLOW, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_MASS_AIR_FLOW, value).apply()
+
+    var uploadLambdaCmd: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_LAMBDA_CMD, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_LAMBDA_CMD, value).apply()
+
+    var uploadAtmosphericPressure: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_ATMOSPHERIC_PRESSURE, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_ATMOSPHERIC_PRESSURE, value).apply()
+
+    var uploadIntakeAirTemperature: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_INTAKE_AIR_TEMPERATURE, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_INTAKE_AIR_TEMPERATURE, value).apply()
+
+    fun sampleUploadFieldFlags(): SampleUploadFieldFlags = SampleUploadFieldFlags(
+        fuelConsumptionRate = uploadFuelConsumptionRate,
+        engineLoadPct = uploadEngineLoadPct,
+        absoluteEngineLoadPct = uploadAbsoluteEngineLoadPct,
+        shortTermFuelTrimPct = uploadShortTermFuelTrimPct,
+        longTermFuelTrimPct = uploadLongTermFuelTrimPct,
+        fuelLevelPct = uploadFuelLevelPct,
+        acceleratorPedalPct = uploadAcceleratorPedalPct,
+        ambientAirTempC = uploadAmbientAirTempC,
+        odometerValueKm = uploadOdometerValueKm,
+        engineCoolantTempC = uploadEngineCoolantTempC,
+        manifoldAbsolutePressureKpa = uploadManifoldAbsolutePressureKpa,
+        controlModuleVoltage = uploadControlModuleVoltage,
+        engineOnTime = uploadEngineOnTime,
+        massAirFlow = uploadMassAirFlow,
+        lambdaCmd = uploadLambdaCmd,
+        atmosphericPressure = uploadAtmosphericPressure,
+        intakeAirTemperature = uploadIntakeAirTemperature,
+    )
+
+    fun applySampleUploadFieldFlags(flags: SampleUploadFieldFlags) {
+        uploadFuelConsumptionRate = flags.fuelConsumptionRate
+        uploadEngineLoadPct = flags.engineLoadPct
+        uploadAbsoluteEngineLoadPct = flags.absoluteEngineLoadPct
+        uploadShortTermFuelTrimPct = flags.shortTermFuelTrimPct
+        uploadLongTermFuelTrimPct = flags.longTermFuelTrimPct
+        uploadFuelLevelPct = flags.fuelLevelPct
+        uploadAcceleratorPedalPct = flags.acceleratorPedalPct
+        uploadAmbientAirTempC = flags.ambientAirTempC
+        uploadOdometerValueKm = flags.odometerValueKm
+        uploadEngineCoolantTempC = flags.engineCoolantTempC
+        uploadManifoldAbsolutePressureKpa = flags.manifoldAbsolutePressureKpa
+        uploadControlModuleVoltage = flags.controlModuleVoltage
+        uploadEngineOnTime = flags.engineOnTime
+        uploadMassAirFlow = flags.massAirFlow
+        uploadLambdaCmd = flags.lambdaCmd
+        uploadAtmosphericPressure = flags.atmosphericPressure
+        uploadIntakeAirTemperature = flags.intakeAirTemperature
+    }
 
     private fun getDouble(key: String, default: Double): Double =
         prefs.getString(key, null)?.toDoubleOrNull() ?: default

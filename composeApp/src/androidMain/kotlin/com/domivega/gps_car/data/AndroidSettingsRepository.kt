@@ -2,6 +2,7 @@ package com.domivega.gps_car.data
 
 import android.content.Context
 import com.domivega.gps_car.settings.AppSettings
+import com.domivega.gps_car.settings.SampleUploadFieldFlags
 
 class AndroidSettingsRepository(context: Context) : SettingsRepository {
     private val appSettings = AppSettings(context)
@@ -85,4 +86,8 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
     override var tankCapacityL: Double
         get() = appSettings.tankCapacityL
         set(value) { appSettings.tankCapacityL = value }
+
+    override var sampleUploadFieldFlags: SampleUploadFieldFlags
+        get() = appSettings.sampleUploadFieldFlags()
+        set(value) { appSettings.applySampleUploadFieldFlags(value) }
 }

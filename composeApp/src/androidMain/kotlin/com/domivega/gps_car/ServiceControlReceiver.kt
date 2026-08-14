@@ -7,6 +7,7 @@ import android.os.Build
 import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.ObdIdleConnectScheduler
 import com.domivega.gps_car.obd.ObdPresenceController
+import com.domivega.gps_car.settings.AppSettings
 
 /**
  * Receives broadcasts from notification action and system boot to start/stop the tracking service.
@@ -26,9 +27,15 @@ class ServiceControlReceiver : BroadcastReceiver() {
             "android.intent.action.QUICKBOOT_POWERON",
             "com.htc.intent.action.QUICKBOOT_POWERON",
             "android.intent.action.MY_PACKAGE_REPLACED" -> {
-                // Re-arm idle 1-minute connect poll. Do not start forever WAITING FGS.
-                ObdBleManager.initialize(context.applicationContext)
-                ObdPresenceController.arm(context.applicationContext)
+                // Re-arm idle connect poll. Keep permanent WAITING when a dongle is configured
+                // so OBD can reconnect without the user opening the app.
+                val app = context.applicationContext
+                ObdBleManager.initialize(app)
+                ObdPresenceController.arm(app)
+                val address = AppSettings(app).bleDeviceAddress.trim()
+                if (address.isNotEmpty()) {
+                    context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START_WAITING)
+                }
             }
             else -> {}
         }

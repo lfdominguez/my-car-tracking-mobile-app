@@ -57,7 +57,7 @@ object EcuTrackingGate {
         val armedAt = disconnectStartedAtMs ?: nowMs
         if (shouldStopForDisconnect(armedAt, nowMs, graceMs)) {
             return EcuTrackingDecision(
-                action = EcuTrackingAction.Shutdown,
+                action = EcuTrackingAction.EndTrip,
                 disconnectStartedAtMs = null,
             )
         }
@@ -71,7 +71,8 @@ object EcuTrackingGate {
 enum class EcuTrackingAction {
     None,
     EnsureStart,
-    Shutdown,
+    /** End the local/server trip; keep WAITING FGS (do not full shutdown). */
+    EndTrip,
 }
 
 data class EcuTrackingDecision(
