@@ -25,7 +25,10 @@ object EcuTrackingGate {
         return nowMs - disconnectStartedAtMs >= graceMs
     }
 
-    /** Server `/start` bind only while the ECU is live — avoids ghost trips from GPS-only starts. */
+    /**
+     * Server `/start` bind only while the ECU is live — avoids ghost trips from GPS-only starts.
+     * [ecuConnected] is RPM/speed/voltage-backed in ObdBleManager (not ELM init alone).
+     */
     fun shouldBindServerSession(ecuConnected: Boolean): Boolean = ecuConnected
 
     /**
