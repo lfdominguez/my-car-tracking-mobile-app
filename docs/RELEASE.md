@@ -28,23 +28,23 @@ Do **not** commit directly to `main` for features. Version bumps from `scripts/c
 
 | Workflow | Trigger | What it does |
 |----------|---------|----------------|
-| `.github/workflows/ci.yml` | PRs + pushes to `main` | JDK 21 + unit tests; on **PRs only** also unsigned `assembleRelease` + artifact |
-| `.github/workflows/latest.yml` | After **CI succeeds** on `main` (`workflow_run`) | Single **release-signed** `assembleRelease` → GitHub Release tag `latest` (no re-test) |
+| `.github/workflows/ci.yml` | PRs + pushes to `main` | JDK 21 + unit tests + **one** unsigned `assembleRelease` + artifact (main stamps rolling `-latest.<run>` versions) |
+| `.github/workflows/latest.yml` | After **CI succeeds** on `main` (`workflow_run`) | Download CI APK → **zipalign + apksigner only** → GitHub Release tag `latest` (no Gradle recompile) |
 | `.github/workflows/release.yml` | Tags `v*` | Re-check tests/build; attach a **CI unsigned** APK to the GitHub Release |
 
 Required check name for branch protection: **`ci`**.
 
-On `main`, Gradle work is split so you do **not** pay twice:
+On `main`, compile once and sign separately:
 
-1. **CI** — unit tests only (required check).
-2. **Latest** — one signed release compile after CI is green (checks out the same commit SHA).
+1. **CI** — unit tests + one unsigned release assemble (required check + artifact).
+2. **Latest** — download that artifact and sign only (same commit’s APK; no second compile).
 
-PRs still run tests + one unsigned release assemble (no signing secrets on forks/PRs).
+PRs still run tests + one unsigned release assemble (base versions; no signing secrets on forks/PRs).
 
 ## Continuous signed APK (`latest`)
 
-After **CI** succeeds on `main`, workflow **Latest signed APK** (`.github/workflows/latest.yml`) builds a
-**release-signed** APK and uploads it to the GitHub Release tag `latest`:
+After **CI** succeeds on `main`, workflow **Latest signed APK** (`.github/workflows/latest.yml`)
+**signs** CI’s unsigned APK (no second `assembleRelease`) and uploads it to the GitHub Release tag `latest`:
 
 `https://github.com/lfdominguez/my-car-tracking-mobile-app/releases/download/latest/com.domivega.gps_car-latest.apk`
 
@@ -70,12 +70,13 @@ base64 -w0 ~/.config/gps-car-tracking/release.jks
 
 ### versionCode on `latest`
 
-CI sets (not committed):
+**CI on `main`** stamps the unsigned APK (not committed) before upload:
 
 - `versionCode = baseVersionCode * 100000 + github.run_number`
 - `versionName = "<base>-latest.<run>"`
 
 via `-PciVersionCode` / `-PciVersionName` (see `baseVersionCode` / `baseVersionName` in `composeApp/build.gradle.kts`).
+Latest does not re-run Gradle; it only signs that APK.
 
 - Rolling installs upgrade over previous `latest`.
 - Official F-Droid/store builds keep small monotonic `versionCode`s.

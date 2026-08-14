@@ -1,7 +1,7 @@
 name: Latest signed APK
 
 # Rolling public release-signed APK from main (same cert as create-release.sh).
-# Runs only after CI succeeds on main — no second unit-test or unsigned rebuild.
+# After CI succeeds on main: download CI's unsigned APK and sign only — no recompile.
 # Requires repo secrets: RELEASE_KEYSTORE_BASE64, RELEASE_KEYSTORE_PASSWORD,
 # RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD. See docs/RELEASE.md.
 on:
@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -22,89 +23,77 @@ jobs:
     name: latest-signed-apk
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout CI commit
-        uses: actions/checkout@v4
+      - name: Download CI unsigned APK
+        uses: actions/download-artifact@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          name: composeApp-release-unsigned
+          path: ci-apk
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: gradle
-
-      - name: Set up Android SDK
+      - name: Set up Android SDK (build-tools for apksigner)
         uses: android-actions/setup-android@v3
-
-      - name: Make gradlew executable
-        run: chmod +x gradlew
-
-      - name: Resolve base versions
-        id: ver
-        run: |
-          set -euo pipefail
-          CODE=$(sed -nE 's/.*val baseVersionCode = ([0-9]+).*/\1/p' composeApp/build.gradle.kts | head -1)
-          NAME=$(sed -nE 's/.*val baseVersionName = "([^"]+)".*/\1/p' composeApp/build.gradle.kts | head -1)
-          if [[ -z "${CODE}" || -z "${NAME}" ]]; then
-            echo "::error::Could not parse baseVersionCode/baseVersionName from composeApp/build.gradle.kts"
-            exit 1
-          fi
-          CI_CODE=$(( CODE * 100000 + ${{ github.run_number }} ))
-          CI_NAME="${NAME}-latest.${{ github.run_number }}"
-          echo "base_code=$CODE" >> "$GITHUB_OUTPUT"
-          echo "base_name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "ci_code=$CI_CODE" >> "$GITHUB_OUTPUT"
-          echo "ci_name=$CI_NAME" >> "$GITHUB_OUTPUT"
-          echo "Base versionCode=$CODE versionName=$NAME → CI $CI_CODE / $CI_NAME"
-          echo "Source commit=${{ github.event.workflow_run.head_sha }}"
 
       - name: Materialize release keystore
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [[ -z "${RELEASE_KEYSTORE_BASE64}" || -z "${RELEASE_KEYSTORE_PASSWORD}" \
-             || -z "${RELEASE_KEY_ALIAS}" || -z "${RELEASE_KEY_PASSWORD}" ]]; then
-            echo "::error::Missing release signing secrets (RELEASE_KEYSTORE_BASE64, RELEASE_KEYSTORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD)"
+          if [[ -z "${RELEASE_KEYSTORE_BASE64}" ]]; then
+            echo "::error::Missing RELEASE_KEYSTORE_BASE64"
             exit 1
           fi
           KS="$RUNNER_TEMP/release.jks"
           echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$KS"
           test -s "$KS"
-          printf '%s\n' \
-            "storeFile=$KS" \
-            "storePassword=${RELEASE_KEYSTORE_PASSWORD}" \
-            "keyAlias=${RELEASE_KEY_ALIAS}" \
-            "keyPassword=${RELEASE_KEY_PASSWORD}" \
-            > keystore.properties
+          echo "KS=$KS" >> "$GITHUB_ENV"
 
-      - name: Assemble signed release
-        run: |
-          set -euo pipefail
-          ./gradlew :composeApp:assembleRelease --no-daemon --stacktrace \
-            -PciVersionCode=${{ steps.ver.outputs.ci_code }} \
-            -PciVersionName=${{ steps.ver.outputs.ci_name }}
-
-      - name: Package latest APK
+      - name: Sign APK (zipalign + apksigner only)
         id: apk
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          mkdir -p dist
-          SRC=$(ls composeApp/build/outputs/apk/release/*.apk | grep -v unsigned | head -1 || true)
-          if [[ -z "${SRC}" ]]; then
-            echo "::error::No signed APK found (only unsigned?). Check keystore.properties / secrets."
-            ls -la composeApp/build/outputs/apk/release/ || true
+          if [[ -z "${RELEASE_KEYSTORE_PASSWORD}" || -z "${RELEASE_KEY_ALIAS}" || -z "${RELEASE_KEY_PASSWORD}" ]]; then
+            echo "::error::Missing release signing secrets (RELEASE_KEYSTORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD)"
             exit 1
           fi
+          mkdir -p dist
+          ls -la ci-apk/ || true
+          # Artifact may nest under release/ or be flat.
+          SRC=$(find ci-apk -type f -name '*.apk' | head -1 || true)
+          if [[ -z "${SRC}" ]]; then
+            echo "::error::No APK in CI artifact composeApp-release-unsigned"
+            find ci-apk -type f || true
+            exit 1
+          fi
+          echo "Unsigned source: $SRC (commit ${{ github.event.workflow_run.head_sha }})"
+
+          BT=$(ls -d "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools"/* 2>/dev/null | sort -V | tail -1)
+          if [[ -z "${BT}" || ! -x "${BT}/apksigner" ]]; then
+            echo "::error::Android build-tools apksigner not found under ANDROID_HOME=${ANDROID_HOME:-} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
+            ls -la "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" || true
+            exit 1
+          fi
+          echo "Using build-tools: $BT"
+
+          ALIGNED="$RUNNER_TEMP/aligned.apk"
           OUT="dist/com.domivega.gps_car-latest.apk"
-          cp "$SRC" "$OUT"
+          # Re-align even if already aligned; -f overwrites.
+          "${BT}/zipalign" -p -f 4 "$SRC" "$ALIGNED"
+          "${BT}/apksigner" sign \
+            --ks "$KS" \
+            --ks-pass "pass:${RELEASE_KEYSTORE_PASSWORD}" \
+            --ks-key-alias "${RELEASE_KEY_ALIAS}" \
+            --key-pass "pass:${RELEASE_KEY_PASSWORD}" \
+            --out "$OUT" \
+            "$ALIGNED"
+          "${BT}/apksigner" verify --verbose "$OUT"
           echo "apk_path=$OUT" >> "$GITHUB_OUTPUT"
           ls -la "$OUT"
 
@@ -119,7 +108,7 @@ jobs:
             gh release create latest \
               --prerelease \
               --title "Continuous (latest)" \
-              --notes "Rolling signed APK from \`main\`. Not an F-Droid/store version. versionName includes \`-latest.<run>\`."
+              --notes "Rolling signed APK from \`main\`. Not an F-Droid/store version. Built by signing CI's unsigned APK (no second compile)."
           fi
 
       - name: Upload latest APK
@@ -132,4 +121,4 @@ jobs:
       - name: Scrub keystore from workspace
         if: always()
         run: |
-          rm -f keystore.properties "${RUNNER_TEMP}/release.jks" || true
+          rm -f "${RUNNER_TEMP}/release.jks" "${RUNNER_TEMP}/aligned.apk" || true
