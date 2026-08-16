@@ -82,9 +82,34 @@ class VehicleOnPolicyTest {
     }
 
     @Test
-    fun `GPS speed is allowed only when OBD speed never decoded`() {
-        assertTrue(VehicleOnPolicy.shouldAcceptGpsSpeed(obdSpeedDecoded = false))
-        assertFalse(VehicleOnPolicy.shouldAcceptGpsSpeed(obdSpeedDecoded = true))
+    fun `GPS speed is allowed only when OBD speed never decoded and ECU is live`() {
+        assertTrue(
+            VehicleOnPolicy.shouldAcceptGpsSpeed(
+                obdSpeedDecoded = false,
+                ecuConnected = true,
+            ),
+        )
+        assertFalse(
+            VehicleOnPolicy.shouldAcceptGpsSpeed(
+                obdSpeedDecoded = true,
+                ecuConnected = true,
+            ),
+        )
+        assertFalse(
+            VehicleOnPolicy.shouldAcceptGpsSpeed(
+                obdSpeedDecoded = false,
+                ecuConnected = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `link lost clears proof clock so vehicle is immediately off`() {
+        val running = VehicleOnPolicy.onRpm(VehicleOnPolicy.State(), rpm = 800.0, nowMs = 1_000L)
+        val lost = VehicleOnPolicy.onLinkLost(running)
+        assertTrue(lost.sawPositiveRpm)
+        assertNull(lost.lastProofAtMs)
+        assertFalse(VehicleOnPolicy.isVehicleOn(lost, nowMs = 1_001L))
     }
 
     @Test

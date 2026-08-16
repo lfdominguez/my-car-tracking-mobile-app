@@ -3,6 +3,7 @@ package com.domivega.gps_car.obd
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class PidPollPolicyTest {
     @Test
@@ -25,5 +26,14 @@ class PidPollPolicyTest {
         val prev = emptyMap<String, Double>()
         val next = PidPollPolicy.afterMiss(prev, pid = "04")
         assertNull(next["04"])
+    }
+
+    @Test
+    fun linkLost_clearsLastGoodIncludingZeroSpeed() {
+        val prev = mapOf("0d" to 0.0, "0c" to 800.0, "04" to 12.0)
+        val next = PidPollPolicy.afterLinkLost(prev)
+        assertTrue(next.isEmpty())
+        assertNull(next["0d"])
+        assertNull(next["0c"])
     }
 }

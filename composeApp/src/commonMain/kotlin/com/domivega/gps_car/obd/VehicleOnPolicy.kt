@@ -52,7 +52,14 @@ object VehicleOnPolicy {
     fun onSessionReset(sawPositiveRpm: Boolean): State =
         State(sawPositiveRpm = sawPositiveRpm, lastProofAtMs = null)
 
-    fun shouldAcceptGpsSpeed(obdSpeedDecoded: Boolean): Boolean = !obdSpeedDecoded
+    /** Bluetooth/link drop: vehicle is immediately off; keep ICE flag. */
+    fun onLinkLost(state: State): State =
+        state.copy(lastProofAtMs = null)
+
+    fun shouldAcceptGpsSpeed(
+        obdSpeedDecoded: Boolean,
+        ecuConnected: Boolean,
+    ): Boolean = !obdSpeedDecoded && ecuConnected
 
     fun applyFreshPid(state: State, pid: String, value: Double, nowMs: Long): State =
         when (pid.lowercase()) {

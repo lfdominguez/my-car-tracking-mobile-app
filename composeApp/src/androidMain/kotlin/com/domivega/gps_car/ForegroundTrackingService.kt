@@ -46,6 +46,7 @@ import com.domivega.gps_car.obd.OdometerReading
 import com.domivega.gps_car.settings.AppSettings
 import androidx.core.net.toUri
 import com.domivega.gps_car.gps.GpsLocator
+import com.domivega.gps_car.gps.GpsRecordingGate
 import com.domivega.gps_car.gps.StationaryPositionFilter
 import com.domivega.gps_car.models.data.LocationData
 import com.domivega.gps_car.objects.GpsDataSource
@@ -86,6 +87,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     // Tweakable thresholds (conservative defaults)
     private val maxAccurancyMetters = 15.0        // require reasonably accurate GNSS
     private val stationaryFilter = StationaryPositionFilter()
+    /** Wall clock when OBD speed first became exactly 0.0; cleared when moving or unknown. */
+    private var speedZeroSinceMs: Long? = null
 
 
     override fun onCreate() {
@@ -240,6 +243,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         // New collection generation so work from a prior trip cannot resume.
         val epoch = collectionEpoch.incrementAndGet()
         currentState = TrackingState.TRACKING
+        speedZeroSinceMs = null
         Log.d(TAG, "Starting tracking... epoch=$epoch")
 
         // IMPORTANT: When started via startForegroundService(), we must call startForeground
@@ -330,10 +334,38 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 return@launch
             }
 
-            updateLiveTrackingNotification("Tracking started", epochAtStart)
-
             // Snapshot latest OBD metrics (updated independently at max BLE rate).
             val pidValues = ObdBleManager.pidValues.value
+            val nowMs = System.currentTimeMillis()
+            val lastObdSpeed = pidValues["0d"]
+            speedZeroSinceMs = GpsRecordingGate.nextZeroSinceMs(
+                previousZeroSinceMs = speedZeroSinceMs,
+                lastValidObdSpeedKph = lastObdSpeed,
+                nowMs = nowMs,
+            )
+            if (!GpsRecordingGate.shouldEnqueue(
+                    ecuConnected = ObdBleManager.ecuConnected.value,
+                    vehicleOn = ObdBleManager.vehicleOn.value,
+                    lastValidObdSpeedKph = lastObdSpeed,
+                    speedZeroSinceMs = speedZeroSinceMs,
+                    nowMs = nowMs,
+                )
+            ) {
+                updateLiveTrackingNotification(
+                    when {
+                        !ObdBleManager.ecuConnected.value ->
+                            "Tracking paused (OBD disconnected)"
+                        !ObdBleManager.vehicleOn.value ->
+                            "Tracking paused (vehicle off)"
+                        else ->
+                            "Tracking paused (vehicle stopped)"
+                    },
+                    epochAtStart,
+                )
+                return@launch
+            }
+
+            updateLiveTrackingNotification("Tracking started", epochAtStart)
             val gpsSpeedMps = loc.takeIf { it.hasSpeed() }?.speed?.toDouble()
             val filtered = stationaryFilter.accept(
                 latitude = loc.latitude,

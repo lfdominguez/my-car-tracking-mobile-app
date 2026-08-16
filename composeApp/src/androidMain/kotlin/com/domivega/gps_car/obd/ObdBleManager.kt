@@ -683,6 +683,11 @@ object ObdBleManager {
         stopPollLoop()
         consecutiveLiveMisses = 0
         _ecuConnected.value = false
+        _pidValues.value = PidPollPolicy.afterLinkLost(_pidValues.value)
+        synchronized(vehicleOnLock) {
+            vehicleOnState = VehicleOnPolicy.onLinkLost(vehicleOnState)
+            publishVehicleOn(System.currentTimeMillis())
+        }
         loggedFirstPollOk.set(false)
         failPendingResponse(reason)
         connecting.set(false)
@@ -994,7 +999,7 @@ object ObdBleManager {
         if (!isInitialized) return
         if (!speedKph.isFinite() || speedKph < 0.0) return
         synchronized(vehicleOnLock) {
-            if (!VehicleOnPolicy.shouldAcceptGpsSpeed(obdSpeedDecoded)) return
+            if (!VehicleOnPolicy.shouldAcceptGpsSpeed(obdSpeedDecoded, _ecuConnected.value)) return
             vehicleOnState = VehicleOnPolicy.onSpeed(vehicleOnState, speedKph, nowMs)
             publishVehicleOn(nowMs)
         }

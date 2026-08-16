@@ -75,6 +75,11 @@ object EcuConnectionController {
                 reconcile(reason = "vehicle_on")
             }
         }
+        scope.launch {
+            ObdBleManager.ecuConnected.collectLatest {
+                reconcile(reason = "ecu_link")
+            }
+        }
     }
 
     private fun startReconcileLoop() {

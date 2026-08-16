@@ -16,4 +16,10 @@ object PidPollPolicy {
         previous: Map<String, Double>,
         pid: String,
     ): Map<String, Double> = previous
+
+    /** Socket/session gone: drop every cached PID, including stale 0.0 speed. */
+    fun afterLinkLost(previous: Map<String, Double>): Map<String, Double> {
+        if (previous.isEmpty()) return previous
+        return emptyMap()
+    }
 }
