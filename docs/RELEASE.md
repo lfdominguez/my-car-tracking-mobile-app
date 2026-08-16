@@ -135,4 +135,5 @@ The script:
 ## Related
 
 - F-Droid notes: `docs/fdroid/SUBMISSION.md`
+- Obtainium (stable + continuous): `docs/obtainium/`
 - Agent/security rules: `AGENTS.md`

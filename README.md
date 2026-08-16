@@ -9,6 +9,7 @@
 [![Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4.svg?style=for-the-badge&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![JDK](https://img.shields.io/badge/JDK-21-007396.svg?style=for-the-badge&logo=openjdk&logoColor=white)](https://openjdk.org/)
 [![F-Droid](https://img.shields.io/badge/F--Droid-ready-1976D2.svg?style=for-the-badge&logo=f-droid&logoColor=white)](docs/fdroid/)
+[![Obtainium](https://img.shields.io/badge/Obtainium-stable-1A73E8.svg?style=for-the-badge)](docs/obtainium/)
 
 **Phone GPS and live ELM327 metrics → Room queue → batch upload to a server you control.**
 
@@ -77,6 +78,7 @@ GPSCarTracking/
 │   └── src/androidUnitTest/  # 🧪 JUnit
 ├── fastlane/metadata/        # 🏪 F-Droid / store text
 ├── docs/fdroid/              # 📦 recipe draft + submission notes
+├── docs/obtainium/           # 📲 Obtainium stable + continuous configs
 ├── docs/plans/               # 📝 design notes
 └── devenv.nix                # 🧰 JDK 21 + Android SDK shell
 ```
@@ -201,7 +203,7 @@ Production is **`main`** (protected). Develop on `feature/*`, open a PR, merge w
 
 **Continuous signed APK** (every push to `main`, same release cert):  
 [com.domivega.gps_car-latest.apk](https://github.com/lfdominguez/my-car-tracking-mobile-app/releases/download/latest/com.domivega.gps_car-latest.apk)  
-— sideload channel only; see [`docs/RELEASE.md`](docs/RELEASE.md) (Actions secrets + `versionCode` notes).
+— sideload channel only; see [`docs/RELEASE.md`](docs/RELEASE.md) (Actions secrets + `versionCode` notes). Obtainium config: [`docs/obtainium/continuous.json`](docs/obtainium/continuous.json).
 
 To cut a user-facing / F-Droid version (bumps Gradle `versionName` / `versionCode`, tags, signed GitHub Release APK):
 
@@ -210,6 +212,19 @@ scripts/create-release.sh 1.1 --notes "Your release notes"
 ```
 
 Full workflow: [`docs/RELEASE.md`](docs/RELEASE.md).
+
+---
+
+## 📲 Obtainium
+
+[Obtainium](https://obtainium.imranr.dev/) can track this GitHub repo. Use a config so it does **not** grab the CI unsigned APK or mix store `versionCode`s with the rolling `latest` build.
+
+| Channel | Add in Obtainium | APK filter |
+|:--------|:-----------------|:-----------|
+| **Stable** (F-Droid / `v*` line) | [Add stable](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.domivega.gps_car%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Flfdominguez%2Fmy-car-tracking-mobile-app%22%2C%22author%22%3A%22lfdominguez%22%2C%22name%22%3A%22GPS%20Car%20Tracking%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22com%5C%5C%5C%5C.domivega%5C%5C%5C%5C.gps_car_%5C%5C%5C%5Cd%2B%5C%5C%5C%5C.apk%5C%22%2C%5C%22includePrereleases%5C%22%3Afalse%7D%22%7D) | `com.domivega.gps_car_<digits>.apk` · prereleases off |
+| **Continuous** (`latest` only) | [Add continuous](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.domivega.gps_car%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Flfdominguez%2Fmy-car-tracking-mobile-app%22%2C%22author%22%3A%22lfdominguez%22%2C%22name%22%3A%22GPS%20Car%20Tracking%20%28latest%29%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22com%5C%5C%5C%5C.domivega%5C%5C%5C%5C.gps_car-latest%5C%5C%5C%5C.apk%5C%22%2C%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22latest%5C%22%7D%22%7D) | `com.domivega.gps_car-latest.apk` · not the store line |
+
+Same package id — pick **one** channel. Details and JSON: [`docs/obtainium/`](docs/obtainium/).
 
 ---
 

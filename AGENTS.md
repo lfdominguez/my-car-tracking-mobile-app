@@ -31,6 +31,7 @@ Guidance for AI coding agents and humans working in this repository.
 | `composeApp/src/commonMain/.../ui/` | Compose screens / ViewModels |
 | `composeApp/src/androidUnitTest/` | JUnit tests |
 | `docs/plans/` | Approved designs & implementation plans |
+| `docs/obtainium/` | Obtainium stable + continuous GitHub configs |
 
 ## Dev environment
 
@@ -80,6 +81,7 @@ Changing defaults in code: keep them **non-secret** and documented in README.
 - Multi-step features: design + plan under `docs/plans/YYYY-MM-DD-topic-*.md` when the user uses the planning workflow.
 - Prefer **repo-relative** paths in docs (`composeApp/...`, `../car_telemetry_backend`), never `/home/<user>/...`.
 - **F-Droid:** Fastlane text under `fastlane/metadata/android/`; recipe draft + submission notes under `docs/fdroid/`. Keep the tree free of GMS/Firebase and build-time secrets.
+- **Obtainium:** Ready-made GitHub configs under `docs/obtainium/` (stable = versioned signed APK; continuous = `latest` only). No app-code change.
 
 ## Security checklist (before public push)
 
@@ -162,7 +164,7 @@ Do **not** hand-edit version fields or move tags unless fixing a broken release 
 | Use `create-release.sh` for version tags | Invent ad-hoc version commits on a feature branch |
 | Ask before force-push / history rewrite | Force-push `main` or rewrite shared history |
 
-Full detail: `docs/RELEASE.md`. F-Droid notes: `docs/fdroid/SUBMISSION.md`.
+Full detail: `docs/RELEASE.md`. F-Droid notes: `docs/fdroid/SUBMISSION.md`. Obtainium: `docs/obtainium/`.
 
 ## Out of scope unless asked
 

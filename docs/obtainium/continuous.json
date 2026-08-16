@@ -1,0 +1,7 @@
+{
+  "id": "com.domivega.gps_car",
+  "url": "https://github.com/lfdominguez/my-car-tracking-mobile-app",
+  "author": "lfdominguez",
+  "name": "GPS Car Tracking (latest)",
+  "additionalSettings": "{\"apkFilterRegEx\":\"com\\\\.domivega\\\\.gps_car-latest\\\\.apk\",\"includePrereleases\":true,\"filterReleaseTitlesByRegEx\":\"latest\"}"
+}
