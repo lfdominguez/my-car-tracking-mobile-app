@@ -57,9 +57,9 @@ class EcuTrackingGateTest {
     }
 
     @Test
-    fun `ecu online ensures start and clears disconnect grace`() {
+    fun `vehicle on ensures start and clears disconnect grace`() {
         val decision = EcuTrackingGate.evaluate(
-            ecuConnected = true,
+            vehicleOn = true,
             isTracking = false,
             disconnectStartedAtMs = 50_000L,
             nowMs = 100_000L,
@@ -69,9 +69,9 @@ class EcuTrackingGateTest {
     }
 
     @Test
-    fun `ecu online while already tracking still ensures start`() {
+    fun `vehicle on while already tracking still ensures start`() {
         val decision = EcuTrackingGate.evaluate(
-            ecuConnected = true,
+            vehicleOn = true,
             isTracking = true,
             disconnectStartedAtMs = null,
             nowMs = 100_000L,
@@ -83,7 +83,7 @@ class EcuTrackingGateTest {
     @Test
     fun `idle offline without a trip does nothing`() {
         val decision = EcuTrackingGate.evaluate(
-            ecuConnected = false,
+            vehicleOn = false,
             isTracking = false,
             disconnectStartedAtMs = 12_000L,
             nowMs = 100_000L,
@@ -97,7 +97,7 @@ class EcuTrackingGateTest {
         // Bug: manual/sticky start with ECU already false never saw a true→false edge.
         val now = 200_000L
         val decision = EcuTrackingGate.evaluate(
-            ecuConnected = false,
+            vehicleOn = false,
             isTracking = true,
             disconnectStartedAtMs = null,
             nowMs = now,
@@ -110,7 +110,7 @@ class EcuTrackingGateTest {
     fun `tracking offline past grace requests stop`() {
         val started = 10_000L
         val decision = EcuTrackingGate.evaluate(
-            ecuConnected = false,
+            vehicleOn = false,
             isTracking = true,
             disconnectStartedAtMs = started,
             nowMs = started + 90_000L,
@@ -124,7 +124,7 @@ class EcuTrackingGateTest {
     fun `tracking offline within grace keeps armed timer`() {
         val started = 10_000L
         val decision = EcuTrackingGate.evaluate(
-            ecuConnected = false,
+            vehicleOn = false,
             isTracking = true,
             disconnectStartedAtMs = started,
             nowMs = started + 30_000L,
@@ -135,9 +135,9 @@ class EcuTrackingGateTest {
     }
 
     @Test
-    fun `server bind requires live ECU flag`() {
-        // Flag is live-PID-backed upstream (0c/0d/42); gate only checks the boolean.
-        assertFalse(EcuTrackingGate.shouldBindServerSession(ecuConnected = false))
-        assertTrue(EcuTrackingGate.shouldBindServerSession(ecuConnected = true))
+    fun `server bind requires vehicle-on flag`() {
+        // Flag is VehicleOnPolicy-backed upstream; gate only checks the boolean.
+        assertFalse(EcuTrackingGate.shouldBindServerSession(vehicleOn = false))
+        assertTrue(EcuTrackingGate.shouldBindServerSession(vehicleOn = true))
     }
 }

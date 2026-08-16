@@ -20,10 +20,10 @@ import kotlinx.coroutines.sync.withLock
  * Observes native OBD ECU connection status and automatically starts/stops
  * ForegroundTrackingService accordingly.
  *
- * Start is immediate on ECU online. Stop waits for a sustained disconnect grace
+ * Start is immediate on vehicle-on proof. Stop waits for a sustained off grace
  * so transient UDS/ELM blips do not split one drive into multiple trips.
  *
- * Reconcile is **level-based**: if tracking is active while ECU is already offline
+ * Reconcile is **level-based**: if tracking is active while the vehicle is already off
  * (manual start, sticky resume, missed edge), grace still arms and eventually shuts down.
  */
 object EcuConnectionController {
@@ -71,8 +71,8 @@ object EcuConnectionController {
 
     private fun startCollecting() {
         scope.launch {
-            ObdBleManager.ecuConnected.collectLatest {
-                reconcile(reason = "ecu_flow")
+            ObdBleManager.vehicleOn.collectLatest {
+                reconcile(reason = "vehicle_on")
             }
         }
     }
@@ -89,11 +89,12 @@ object EcuConnectionController {
 
     private suspend fun reconcile(reason: String) {
         evaluateMutex.withLock {
-            val connected = ObdBleManager.ecuConnected.value
+            ObdBleManager.refreshVehicleOn()
+            val on = ObdBleManager.vehicleOn.value
             val tracking = isTrackingActive()
             val priorGrace = disconnectStartedAtMs
             val decision = EcuTrackingGate.evaluate(
-                ecuConnected = connected,
+                vehicleOn = on,
                 isTracking = tracking,
                 disconnectStartedAtMs = priorGrace,
                 nowMs = System.currentTimeMillis(),
@@ -106,7 +107,7 @@ object EcuConnectionController {
             ) {
                 Log.i(
                     TAG,
-                    "ECU offline while tracking — grace " +
+                    "vehicle off while tracking — grace " +
                         "${EcuTrackingGate.DEFAULT_STOP_GRACE_MS / 1000}s before stop ($reason)",
                 )
             }
@@ -114,21 +115,22 @@ object EcuConnectionController {
             when (decision.action) {
                 EcuTrackingAction.EnsureStart -> {
                     // Poll backup must not spam START every 5s while already tracking.
-                    // Still assert START on ECU edges / init / prefs to recover WAITING+prefs.
+                    // Still assert START on vehicle-on edges / init / prefs to recover WAITING+prefs.
                     if (tracking && reason == "poll") return@withLock
                     Log.i(
                         TAG,
-                        "ECU connected → ensure tracking service START " +
+                        "vehicle on → ensure tracking service START " +
                             "(wasTracking=$tracking reason=$reason)",
                     )
                     appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START)
                 }
                 EcuTrackingAction.EndTrip -> {
-                    // Re-check: ECU may have returned during evaluate.
+                    // Re-check: a new proof may have landed during evaluate.
+                    // Do not require ecuConnected==false — voltage can stay alive after ICE.
                     // STOP ends the trip but keeps WAITING + permanent notification
                     // so idle OBD reconnect stays alive without opening the app.
-                    if (!ObdBleManager.ecuConnected.value && isTrackingActive()) {
-                        Log.i(TAG, "ECU disconnected past grace → end trip, stay paused ($reason)")
+                    if (!ObdBleManager.vehicleOn.value && isTrackingActive()) {
+                        Log.i(TAG, "no vehicle-on proof past grace → end trip, stay paused ($reason)")
                         appContext.startForegroundServiceCompat(
                             ForegroundTrackingService.ACTION_STOP,
                         )

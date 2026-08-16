@@ -63,7 +63,7 @@ OBD (BLE or SPP)  ──►  pidValues (hot/slow PIDs)  ──────┘
 | Layer | Role |
 |:------|:-----|
 | `ForegroundTrackingService` | GPS fixes, build samples, enqueue, session start/stop |
-| `ObdBleManager` | ELM session (GATT or RFCOMM), PID poll, `pidValues` / `ecuConnected` |
+| `ObdBleManager` | ELM session (GATT or RFCOMM), PID poll, `pidValues` / `ecuConnected` / `vehicleOn` |
 | `SampleQueueRepository` + `SampleQueueUploader` | Persist unsent rows; batch POST |
 | `ApiClient` | OkHttp `start` / `stop` / `sample` / `samples` |
 | `AppSettings` | SharedPreferences (URLs, token, BLE, protocol, fuel) |

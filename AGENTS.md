@@ -50,7 +50,7 @@ devenv shell -- ./gradlew :composeApp:compileDebugKotlinAndroid
 - **OBD loop** is independent of GPS: continuous hot/slow PID rounds (`ObdPollSchedule`), publish `pidValues` per PID; no 1 s full-cycle throttle.
 - **GPS** (~1 Hz) only **snapshots** latest `pidValues`; never block samples on BLE.
 - **Queue**: enqueue on accept; flusher batch-posts `/samples`; mark sent only after success.
-- **ECU auto tracking**: start only after live OBD decode of RPM (`0c`), speed (`0d`), or module voltage (`42`) — ELM init alone is not enough (EV-safe); sustained live-PID misses → offline → grace → end trip but stay in WAITING FGS until user Shutdown; WAITING FGS (permanent notification) when a dongle address is configured — on boot/process start **and** when the user first selects a dongle (not only after Play).
+- **ECU auto tracking**: start only after a vehicle-on proof — RPM>0, speed>0, or (before this session has seen RPM>0) module voltage `42`. After RPM>0, voltage / RPM=0 do not keep the trip. Sustained lack of proof → offline → 90s grace → end trip but stay in WAITING FGS until user Shutdown. Hung adapter ages out via the 5s reconcile. WAITING FGS when a dongle address is configured — on boot/process start **and** when the user first selects a dongle (not only after Play).
 - **Sample upload fields**: Settings toggles optional metrics; always send lat/lon, velocity, RPM (plus tracking id / accuracy). Filter at enqueue via `SampleFieldFilter`.
 - **Fuel L/h** (`ff125a`): `FuelConsumptionCalculator` + settings (not a fixed ×0.339 gasoline hack). Rejects peak-air idle MAF (`peak×VE×0.14` bound; MAP preferred when present).
 - **OBD debug log**: errors + init/lifecycle; not full successful PID TX/RX spam.

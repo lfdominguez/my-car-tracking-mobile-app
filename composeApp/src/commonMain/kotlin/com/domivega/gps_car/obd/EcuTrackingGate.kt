@@ -1,14 +1,17 @@
 package com.domivega.gps_car.obd
 
 /**
- * Decides when ECU connect/disconnect should start/stop the tracking trip.
+ * Decides when vehicle-on proofs should start/stop the tracking trip.
  *
  * Transient OBD blips (UDS header restore, short ELM re-init) must not end a trip.
  * Evaluation is level-based (not edge-only): tracking while already offline must arm
  * the disconnect grace even when there was no true→false transition observed.
+ *
+ * [vehicleOn] is [VehicleOnPolicy] (RPM>0 / speed>0 / voltage-before-ICE), not
+ * merely [LiveObdConnectionPolicy] ECU-answering.
  */
 object EcuTrackingGate {
-    /** Continuous ECU-off time before auto-stop ends the trip. */
+    /** Continuous vehicle-off time before auto-stop ends the trip. */
     const val DEFAULT_STOP_GRACE_MS: Long = 90_000L
 
     /**
@@ -26,24 +29,24 @@ object EcuTrackingGate {
     }
 
     /**
-     * Server `/start` bind only while the ECU is live — avoids ghost trips from GPS-only starts.
-     * [ecuConnected] is RPM/speed/voltage-backed in ObdBleManager (not ELM init alone).
+     * Server `/start` bind only while the vehicle is on — avoids ghost trips from GPS-only starts.
+     * [vehicleOn] is proof-backed in ObdBleManager (not ELM init or last-good PIDs).
      */
-    fun shouldBindServerSession(ecuConnected: Boolean): Boolean = ecuConnected
+    fun shouldBindServerSession(vehicleOn: Boolean): Boolean = vehicleOn
 
     /**
-     * Pure reconcile of ECU + local tracking prefs.
+     * Pure reconcile of vehicle-on + local tracking prefs.
      *
      * @param disconnectStartedAtMs prior armed timer, or null when not in disconnect grace.
      */
     fun evaluate(
-        ecuConnected: Boolean,
+        vehicleOn: Boolean,
         isTracking: Boolean,
         disconnectStartedAtMs: Long?,
         nowMs: Long,
         graceMs: Long = DEFAULT_STOP_GRACE_MS,
     ): EcuTrackingDecision {
-        if (ecuConnected) {
+        if (vehicleOn) {
             return EcuTrackingDecision(
                 action = EcuTrackingAction.EnsureStart,
                 disconnectStartedAtMs = null,

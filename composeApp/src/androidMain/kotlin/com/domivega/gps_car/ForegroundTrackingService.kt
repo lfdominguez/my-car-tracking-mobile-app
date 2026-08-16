@@ -153,9 +153,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     private suspend fun tryBindServerSession(epochAtStart: Long = collectionEpoch.get()) {
         if (currentState != TrackingState.TRACKING) return
         if (epochAtStart != collectionEpoch.get()) return
-        // Do not open a server trip until the ECU is actually online. GPS-only /
+        // Do not open a server trip until the vehicle is on. GPS-only /
         // failed OBD idle reconnect must not create ghost tracks on the backend.
-        if (!EcuTrackingGate.shouldBindServerSession(ObdBleManager.ecuConnected.value)) return
+        if (!EcuTrackingGate.shouldBindServerSession(ObdBleManager.vehicleOn.value)) return
 
         val current = trackingId ?: prefs.getString(KEY_TRACKING_ID, null) ?: return
         if (LocalTrackingIds.isUploadable(current)) return
@@ -281,6 +281,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         if (currentState != TrackingState.TRACKING) return
 
         val speedMps = loc.speed.toDouble()
+        if (loc.hasSpeed()) {
+            ObdBleManager.noteGpsSpeed(speedMps * 3.6)
+        }
         val epochAtStart = collectionEpoch.get()
 
         serviceScope.launch(Dispatchers.IO) {
@@ -452,6 +455,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     private fun shutdownService() {
         Log.d(TAG, "Shutting down service.")
+        ObdBleManager.clearSawPositiveRpm()
         val myShutdown = shutdownEpoch.incrementAndGet()
         shuttingDown.set(true)
         val idToStop = stopTrackingInternal(updateWaitingNotification = false)

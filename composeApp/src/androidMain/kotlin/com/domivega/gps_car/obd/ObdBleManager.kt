@@ -45,10 +45,11 @@ data class BleDeviceInfo(
 /**
  * ELM327 OBD session over BLE GATT or Classic Bluetooth SPP.
  *
- * Call [initialize] once from Application. Observe [pidValues] / [ecuConnected].
+ * Call [initialize] once from Application. Observe [pidValues] / [ecuConnected] / [vehicleOn].
  * [ecuConnected] is true only after a live decode of RPM (`0c`), speed (`0d`), or
  * module voltage (`42`) — not from ELM init / bus contact alone.
- * Transport is selected via [setBluetoothTransport] / settings (default BLE).
+ * [vehicleOn] is the trip watchdog ([VehicleOnPolicy]): after RPM>0, voltage / RPM=0
+ * no longer keep a trip open. Transport via [setBluetoothTransport] / settings.
  */
 object ObdBleManager {
     private const val TAG = "ObdBleMgr"
@@ -211,6 +212,15 @@ object ObdBleManager {
     private val _ecuConnected = MutableStateFlow(false)
     val ecuConnected: StateFlow<Boolean> = _ecuConnected.asStateFlow()
 
+    private val vehicleOnLock = Any()
+    private var vehicleOnState = VehicleOnPolicy.State()
+    private val _vehicleOn = MutableStateFlow(false)
+    val vehicleOn: StateFlow<Boolean> = _vehicleOn.asStateFlow()
+
+    /** Process-local: OBD PID 0d decoded at least once (gates GPS speed proofs). */
+    @Volatile
+    private var obdSpeedDecoded: Boolean = false
+
     private val _connectionStatus = MutableStateFlow("Not initialized")
     val connectionStatus: StateFlow<String> = _connectionStatus.asStateFlow()
 
@@ -266,6 +276,7 @@ object ObdBleManager {
 
             selectedAddress = settings.bleDeviceAddress.ifBlank { null }
             selectedName = settings.bleDeviceName.ifBlank { null }
+            loadVehicleOnFlag()
             protocol = runCatching { ObdProtocol.valueOf(settings.obdProtocol) }
                 .getOrDefault(ObdProtocol.DEFAULT)
             bluetoothTransport = BluetoothTransport.fromName(settings.bluetoothTransport)
@@ -355,6 +366,7 @@ object ObdBleManager {
 
     fun selectDevice(address: String, name: String?) {
         ensureInit()
+        val previousAddress = selectedAddress.orEmpty()
         selectedAddress = address
         selectedName = name
         settings.bleDeviceAddress = address
@@ -367,6 +379,11 @@ object ObdBleManager {
         // Fresh install / first pick never hit GpsCarApp's cold-start WAITING path.
         if (WaitingFgsGate.shouldEnsureWaiting(address)) {
             appContext.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START_WAITING)
+        }
+        if (!VehicleOnPersist.shouldKeepFlag(previousAddress, address)) {
+            clearSawPositiveRpm()
+        } else {
+            persistVehicleOnFlag(vehicleOnState.sawPositiveRpm, address)
         }
     }
 
@@ -804,6 +821,7 @@ object ObdBleManager {
                         _pidValues.value = updated.toMap()
                         engineOkCount += 1
                         applyLiveSuccessToConnection()
+                        applyVehicleOnPid("0c", rpm)
                     }
                     return rpmRaw
                 }
@@ -849,6 +867,7 @@ object ObdBleManager {
                         _pidValues.value = updated.toMap()
                         engineOkCount += 1
                         applyLiveSuccessToConnection()
+                        applyVehicleOnPid("0c", rpm)
                     }
                     if (attempt > 0 || header != "7DF") {
                         logI("WWH 22F40C OK header=$header attempt ${attempt + 1}/$attempts")
@@ -911,6 +930,7 @@ object ObdBleManager {
         consecutiveLiveMisses = 0
         // Drop stale metrics (e.g. prior-trip engine run time PID 1F) before a new session.
         _pidValues.value = emptyMap()
+        resetVehicleOnProofClock()
     }
 
     private fun applyLiveSuccessToConnection() {
@@ -923,6 +943,86 @@ object ObdBleManager {
             setStatus("ECU online")
         }
         _ecuConnected.value = next.ecuConnected
+    }
+
+    private fun trackingPrefs() =
+        appContext.getSharedPreferences(VehicleOnPersist.PREFS_NAME, Context.MODE_PRIVATE)
+
+    private fun loadVehicleOnFlag() {
+        val prefs = trackingPrefs()
+        val storedDongle = prefs.getString(VehicleOnPersist.KEY_FLAG_DONGLE, "") ?: ""
+        val address = selectedAddress.orEmpty()
+        val keep = VehicleOnPersist.shouldKeepFlag(storedDongle, address)
+        val saw = keep && prefs.getBoolean(VehicleOnPersist.KEY_SAW_POSITIVE_RPM, false)
+        synchronized(vehicleOnLock) {
+            vehicleOnState = VehicleOnPolicy.State(sawPositiveRpm = saw, lastProofAtMs = null)
+            _vehicleOn.value = false
+        }
+        if (!keep) persistVehicleOnFlag(false, address)
+    }
+
+    private fun persistVehicleOnFlag(
+        saw: Boolean,
+        address: String = selectedAddress.orEmpty(),
+    ) {
+        trackingPrefs().edit()
+            .putBoolean(VehicleOnPersist.KEY_SAW_POSITIVE_RPM, saw)
+            .putString(VehicleOnPersist.KEY_FLAG_DONGLE, address)
+            .apply()
+    }
+
+    private fun publishVehicleOn(nowMs: Long) {
+        _vehicleOn.value = VehicleOnPolicy.isVehicleOn(vehicleOnState, nowMs)
+    }
+
+    private fun applyVehicleOnPid(pid: String, value: Double) {
+        val now = System.currentTimeMillis()
+        synchronized(vehicleOnLock) {
+            val prev = vehicleOnState.sawPositiveRpm
+            vehicleOnState = VehicleOnPolicy.applyFreshPid(vehicleOnState, pid, value, now)
+            if (pid.equals("0d", ignoreCase = true)) {
+                obdSpeedDecoded = true
+            }
+            if (vehicleOnState.sawPositiveRpm != prev) {
+                persistVehicleOnFlag(vehicleOnState.sawPositiveRpm)
+            }
+            publishVehicleOn(now)
+        }
+    }
+
+    fun noteGpsSpeed(speedKph: Double, nowMs: Long = System.currentTimeMillis()) {
+        if (!isInitialized) return
+        if (!speedKph.isFinite() || speedKph < 0.0) return
+        synchronized(vehicleOnLock) {
+            if (!VehicleOnPolicy.shouldAcceptGpsSpeed(obdSpeedDecoded)) return
+            vehicleOnState = VehicleOnPolicy.onSpeed(vehicleOnState, speedKph, nowMs)
+            publishVehicleOn(nowMs)
+        }
+    }
+
+    fun clearSawPositiveRpm() {
+        if (!isInitialized) return
+        synchronized(vehicleOnLock) {
+            persistVehicleOnFlag(VehicleOnPersist.flagAfterShutdown())
+            vehicleOnState = VehicleOnPolicy.onSessionReset(false)
+            obdSpeedDecoded = false
+            _vehicleOn.value = false
+        }
+    }
+
+    fun refreshVehicleOn(nowMs: Long = System.currentTimeMillis()) {
+        if (!isInitialized) return
+        synchronized(vehicleOnLock) {
+            publishVehicleOn(nowMs)
+        }
+    }
+
+    private fun resetVehicleOnProofClock() {
+        synchronized(vehicleOnLock) {
+            vehicleOnState = VehicleOnPolicy.onSessionReset(vehicleOnState.sawPositiveRpm)
+            obdSpeedDecoded = false
+            publishVehicleOn(System.currentTimeMillis())
+        }
     }
 
     private fun applyLiveMissToConnection() {
@@ -1156,6 +1256,7 @@ object ObdBleManager {
                         if (LiveObdConnectionPolicy.isLivePid(pid)) {
                             applyLiveSuccessToConnection()
                         }
+                        applyVehicleOnPid(pid, value)
                         if (loggedFirstPollOk.compareAndSet(false, true)) {
                             val stack = if (wwhEngineOnly) "WWH" else "Mode01"
                             logI(
@@ -1618,6 +1719,7 @@ object ObdBleManager {
                 _pidValues.value = updated.toMap()
                 engineOkCount += 1
                 applyLiveSuccessToConnection()
+                applyVehicleOnPid("0c", rpm)
             }
             true
         } else {
@@ -1632,6 +1734,7 @@ object ObdBleManager {
                 _pidValues.value = updated.toMap()
                 engineOkCount += 1
                 applyLiveSuccessToConnection()
+                applyVehicleOnPid("0c", rpm)
             }
             true
         }
