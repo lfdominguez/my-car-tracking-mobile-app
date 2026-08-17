@@ -15,7 +15,7 @@ class VehicleOnPolicyTest {
 
     @Test
     fun `voltage is a proof before positive RPM`() {
-        val next = VehicleOnPolicy.onVoltage(VehicleOnPolicy.State(), nowMs = 5_000L)
+        val next = VehicleOnPolicy.onVoltage(VehicleOnPolicy.State(), volts = 12.4, nowMs = 5_000L)
         assertFalse(next.sawPositiveRpm)
         assertEquals(5_000L, next.lastProofAtMs)
         assertTrue(VehicleOnPolicy.isVehicleOn(next, nowMs = 5_000L))
@@ -24,7 +24,7 @@ class VehicleOnPolicyTest {
     @Test
     fun `voltage is not a proof after positive RPM`() {
         val running = VehicleOnPolicy.onRpm(VehicleOnPolicy.State(), rpm = 800.0, nowMs = 1_000L)
-        val afterVoltage = VehicleOnPolicy.onVoltage(running, nowMs = 20_000L)
+        val afterVoltage = VehicleOnPolicy.onVoltage(running, volts = 13.8, nowMs = 20_000L)
         assertTrue(afterVoltage.sawPositiveRpm)
         assertEquals(1_000L, afterVoltage.lastProofAtMs)
         assertFalse(VehicleOnPolicy.isVehicleOn(afterVoltage, nowMs = 20_000L))
@@ -67,7 +67,7 @@ class VehicleOnPolicyTest {
 
     @Test
     fun `proof older than stale window is not vehicle on`() {
-        val next = VehicleOnPolicy.onVoltage(VehicleOnPolicy.State(), nowMs = 1_000L)
+        val next = VehicleOnPolicy.onVoltage(VehicleOnPolicy.State(), volts = 12.4, nowMs = 1_000L)
         assertTrue(VehicleOnPolicy.isVehicleOn(next, nowMs = 1_000L + 9_999L))
         assertFalse(VehicleOnPolicy.isVehicleOn(next, nowMs = 1_000L + 10_000L))
     }
@@ -128,12 +128,65 @@ class VehicleOnPolicyTest {
         assertEquals(5_000L, rpm.lastProofAtMs)
 
         val ignoredVoltage = VehicleOnPolicy.applyFreshPid(rpm, pid = "42", value = 12.1, nowMs = 6_000L)
-        assertEquals(5_000L, ignoredVoltage.lastProofAtMs)
+        assertNull(ignoredVoltage.lastProofAtMs)
 
         val speed = VehicleOnPolicy.applyFreshPid(ignoredVoltage, pid = "0d", value = 15.0, nowMs = 7_000L)
         assertEquals(7_000L, speed.lastProofAtMs)
 
         val other = VehicleOnPolicy.applyFreshPid(speed, pid = "04", value = 20.0, nowMs = 8_000L)
         assertEquals(7_000L, other.lastProofAtMs)
+    }
+
+    @Test
+    fun `after ICE rest battery and fake idle RPM is not vehicle on`() {
+        // Friend's parked ghosts: RPM 704 + 12.49 V + speed 0 after a real ICE trip.
+        var state = VehicleOnPolicy.onRpm(VehicleOnPolicy.State(), rpm = 800.0, nowMs = 1_000L)
+        state = VehicleOnPolicy.onVoltage(state, volts = 13.8, nowMs = 1_100L)
+        state = VehicleOnPolicy.onSpeed(state, speedKph = 0.0, nowMs = 90_000L)
+        state = VehicleOnPolicy.onSessionReset(sawPositiveRpm = state.sawPositiveRpm)
+
+        state = VehicleOnPolicy.onRpm(state, rpm = 704.0, nowMs = 100_000L)
+        assertTrue(state.sawPositiveRpm)
+        assertNull(state.lastProofAtMs)
+
+        state = VehicleOnPolicy.onVoltage(state, volts = 12.49, nowMs = 100_200L)
+        state = VehicleOnPolicy.onSpeed(state, speedKph = 0.0, nowMs = 100_300L)
+        state = VehicleOnPolicy.onRpm(state, rpm = 704.0, nowMs = 100_400L)
+
+        assertFalse(VehicleOnPolicy.isVehicleOn(state, nowMs = 100_400L))
+        assertTrue(VehicleOnPolicy.shouldReleaseAdapter(state))
+    }
+
+    @Test
+    fun `after ICE charging voltage keeps idle RPM as vehicle on`() {
+        var state = VehicleOnPolicy.onRpm(VehicleOnPolicy.State(), rpm = 800.0, nowMs = 1_000L)
+        state = VehicleOnPolicy.onVoltage(state, volts = 13.8, nowMs = 1_100L)
+        state = VehicleOnPolicy.onRpm(state, rpm = 720.0, nowMs = 50_000L)
+        state = VehicleOnPolicy.onSpeed(state, speedKph = 0.0, nowMs = 50_100L)
+        assertTrue(VehicleOnPolicy.isVehicleOn(state, nowMs = 50_100L))
+        assertFalse(VehicleOnPolicy.shouldReleaseAdapter(state))
+    }
+
+    @Test
+    fun `after ICE RPM without a voltage reading does not start a trip`() {
+        val ice = VehicleOnPolicy.onSessionReset(sawPositiveRpm = true)
+        val rpmOnly = VehicleOnPolicy.onRpm(ice, rpm = 704.0, nowMs = 10_000L)
+        assertTrue(rpmOnly.sawPositiveRpm)
+        assertNull(rpmOnly.lastProofAtMs)
+        assertFalse(VehicleOnPolicy.isVehicleOn(rpmOnly, nowMs = 10_000L))
+        assertFalse(VehicleOnPolicy.shouldReleaseAdapter(rpmOnly))
+    }
+
+    @Test
+    fun `rest voltage after ICE clears proof even if RPM stays positive`() {
+        var state = VehicleOnPolicy.onRpm(VehicleOnPolicy.State(), rpm = 900.0, nowMs = 1_000L)
+        state = VehicleOnPolicy.onVoltage(state, volts = 13.7, nowMs = 1_100L)
+        state = VehicleOnPolicy.onSpeed(state, speedKph = 0.0, nowMs = 2_000L)
+        assertTrue(VehicleOnPolicy.isVehicleOn(state, nowMs = 2_000L))
+
+        state = VehicleOnPolicy.onVoltage(state, volts = 12.49, nowMs = 3_000L)
+        assertNull(state.lastProofAtMs)
+        assertFalse(VehicleOnPolicy.isVehicleOn(state, nowMs = 3_000L))
+        assertTrue(VehicleOnPolicy.shouldReleaseAdapter(state))
     }
 }

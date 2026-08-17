@@ -4,8 +4,8 @@ package com.domivega.gps_car.obd
  * Pure transitions for ObdBleManager.ecuConnected from live OBD decodes.
  *
  * Live metrics (ICE + EV-friendly): RPM `0c`, speed `0d`, control-module voltage `42`.
- * ELM init or other PIDs alone must not open a trip. Miss streak ignores last-good hold
- * in pidValues ([PidPollPolicy.afterMiss]).
+ * ELM init or other PIDs alone must not open a trip. Miss streak is independent of
+ * pidValues: RPM/speed are dropped on miss ([PidPollPolicy.afterMiss]).
  */
 object LiveObdConnectionPolicy {
     const val DEFAULT_MISS_THRESHOLD: Int = 5

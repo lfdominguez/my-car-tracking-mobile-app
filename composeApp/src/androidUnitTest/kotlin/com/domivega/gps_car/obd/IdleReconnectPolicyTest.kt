@@ -2,6 +2,7 @@ package com.domivega.gps_car.obd
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IdleReconnectPolicyTest {
@@ -48,5 +49,25 @@ class IdleReconnectPolicyTest {
                 presenceAvailable = false,
             ),
         )
+    }
+
+    @Test
+    fun `parked sleep blocks idle connect until backoff elapses`() {
+        val now = 1_000_000L
+        val until = IdleReconnectPolicy.parkedSleepUntilMs(now)
+        assertEquals(now + IdleReconnectPolicy.PARKED_BACKOFF_MS, until)
+        assertFalse(IdleReconnectPolicy.shouldAttemptConnect(until, now))
+        assertFalse(IdleReconnectPolicy.shouldAttemptConnect(until, until - 1L))
+        assertTrue(IdleReconnectPolicy.shouldAttemptConnect(until, until))
+        assertTrue(IdleReconnectPolicy.shouldAttemptConnect(null, now))
+    }
+
+    @Test
+    fun `nextDelayMs waits out remaining parked sleep`() {
+        val now = 50_000L
+        val until = now + 180_000L
+        assertEquals(180_000L, IdleReconnectPolicy.nextDelayMs(0.5, until, now))
+        assertEquals(60_000L, IdleReconnectPolicy.nextDelayMs(0.5, until, until))
+        assertEquals(60_000L, IdleReconnectPolicy.nextDelayMs(0.5, null, now))
     }
 }

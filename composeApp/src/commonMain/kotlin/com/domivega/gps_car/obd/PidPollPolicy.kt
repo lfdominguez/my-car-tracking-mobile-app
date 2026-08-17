@@ -1,6 +1,15 @@
 package com.domivega.gps_car.obd
 
 object PidPollPolicy {
+    /** Last-good PIDs older than this are not published to samples / UI. */
+    const val MAX_AGE_MS: Long = 10_000L
+
+    /**
+     * Trip-critical live PIDs: a miss must not keep the last decode.
+     * Holding last-good RPM is what made parked ghost trips look like 704 RPM.
+     */
+    val DROP_ON_MISS: Set<String> = setOf("0c", "0d")
+
     fun afterSuccess(
         previous: Map<String, Double>,
         pid: String,
@@ -11,11 +20,35 @@ object PidPollPolicy {
         return updated
     }
 
-    /** Miss/timeout/NO DATA: never remove last-good values. */
+    /**
+     * Miss/timeout/NO DATA: drop last-good RPM/speed; keep other PIDs until
+     * [expireOlderThan] (a single coolant miss should not punch a hole).
+     */
     fun afterMiss(
         previous: Map<String, Double>,
         pid: String,
-    ): Map<String, Double> = previous
+    ): Map<String, Double> {
+        if (pid.lowercase() !in DROP_ON_MISS) return previous
+        if (previous.keys.none { it.equals(pid, ignoreCase = true) }) return previous
+        return previous.filterKeys { !it.equals(pid, ignoreCase = true) }
+    }
+
+    fun expireOlderThan(
+        values: Map<String, Double>,
+        lastSeenAtMs: Map<String, Long>,
+        nowMs: Long,
+        maxAgeMs: Long = MAX_AGE_MS,
+    ): Map<String, Double> {
+        if (values.isEmpty()) return values
+        return values.filterKeys { pid ->
+            val seen = lastSeenAtMs[pid]
+                ?: lastSeenAtMs[pid.lowercase()]
+                ?: lastSeenAtMs.entries
+                    .firstOrNull { it.key.equals(pid, ignoreCase = true) }
+                    ?.value
+            seen != null && nowMs - seen < maxAgeMs
+        }
+    }
 
     /** Socket/session gone: drop every cached PID, including stale 0.0 speed. */
     fun afterLinkLost(previous: Map<String, Double>): Map<String, Double> {

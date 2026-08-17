@@ -48,8 +48,8 @@ data class BleDeviceInfo(
  * Call [initialize] once from Application. Observe [pidValues] / [ecuConnected] / [vehicleOn].
  * [ecuConnected] is true only after a live decode of RPM (`0c`), speed (`0d`), or
  * module voltage (`42`) — not from ELM init / bus contact alone.
- * [vehicleOn] is the trip watchdog ([VehicleOnPolicy]): after RPM>0, voltage / RPM=0
- * no longer keep a trip open. Transport via [setBluetoothTransport] / settings.
+ * [vehicleOn] is the trip watchdog ([VehicleOnPolicy]): after RPM>0, rest-battery
+ * voltage / RPM=0 no longer keep a trip open. Transport via [setBluetoothTransport] / settings.
  */
 object ObdBleManager {
     private const val TAG = "ObdBleMgr"
@@ -208,6 +208,7 @@ object ObdBleManager {
 
     private val _pidValues = MutableStateFlow<Map<String, Double>>(emptyMap())
     val pidValues: StateFlow<Map<String, Double>> = _pidValues.asStateFlow()
+    private val pidSeenAtMs = ConcurrentHashMap<String, Long>()
 
     private val _ecuConnected = MutableStateFlow(false)
     val ecuConnected: StateFlow<Boolean> = _ecuConnected.asStateFlow()
@@ -220,6 +221,11 @@ object ObdBleManager {
     /** Process-local: OBD PID 0d decoded at least once (gates GPS speed proofs). */
     @Volatile
     private var obdSpeedDecoded: Boolean = false
+
+    /** Wall clock until idle reconnect may wake a parked dongle again. */
+    @Volatile
+    private var parkedSleepUntilMs: Long? = null
+    private val parkedReleaseRequested = AtomicBoolean(false)
 
     private val _connectionStatus = MutableStateFlow("Not initialized")
     val connectionStatus: StateFlow<String> = _connectionStatus.asStateFlow()
@@ -453,6 +459,8 @@ object ObdBleManager {
             Log.d(TAG, "Already connected")
             return
         }
+        parkedSleepUntilMs = null
+        parkedReleaseRequested.set(false)
         if (!connecting.compareAndSet(false, true)) {
             Log.d(TAG, "Connect already in progress")
             return
@@ -544,14 +552,33 @@ object ObdBleManager {
             stopPollLoop()
             sessionReady.set(false)
             _ecuConnected.value = false
-            _pidValues.value = emptyMap()
+            clearPidCache()
             resetPidDiscoveryState()
             closeLinkInternal()
             connecting.set(false)
             loggedFirstPollOk.set(false)
+            synchronized(vehicleOnLock) {
+                vehicleOnState = VehicleOnPolicy.onLinkLost(vehicleOnState)
+                publishVehicleOn(System.currentTimeMillis())
+            }
             setStatus("Disconnected")
             logI("Disconnected")
         }
+    }
+
+    /**
+     * Car is parked (rest battery + stale idle RPM). Drop BLE so the adapter
+     * can sleep, and back off idle reconnect so we do not keep waking it.
+     */
+    fun releaseAdapterForParkedSleep() {
+        if (!isInitialized) return
+        if (!parkedReleaseRequested.compareAndSet(false, true)) return
+        parkedSleepUntilMs = IdleReconnectPolicy.parkedSleepUntilMs(System.currentTimeMillis())
+        logI(
+            "Parked engine-off — disconnect adapter for " +
+                "${IdleReconnectPolicy.PARKED_BACKOFF_MS / 1000}s sleep",
+        )
+        disconnect()
     }
 
     /**
@@ -566,13 +593,15 @@ object ObdBleManager {
                 try {
                     val address = selectedAddress
                     val adapter = bluetoothAdapter
+                    val now = System.currentTimeMillis()
                     val canTry = !address.isNullOrBlank() &&
                         adapter != null &&
                         adapter.isEnabled &&
                         hasConnectPermission() &&
                         !sessionReady.get() &&
                         !connecting.get() &&
-                        !transport.isLinked
+                        !transport.isLinked &&
+                        IdleReconnectPolicy.shouldAttemptConnect(parkedSleepUntilMs, now)
 
                     if (canTry) {
                         logI("Idle reconnect → $address")
@@ -584,7 +613,13 @@ object ObdBleManager {
                     logW("Auto-reconnect loop error: ${t.message}")
                     Log.w(TAG, "Auto-reconnect loop error", t)
                 }
-                delay(IdleReconnectPolicy.nextDelayMs(kotlin.random.Random.nextDouble()))
+                delay(
+                    IdleReconnectPolicy.nextDelayMs(
+                        kotlin.random.Random.nextDouble(),
+                        parkedSleepUntilMs,
+                        System.currentTimeMillis(),
+                    ),
+                )
             }
         }
     }
@@ -683,7 +718,7 @@ object ObdBleManager {
         stopPollLoop()
         consecutiveLiveMisses = 0
         _ecuConnected.value = false
-        _pidValues.value = PidPollPolicy.afterLinkLost(_pidValues.value)
+        clearPidCache()
         synchronized(vehicleOnLock) {
             vehicleOnState = VehicleOnPolicy.onLinkLost(vehicleOnState)
             publishVehicleOn(System.currentTimeMillis())
@@ -823,7 +858,7 @@ object ObdBleManager {
                             PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
                         )
                         recomputeFuelRate(updated)
-                        _pidValues.value = updated.toMap()
+                        commitPidMap(updated, touchedPid = "0c")
                         engineOkCount += 1
                         applyLiveSuccessToConnection()
                         applyVehicleOnPid("0c", rpm)
@@ -869,7 +904,7 @@ object ObdBleManager {
                             PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
                         )
                         recomputeFuelRate(updated)
-                        _pidValues.value = updated.toMap()
+                        commitPidMap(updated, touchedPid = "0c")
                         engineOkCount += 1
                         applyLiveSuccessToConnection()
                         applyVehicleOnPid("0c", rpm)
@@ -934,7 +969,7 @@ object ObdBleManager {
         consecutiveEngineTimeouts = 0
         consecutiveLiveMisses = 0
         // Drop stale metrics (e.g. prior-trip engine run time PID 1F) before a new session.
-        _pidValues.value = emptyMap()
+        clearPidCache()
         resetVehicleOnProofClock()
     }
 
@@ -982,6 +1017,7 @@ object ObdBleManager {
 
     private fun applyVehicleOnPid(pid: String, value: Double) {
         val now = System.currentTimeMillis()
+        val shouldRelease: Boolean
         synchronized(vehicleOnLock) {
             val prev = vehicleOnState.sawPositiveRpm
             vehicleOnState = VehicleOnPolicy.applyFreshPid(vehicleOnState, pid, value, now)
@@ -992,6 +1028,10 @@ object ObdBleManager {
                 persistVehicleOnFlag(vehicleOnState.sawPositiveRpm)
             }
             publishVehicleOn(now)
+            shouldRelease = VehicleOnPolicy.shouldReleaseAdapter(vehicleOnState)
+        }
+        if (shouldRelease) {
+            releaseAdapterForParkedSleep()
         }
     }
 
@@ -1017,6 +1057,7 @@ object ObdBleManager {
 
     fun refreshVehicleOn(nowMs: Long = System.currentTimeMillis()) {
         if (!isInitialized) return
+        publishPidValues(_pidValues.value, nowMs)
         synchronized(vehicleOnLock) {
             publishVehicleOn(nowMs)
         }
@@ -1039,18 +1080,55 @@ object ObdBleManager {
         if (_ecuConnected.value && !next.ecuConnected) {
             logW(
                 "Live OBD miss streak=${next.consecutiveMisses} (0c/0d/42) — " +
-                    "ECU offline for tracking (holding last-good pidValues)",
+                    "ECU offline for tracking (stale last-good PIDs expire)",
             )
             setStatus("ECU offline (no live PIDs)")
         }
         _ecuConnected.value = next.ecuConnected
     }
 
-    /** Log first miss per PID per session; never disable or clear last-good values. */
+    /** Log first miss per PID per session; drop last-good RPM/speed immediately. */
     private fun notePidMiss(pid: String, rawHint: String?) {
+        applyPidMiss(pid)
         if (!noDataLogged.add(pid)) return
         val hint = rawHint?.replace('\n', ' ')?.trim()?.take(80) ?: "empty/timeout"
-        logW("PID $pid miss ($hint) — holding last-good if any")
+        logW("PID $pid miss ($hint) — last-good RPM/speed dropped")
+    }
+
+    private fun markPidSeen(pid: String, nowMs: Long) {
+        pidSeenAtMs[pid.lowercase()] = nowMs
+    }
+
+    private fun clearPidCache() {
+        pidSeenAtMs.clear()
+        _pidValues.value = emptyMap()
+    }
+
+    private fun publishPidValues(
+        values: Map<String, Double>,
+        nowMs: Long = System.currentTimeMillis(),
+    ) {
+        val fresh = PidPollPolicy.expireOlderThan(values, pidSeenAtMs, nowMs)
+        if (fresh.size < values.size) {
+            val keep = fresh.keys.map { it.lowercase() }.toSet()
+            pidSeenAtMs.keys.removeAll { it.lowercase() !in keep }
+        }
+        _pidValues.value = fresh
+    }
+
+    private fun commitPidMap(updated: Map<String, Double>, touchedPid: String) {
+        val now = System.currentTimeMillis()
+        markPidSeen(touchedPid, now)
+        if (updated.containsKey("ff125a")) markPidSeen("ff125a", now)
+        if (updated.containsKey(ESTIMATED_MAF_KEY)) markPidSeen(ESTIMATED_MAF_KEY, now)
+        publishPidValues(updated, now)
+    }
+
+    private fun applyPidMiss(pid: String) {
+        if (pid.lowercase() in PidPollPolicy.DROP_ON_MISS) {
+            pidSeenAtMs.remove(pid.lowercase())
+        }
+        publishPidValues(PidPollPolicy.afterMiss(_pidValues.value, pid))
     }
 
     /**
@@ -1234,6 +1312,7 @@ object ObdBleManager {
                         }
                         if (!isValidPidValue(pid, value)) {
                             logW("Invalid value for PID $pid: $value")
+                            applyPidMiss(pid)
                             if (LiveObdConnectionPolicy.isLivePid(pid)) {
                                 applyLiveMissToConnection()
                             }
@@ -1254,7 +1333,7 @@ object ObdBleManager {
                                 }
                             }
                         }
-                        _pidValues.value = updated.toMap()
+                        commitPidMap(updated, touchedPid = pid)
                         pidsOkWindow++
                         engineOkCount += 1
 
@@ -1487,7 +1566,7 @@ object ObdBleManager {
                 derived,
             ),
         )
-        _pidValues.value = updated.toMap()
+        commitPidMap(updated, touchedPid = OdometerReading.UDS_KM_KEY)
         sessionWinningDid = did
         if (loggedVwUdsSuccess.compareAndSet(false, true)) {
             logI(
@@ -1535,7 +1614,7 @@ object ObdBleManager {
             val updated = LinkedHashMap(
                 PidPollPolicy.afterSuccess(_pidValues.value, key, value),
             )
-            _pidValues.value = updated.toMap()
+            commitPidMap(updated, touchedPid = key)
             if (loggedVwClusterExtraOk.add(key)) {
                 logI(
                     "VW UDS cluster OK: DID=${did.toString(16).uppercase().padStart(4, '0')} " +
@@ -1721,7 +1800,7 @@ object ObdBleManager {
                     PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
                 )
                 recomputeFuelRate(updated)
-                _pidValues.value = updated.toMap()
+                commitPidMap(updated, touchedPid = "0c")
                 engineOkCount += 1
                 applyLiveSuccessToConnection()
                 applyVehicleOnPid("0c", rpm)
@@ -1736,7 +1815,7 @@ object ObdBleManager {
                     PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
                 )
                 recomputeFuelRate(updated)
-                _pidValues.value = updated.toMap()
+                commitPidMap(updated, touchedPid = "0c")
                 engineOkCount += 1
                 applyLiveSuccessToConnection()
                 applyVehicleOnPid("0c", rpm)

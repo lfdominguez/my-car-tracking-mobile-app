@@ -29,6 +29,48 @@ class PidPollPolicyTest {
     }
 
     @Test
+    fun miss_onRpm_dropsLastGoodSoSamplesDoNotReuseIt() {
+        val prev = mapOf("0c" to 704.0, "42" to 12.49, "04" to 34.9)
+        val next = PidPollPolicy.afterMiss(prev, pid = "0c")
+        assertNull(next["0c"])
+        assertEquals(12.49, next["42"])
+        assertEquals(34.9, next["04"])
+    }
+
+    @Test
+    fun miss_onSpeed_dropsLastGood() {
+        val prev = mapOf("0d" to 0.0, "0c" to 704.0)
+        val next = PidPollPolicy.afterMiss(prev, pid = "0d")
+        assertNull(next["0d"])
+        assertEquals(704.0, next["0c"])
+    }
+
+    @Test
+    fun expireOlderThan_dropsStaleLastGoodRpm() {
+        val values = mapOf("0c" to 704.0, "42" to 12.49)
+        val seenAt = mapOf("0c" to 1_000L, "42" to 10_000L)
+        val next = PidPollPolicy.expireOlderThan(
+            values,
+            lastSeenAtMs = seenAt,
+            nowMs = 1_000L + PidPollPolicy.MAX_AGE_MS,
+        )
+        assertNull(next["0c"])
+        assertEquals(12.49, next["42"])
+    }
+
+    @Test
+    fun expireOlderThan_keepsFreshRpm() {
+        val values = mapOf("0c" to 704.0)
+        val seenAt = mapOf("0c" to 1_000L)
+        val next = PidPollPolicy.expireOlderThan(
+            values,
+            lastSeenAtMs = seenAt,
+            nowMs = 1_000L + PidPollPolicy.MAX_AGE_MS - 1L,
+        )
+        assertEquals(704.0, next["0c"])
+    }
+
+    @Test
     fun linkLost_clearsLastGoodIncludingZeroSpeed() {
         val prev = mapOf("0d" to 0.0, "0c" to 800.0, "04" to 12.0)
         val next = PidPollPolicy.afterLinkLost(prev)

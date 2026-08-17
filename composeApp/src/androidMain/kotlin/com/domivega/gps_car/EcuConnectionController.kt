@@ -140,6 +140,8 @@ object EcuConnectionController {
                             ForegroundTrackingService.ACTION_STOP,
                         )
                     }
+                    // Let the dongle sleep; idle reconnect backs off while parked.
+                    ObdBleManager.releaseAdapterForParkedSleep()
                 }
                 EcuTrackingAction.None -> Unit
             }
