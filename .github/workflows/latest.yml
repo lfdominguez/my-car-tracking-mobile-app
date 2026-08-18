@@ -11,8 +11,9 @@ on:
     branches: [main]
 
 concurrency:
-  group: latest-apk-${{ github.event.workflow_run.head_sha }}
-  cancel-in-progress: true
+  # One publisher at a time: we delete+recreate the `latest` tag/release.
+  group: latest-apk
+  cancel-in-progress: false
 
 permissions:
   actions: read
@@ -97,29 +98,32 @@ jobs:
           echo "apk_path=$OUT" >> "$GITHUB_OUTPUT"
           ls -la "$OUT"
 
+      # Recreate the prerelease so GitHub published_at matches this APK.
+      # Clobbering the asset leaves created/published dates stale; Obtainium
+      # (and the Releases UI) then treat Continuous as days-old and skip updates.
       # No checkout: gh would look for .git; pin the repo via GH_REPO.
-      - name: Ensure prerelease latest exists
+      - name: Publish latest prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          RUN_URL="${{ github.event.workflow_run.html_url }}"
+          NOTES="$(printf '%s\n' \
+            "Rolling signed APK from \`main\` (\`${SHA}\`)." \
+            "Not an F-Droid/store version. Built by signing CI's unsigned APK (no second compile)." \
+            "CI: ${RUN_URL}")"
           if gh release view latest >/dev/null 2>&1; then
-            echo "Release latest already exists"
-          else
-            gh release create latest \
-              --prerelease \
-              --title "Continuous (latest)" \
-              --notes "Rolling signed APK from \`main\`. Not an F-Droid/store version. Built by signing CI's unsigned APK (no second compile)."
+            gh release delete latest --yes --cleanup-tag
           fi
-
-      - name: Upload latest APK
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          gh release upload latest "${{ steps.apk.outputs.apk_path }}" --clobber
+          gh release create latest \
+            --prerelease \
+            --latest=false \
+            --target "${SHA}" \
+            --title "Continuous (latest)" \
+            --notes "${NOTES}" \
+            "${{ steps.apk.outputs.apk_path }}"
 
       - name: Scrub keystore from workspace
         if: always()

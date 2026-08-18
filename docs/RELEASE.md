@@ -44,7 +44,7 @@ PRs still run tests + one unsigned release assemble (base versions; no signing s
 ## Continuous signed APK (`latest`)
 
 After **CI** succeeds on `main`, workflow **Latest signed APK** (`.github/workflows/latest.yml`)
-**signs** CI’s unsigned APK (no second `assembleRelease`) and uploads it to the GitHub Release tag `latest`:
+**signs** CI’s unsigned APK (no second `assembleRelease`) and **recreates** the GitHub Release tag `latest` (so `published_at` matches this APK; Obtainium ignores clobbered assets on a days-old release):
 
 `https://github.com/lfdominguez/my-car-tracking-mobile-app/releases/download/latest/com.domivega.gps_car-latest.apk`
 

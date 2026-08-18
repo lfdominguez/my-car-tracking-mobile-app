@@ -24,7 +24,7 @@ Stable (recommended):
 
 Continuous (`latest` only — not the store line):
 
-[Add GPS Car Tracking (continuous)](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.domivega.gps_car%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Flfdominguez%2Fmy-car-tracking-mobile-app%22%2C%22author%22%3A%22lfdominguez%22%2C%22name%22%3A%22GPS%20Car%20Tracking%20%28latest%29%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22com%5C%5C%5C%5C.domivega%5C%5C%5C%5C.gps_car-latest%5C%5C%5C%5C.apk%5C%22%2C%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22latest%5C%22%7D%22%7D)
+[Add GPS Car Tracking (continuous)](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.domivega.gps_car%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Flfdominguez%2Fmy-car-tracking-mobile-app%22%2C%22author%22%3A%22lfdominguez%22%2C%22name%22%3A%22GPS%20Car%20Tracking%20%28latest%29%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22com%5C%5C%5C%5C.domivega%5C%5C%5C%5C.gps_car-latest%5C%5C%5C%5C.apk%5C%22%2C%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22latest%5C%22%2C%5C%22useLatestAssetDateAsReleaseDate%5C%22%3Atrue%2C%5C%22releaseDateAsVersion%5C%22%3Atrue%2C%5C%22versionDetection%5C%22%3Afalse%7D%22%7D)
 
 Or open the matching `obtainium://app/…` deep link from the JSON below (share / QR).
 
@@ -40,6 +40,11 @@ Or open the matching `obtainium://app/…` deep link from the JSON below (share 
 - `includePrereleases`: **true**
 - `filterReleaseTitlesByRegEx`: `latest` — matches release title `Continuous (latest)` (or tag `latest` if the title is empty)
 - `apkFilterRegEx`: `com\.domivega\.gps_car-latest\.apk`
+- `useLatestAssetDateAsReleaseDate`: **true** — Obtainium would otherwise show the first `latest` publish date (days old) and ignore a replaced APK
+- `releaseDateAsVersion`: **true** — version is that asset date, not the unchanging tag `latest`
+- `versionDetection`: **false** — do not compare the pseudo date-version to the APK `versionName`
+
+Already tracking Continuous? Edit the app in Obtainium and flip those three switches (or remove and re-add via the link above). The next Latest workflow run also recreates the GitHub prerelease so `published_at` matches the new APK.
 
 ## Manual add
 
