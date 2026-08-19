@@ -3,6 +3,7 @@ package com.domivega.gps_car.ui.screens
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +17,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -126,15 +129,12 @@ fun SettingsScreen(
             .fillMaxSize()
             .verticalScroll(scrollState)
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp) // Generous spacing for touch targets
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        // API Configuration Section
-        Text(
-            text = "API Configuration",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-
+        SettingsSection(
+            title = "Backend",
+            supporting = "QR provisioning, token, and ingest URLs",
+        ) {
         Button(
             onClick = onScanQrCode,
             modifier = Modifier.fillMaxWidth(),
@@ -228,16 +228,12 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        }
 
-        HorizontalDivider()
-
-        // OBD / Bluetooth Section
-        Text(
-            text = "OBD / Bluetooth",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-
+        SettingsSection(
+            title = "Adapter",
+            supporting = connectionStatus.ifBlank { "ELM327 transport, device, and protocol" },
+        ) {
         if (transportOptions.isNotEmpty()) {
             ExposedDropdownMenuBox(
                 expanded = transportExpanded,
@@ -333,6 +329,43 @@ fun SettingsScreen(
             }
         }
 
+        Button(
+            onClick = {
+                showDeviceDialog = true
+                onScanClick()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Text("Scan for BLE devices")
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedButton(
+                onClick = onConnectClick,
+                modifier = Modifier.weight(1f),
+                shape = MaterialTheme.shapes.medium,
+                enabled = state.bleDeviceAddress.isNotBlank() && state.obdEnabled
+            ) {
+                Text("Connect")
+            }
+            OutlinedButton(
+                onClick = onDisconnectClick,
+                modifier = Modifier.weight(1f),
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Text("Disconnect")
+            }
+        }
+        }
+
+        SettingsSection(
+            title = "Vehicle",
+            supporting = "Profile and experimental protocol",
+        ) {
         if (vehicleObdProfileOptions.isNotEmpty()) {
             ExposedDropdownMenuBox(
                 expanded = vehicleProfileExpanded,
@@ -400,54 +433,12 @@ fun SettingsScreen(
                 onCheckedChange = onWwhObdOnlyChange,
             )
         }
-
-        Button(
-            onClick = {
-                showDeviceDialog = true
-                onScanClick()
-            },
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium
-        ) {
-            Text("Scan for BLE devices")
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        SettingsSection(
+            title = "Fuel",
+            supporting = "Fuel rate (L/h) is estimated from MAF and these values. Defaults: E10, 1.0 L. VE is used only if MAF is unavailable (MAP estimate).",
         ) {
-            OutlinedButton(
-                onClick = onConnectClick,
-                modifier = Modifier.weight(1f),
-                shape = MaterialTheme.shapes.medium,
-                enabled = state.bleDeviceAddress.isNotBlank() && state.obdEnabled
-            ) {
-                Text("Connect")
-            }
-            OutlinedButton(
-                onClick = onDisconnectClick,
-                modifier = Modifier.weight(1f),
-                shape = MaterialTheme.shapes.medium
-            ) {
-                Text("Disconnect")
-            }
-        }
-
-        HorizontalDivider()
-
-        // Vehicle & fuel
-        Text(
-            text = "Vehicle & fuel",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-
-        Text(
-            text = "Fuel rate (L/h) is estimated from MAF and these values. Defaults: E10, 1.0 L. VE is used only if MAF is unavailable (MAP estimate).",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
         if (fuelTypeOptions.isNotEmpty()) {
             ExposedDropdownMenuBox(
                 expanded = fuelTypeExpanded,
@@ -512,20 +503,12 @@ fun SettingsScreen(
             onValueChange = onTankCapacityLChange,
             label = "Tank capacity (L, 0 = unknown)"
         )
+        }
 
-        HorizontalDivider()
-
-        Text(
-            text = "Data to upload",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            text = "Always sent: GPS lat/lon, velocity, RPM (plus tracking id and accuracy).",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
+        SettingsSection(
+            title = "Upload fields",
+            supporting = "Always sent: GPS lat/lon, velocity, RPM (plus tracking id and accuracy).",
+        ) {
         val flags = state.sampleUploadFieldFlags
         UploadFieldSwitch(
             label = "Fuel consumption rate (L/h)",
@@ -612,6 +595,7 @@ fun SettingsScreen(
             checked = flags.intakeAirTemperature,
             onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(intakeAirTemperature = it)) },
         )
+        }
     }
 
     if (showDeviceDialog) {
@@ -671,6 +655,34 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    supporting: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = MaterialTheme.shapes.large,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleLarge)
+            if (supporting != null) {
+                Text(
+                    supporting,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            content()
+        }
     }
 }
 
