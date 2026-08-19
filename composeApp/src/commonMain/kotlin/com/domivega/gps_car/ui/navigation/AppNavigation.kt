@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
 fun AppNavigation(
     dashboardState: DashboardState,
     settingsViewModel: SettingsViewModel,
-    onToggleTracking: () -> Unit,
+    onObdEnabledChange: (Boolean) -> Unit,
     onRetryUpload: () -> Unit = {},
     onOpenSettings: () -> Unit, // Callback to open legacy/android settings if needed
     onScanQrCode: () -> Unit,
@@ -128,7 +128,7 @@ fun AppNavigation(
                 when (currentScreen) {
                     "Dashboard" -> DashboardScreen(
                         state = dashboardState,
-                        onToggleTracking = onToggleTracking,
+                        onObdEnabledChange = onObdEnabledChange,
                         onRetryUpload = onRetryUpload,
                     )
                     "Settings" -> SettingsScreen(
