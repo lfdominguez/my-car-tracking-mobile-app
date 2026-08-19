@@ -1,14 +1,22 @@
 package com.domivega.gps_car.ui.screens
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateIntAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.LocationOff
-import androidx.compose.material3.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -21,9 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.domivega.gps_car.ObdEnableGate
-import com.domivega.gps_car.components.EngineLoadGauge
-import com.domivega.gps_car.components.FuelTankGauge
-import com.domivega.gps_car.components.VWDial
+import com.domivega.gps_car.ui.DashboardPresentation
 import com.domivega.gps_car.ui.state.DashboardState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -35,100 +41,22 @@ fun DashboardScreen(
     onRetryUpload: () -> Unit = {},
 ) {
     var confirmDisable by remember { mutableStateOf(false) }
-    Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Header / Status
-            StatusHeader(
-                isTracking = state.isTracking,
-                isGpsLocked = state.isGpsLocked,
-                ecuConnected = state.ecuConnected
-            )
 
-            state.uploadWarning?.let { warning ->
-                UploadWarningBanner(
-                    message = warning,
-                    onRetry = onRetryUpload,
-                )
-            }
-
-            OdometerBanner(odometerKm = state.odometerKm)
-
-            ClusterExtrasBanner(
-                oilTempC = state.oilTempC,
-                doorsSummary = state.doorsSummary,
-            )
-
-            // Primary Metrics (Speed & RPM)
-            Row(
-                modifier = Modifier.fillMaxWidth().weight(1.2f),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Speed
-                VWDial(
-                    title = "SPEED",
-                    value = state.speed.toFloat(),
-                    maxValue = 240f,
-                    unit = "km/h",
-                    modifier = Modifier.weight(1f).fillMaxHeight()
-                )
-                // RPM
-                VWDial(
-                    title = "RPM",
-                    value = state.rpm.toFloat(),
-                    maxValue = 8000f,
-                    unit = "rpm",
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    secondaryColor = Color(0xFFFF00FF) // Magenta for RPM
-                )
-            }
-            
-            // Secondary Metrics (Fuel, Load)
-            Row(
-                modifier = Modifier.fillMaxWidth().weight(0.8f).padding(bottom = 72.dp),
-                 horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Fuel Tank
-                FuelTankGauge(
-                    value = state.fuelLevel.toFloat(),
-                    modifier = Modifier.weight(1f).fillMaxHeight()
-                )
-
-                // Engine Load
-                 EngineLoadGauge(
-                    value = state.engineLoad.toFloat(),
-                    modifier = Modifier.weight(1f).fillMaxHeight()
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(bottom = 8.dp, start = 8.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = if (state.obdEnabled) "Enabled" else "Disabled",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Switch(
-                checked = state.obdEnabled,
-                onCheckedChange = { enabled ->
-                    if (!enabled && ObdEnableGate.disableRequiresConfirmation(state.isTracking)) {
-                        confirmDisable = true
-                    } else {
-                        onObdEnabledChange(enabled)
-                    }
-                },
-            )
-        }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        HealthStatusCard(
+            state = state,
+            onObdEnabledChange = onObdEnabledChange,
+            onRetryUpload = onRetryUpload,
+            onRequestDisableConfirm = { confirmDisable = true },
+        )
+        MetricGrid(state)
+        SecondaryMetricsRow(state)
     }
 
     if (confirmDisable) {
@@ -156,17 +84,122 @@ fun DashboardScreen(
 }
 
 @Composable
-fun UploadWarningBanner(
+private fun HealthStatusCard(
+    state: DashboardState,
+    onObdEnabledChange: (Boolean) -> Unit,
+    onRetryUpload: () -> Unit,
+    onRequestDisableConfirm: () -> Unit,
+) {
+    val trackingColor = if (state.isTracking) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = DashboardPresentation.trackingLabel(state.isTracking),
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = trackingColor,
+            )
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StatusChip(
+                    label = "ECU",
+                    active = state.ecuConnected,
+                    activeColor = MaterialTheme.colorScheme.secondary,
+                )
+                StatusChip(
+                    label = "GPS",
+                    active = state.isGpsLocked,
+                    activeColor = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            state.uploadWarning?.let { warning ->
+                UploadWarningRow(
+                    message = warning,
+                    onRetry = onRetryUpload,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = if (state.obdEnabled) "Enabled" else "Disabled",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Switch(
+                    checked = state.obdEnabled,
+                    onCheckedChange = { enabled ->
+                        if (!enabled && ObdEnableGate.disableRequiresConfirmation(state.isTracking)) {
+                            onRequestDisableConfirm()
+                        } else {
+                            onObdEnabledChange(enabled)
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusChip(
+    label: String,
+    active: Boolean,
+    activeColor: Color,
+) {
+    val color = if (active) {
+        activeColor
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+    }
+    Surface(
+        color = color.copy(alpha = 0.2f),
+        shape = MaterialTheme.shapes.small,
+        border = BorderStroke(1.dp, color),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = color,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun UploadWarningRow(
     message: String,
-    onRetry: () -> Unit = {},
+    onRetry: () -> Unit,
 ) {
     var retrying by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-        ),
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.small,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -189,7 +222,6 @@ fun UploadWarningBanner(
                     retrying = true
                     onRetry()
                     scope.launch {
-                        // Brief lock so double-taps don't stack heavy drains.
                         delay(1_500)
                         retrying = false
                     }
@@ -203,159 +235,123 @@ fun UploadWarningBanner(
 }
 
 @Composable
-fun StatusHeader(isTracking: Boolean, isGpsLocked: Boolean, ecuConnected: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        val statusText = if (isTracking) "ACTIVE TRACKING" else "IDLE"
-        val statusColor = if (isTracking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-        
-        Text(
-            text = statusText,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = statusColor
-        )
-
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-             // ECU Status
-            val ecuColor = if (ecuConnected) MaterialTheme.colorScheme.secondary else Color.Gray.copy(alpha = 0.5f)
-            Surface(
-                color = ecuColor.copy(alpha = 0.2f),
-                shape = MaterialTheme.shapes.small,
-                border = androidx.compose.foundation.BorderStroke(1.dp, ecuColor)
-            ) {
-                Text(
-                    text = "ECU",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = ecuColor,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
-            
-            // GPS Status
-            Icon(
-                imageVector = if (isGpsLocked) Icons.Rounded.LocationOn else Icons.Rounded.LocationOff,
-                contentDescription = "GPS Status",
-                tint = if (isGpsLocked) MaterialTheme.colorScheme.primary else Color.Gray,
-                modifier = Modifier.size(24.dp)
+private fun MetricGrid(state: DashboardState) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            MetricTile(
+                label = "Speed",
+                value = state.speed.toInt(),
+                unit = "km/h",
+                modifier = Modifier.weight(1f),
+            )
+            MetricTile(
+                label = "RPM",
+                value = state.rpm.toInt(),
+                unit = "rpm",
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            MetricTile(
+                label = "Fuel",
+                value = state.fuelLevel.toInt(),
+                unit = "%",
+                modifier = Modifier.weight(1f),
+            )
+            MetricTile(
+                label = "Engine load",
+                value = state.engineLoad.toInt(),
+                unit = "%",
+                modifier = Modifier.weight(1f),
             )
         }
     }
 }
 
 @Composable
-fun ClusterExtrasBanner(
-    oilTempC: Double?,
-    doorsSummary: String?,
+private fun MetricTile(
+    label: String,
+    value: Int,
+    unit: String,
+    modifier: Modifier = Modifier,
 ) {
-    if (oilTempC == null && doorsSummary == null) return
-    val parts = buildList {
-        if (oilTempC != null && oilTempC.isFinite()) {
-            add("Oil ${oilTempC.toInt()}\u00b0C")
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = value.toString(),
+                style = MaterialTheme.typography.displayMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = unit,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        if (doorsSummary != null) add(doorsSummary)
     }
-    if (parts.isEmpty()) return
-    Text(
-        text = parts.joinToString(" \u00b7 "),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp),
-    )
 }
 
 @Composable
-fun OdometerBanner(odometerKm: Double?) {
-    val label = if (odometerKm != null && odometerKm.isFinite()) {
-        val whole = odometerKm.toLong()
-        if (odometerKm >= 100.0) {
-            "$whole km"
-        } else {
-            val tenths = ((odometerKm * 10.0) + 0.5).toInt()
-            val w = tenths / 10
-            val f = tenths % 10
-            "$w.$f km"
-        }
-    } else {
-        "— km"
-    }
+private fun SecondaryMetricsRow(state: DashboardState) {
+    val extras = DashboardPresentation.clusterExtras(state.oilTempC, state.doorsSummary)
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "ODOMETER",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Bold
-            )
-        }
-    }
-}
-
-@Composable
-fun MetricCard(
-    title: String, 
-    value: Int, 
-    unit: String, 
-    modifier: Modifier = Modifier,
-    isValuePrimary: Boolean = false
-) {
-    // Smooth counter animation
-    val animatedValue by animateIntAsState(
-        targetValue = value,
-        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
-    )
-
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = MaterialTheme.shapes.medium
+        shape = MaterialTheme.shapes.medium,
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            
-            Text(
-                text = animatedValue.toString(),
-                style = if (isValuePrimary) MaterialTheme.typography.displayLarge else MaterialTheme.typography.displayMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            
-            if (unit.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = unit,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.secondary
+                    text = "Odometer",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = DashboardPresentation.odometerLabel(state.odometerKm),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            extras?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
