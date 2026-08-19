@@ -10,6 +10,7 @@ import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.domivega.gps_car.ForegroundTrackingService
+import com.domivega.gps_car.ObdEnableGate
 import com.domivega.gps_car.WaitingFgsGate
 import com.domivega.gps_car.fuel.FuelCalcConfig
 import com.domivega.gps_car.fuel.FuelCalcSensors
@@ -436,6 +437,11 @@ object ObdBleManager {
 
     fun connect() {
         ensureInit()
+        if (!ObdEnableGate.mayConnect(settings.obdEnabled)) {
+            logI("connect skipped: OBD disabled")
+            setStatus("OBD disabled")
+            return
+        }
         val address = selectedAddress
         if (address.isNullOrBlank()) {
             setStatus("No device selected")
