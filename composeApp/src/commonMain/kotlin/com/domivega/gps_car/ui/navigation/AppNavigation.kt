@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +20,7 @@ import com.domivega.gps_car.ui.SettingsViewModel
 import com.domivega.gps_car.ui.screens.AboutScreen
 import com.domivega.gps_car.ui.screens.DashboardScreen
 import com.domivega.gps_car.ui.screens.DebugConsoleScreen
+import com.domivega.gps_car.ui.screens.ObdDeviceScreen
 import com.domivega.gps_car.ui.screens.SettingsScreen
 import com.domivega.gps_car.obd.ObdLogEntry
 import com.domivega.gps_car.ui.state.DashboardState
@@ -86,6 +88,15 @@ fun AppNavigation(
                     icon = { Icon(Icons.Default.Home, contentDescription = null) }
                 )
                 NavigationDrawerItem(
+                    label = { Text(text = "OBD Device") },
+                    selected = currentScreen == "OBD Device",
+                    onClick = {
+                        currentScreen = "OBD Device"
+                        scope.launch { drawerState.close() }
+                    },
+                    icon = { Icon(Icons.Default.Search, contentDescription = null) }
+                )
+                NavigationDrawerItem(
                     label = { Text(text = "Settings") },
                     selected = currentScreen == "Settings",
                     onClick = {
@@ -143,16 +154,8 @@ fun AppNavigation(
                         onObdEnabledChange = onObdEnabledChange,
                         onRetryUpload = onRetryUpload,
                     )
-                    "Settings" -> SettingsScreen(
+                    "OBD Device" -> ObdDeviceScreen(
                         state = settingsState,
-                        onApiTokenChange = settingsViewModel::updateApiToken,
-                        onStartUrlChange = settingsViewModel::updateStartUrl,
-                        onStopUrlChange = settingsViewModel::updateStopUrl,
-                        onSampleUrlChange = settingsViewModel::updateSampleUrl,
-                        onSamplesUrlChange = settingsViewModel::updateSamplesUrl,
-                        onScanQrCode = onScanQrCode,
-                        onTestConnection = settingsViewModel::testConnection,
-                        onClearQrError = settingsViewModel::clearQrError,
                         bleDeviceLabel = bleDeviceLabel,
                         connectionStatus = connectionStatus,
                         protocolOptions = protocolOptions,
@@ -167,6 +170,17 @@ fun AppNavigation(
                         onDeviceSelected = onBleDeviceSelected,
                         onConnectClick = onBleConnectClick,
                         onDisconnectClick = onBleDisconnectClick,
+                    )
+                    "Settings" -> SettingsScreen(
+                        state = settingsState,
+                        onApiTokenChange = settingsViewModel::updateApiToken,
+                        onStartUrlChange = settingsViewModel::updateStartUrl,
+                        onStopUrlChange = settingsViewModel::updateStopUrl,
+                        onSampleUrlChange = settingsViewModel::updateSampleUrl,
+                        onSamplesUrlChange = settingsViewModel::updateSamplesUrl,
+                        onScanQrCode = onScanQrCode,
+                        onTestConnection = settingsViewModel::testConnection,
+                        onClearQrError = settingsViewModel::clearQrError,
                         onFuelTypeSelected = settingsViewModel::updateFuelType,
                         onFuelStoichAfrChange = settingsViewModel::updateFuelStoichAfr,
                         onFuelDensityGlChange = settingsViewModel::updateFuelDensityGl,
