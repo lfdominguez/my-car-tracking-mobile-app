@@ -25,6 +25,7 @@ data class SettingsUiState(
     val vwOdometerDid: String = "",
     /** Experimental WWH-OBD / OBDonUDS engine stack only. */
     val wwhObdOnly: Boolean = false,
+    val obdEnabled: Boolean = true,
     /** FuelTypePreset name; default E10. */
     val fuelType: String = "E10",
     val fuelStoichAfr: Double = 14.08,
