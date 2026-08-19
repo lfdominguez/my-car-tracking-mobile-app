@@ -98,8 +98,10 @@ fun App() {
             viewModel.updateTrackingState(isTracking)
         }
 
-        val dashboardState by viewModel.uiState.collectAsState()
         val settingsState by settingsViewModel.uiState.collectAsState()
+        val dashboardState = viewModel.uiState.collectAsState().value.copy(
+            obdEnabled = settingsState.obdEnabled,
+        )
         val appScope = rememberCoroutineScope()
 
         // --- BLE OBD status / scan results ---
@@ -212,11 +214,15 @@ fun App() {
         AppNavigation(
             dashboardState = dashboardState,
             settingsViewModel = settingsViewModel,
-            onToggleTracking = {
-                if (isTracking) {
-                     context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_STOP)
+            onObdEnabledChange = { enabled ->
+                settingsViewModel.updateObdEnabled(enabled)
+                if (!enabled) {
+                    if (isTracking) {
+                        context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_STOP)
+                    }
+                    ObdBleManager.disconnect()
                 } else {
-                     context.startForegroundServiceCompat(ForegroundTrackingService.ACTION_START)
+                    connectWithPermissions()
                 }
             },
             onRetryUpload = {

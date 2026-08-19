@@ -420,7 +420,7 @@ fun SettingsScreen(
                 onClick = onConnectClick,
                 modifier = Modifier.weight(1f),
                 shape = MaterialTheme.shapes.medium,
-                enabled = state.bleDeviceAddress.isNotBlank()
+                enabled = state.bleDeviceAddress.isNotBlank() && state.obdEnabled
             ) {
                 Text("Connect")
             }

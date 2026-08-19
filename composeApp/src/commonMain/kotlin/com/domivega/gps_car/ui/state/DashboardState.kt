@@ -12,6 +12,7 @@ data class DashboardState(
     /** Human door summary from VW cluster UDS, or null if never read. */
     val doorsSummary: String? = null,
     val isTracking: Boolean = false,
+    val obdEnabled: Boolean = true,
     val isGpsLocked: Boolean = false,
     val ecuConnected: Boolean = false,
     /** Non-null when sample upload has FAILED/DEAD rows or last flush failed. */

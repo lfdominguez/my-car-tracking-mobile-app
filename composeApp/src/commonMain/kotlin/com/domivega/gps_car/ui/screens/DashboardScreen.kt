@@ -5,10 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material3.*
@@ -23,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.domivega.gps_car.ObdEnableGate
 import com.domivega.gps_car.components.EngineLoadGauge
 import com.domivega.gps_car.components.FuelTankGauge
 import com.domivega.gps_car.components.VWDial
@@ -33,9 +31,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun DashboardScreen(
     state: DashboardState,
-    onToggleTracking: () -> Unit,
+    onObdEnabledChange: (Boolean) -> Unit,
     onRetryUpload: () -> Unit = {},
 ) {
+    var confirmDisable by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -88,7 +87,7 @@ fun DashboardScreen(
             
             // Secondary Metrics (Fuel, Load)
             Row(
-                modifier = Modifier.fillMaxWidth().weight(0.8f).padding(bottom = 80.dp), // Space for FAB
+                modifier = Modifier.fillMaxWidth().weight(0.8f).padding(bottom = 72.dp),
                  horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Fuel Tank
@@ -105,19 +104,54 @@ fun DashboardScreen(
             }
         }
 
-        // Floating Action Button for Start/Stop
-        LargeFloatingActionButton(
-            onClick = onToggleTracking,
-            containerColor = if (state.isTracking) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
-            shape = CircleShape
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(bottom = 8.dp, start = 8.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Icon(
-                imageVector = if (state.isTracking) Icons.Default.Stop else Icons.Default.PlayArrow,
-                contentDescription = if (state.isTracking) "Stop Tracking" else "Start Tracking",
-                modifier = Modifier.size(36.dp)
+            Text(
+                text = if (state.obdEnabled) "Enable" else "Disable",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Switch(
+                checked = state.obdEnabled,
+                onCheckedChange = { enabled ->
+                    if (!enabled && ObdEnableGate.disableRequiresConfirmation(state.isTracking)) {
+                        confirmDisable = true
+                    } else {
+                        onObdEnabledChange(enabled)
+                    }
+                },
             )
         }
+    }
+
+    if (confirmDisable) {
+        AlertDialog(
+            onDismissRequest = { confirmDisable = false },
+            title = { Text("Stop tracking and release the OBD adapter?") },
+            text = { Text("Stop tracking and release the OBD adapter?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDisable = false
+                        onObdEnabledChange(false)
+                    },
+                ) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDisable = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }
 
