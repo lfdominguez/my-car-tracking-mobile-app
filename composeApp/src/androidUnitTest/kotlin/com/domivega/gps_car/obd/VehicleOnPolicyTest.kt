@@ -128,13 +128,23 @@ class VehicleOnPolicyTest {
         assertEquals(5_000L, rpm.lastProofAtMs)
 
         val ignoredVoltage = VehicleOnPolicy.applyFreshPid(rpm, pid = "42", value = 12.1, nowMs = 6_000L)
-        assertNull(ignoredVoltage.lastProofAtMs)
+        // Rest voltage without a decoded speed is not parked-off (cranking).
+        assertEquals(5_000L, ignoredVoltage.lastProofAtMs)
 
         val speed = VehicleOnPolicy.applyFreshPid(ignoredVoltage, pid = "0d", value = 15.0, nowMs = 7_000L)
         assertEquals(7_000L, speed.lastProofAtMs)
 
         val other = VehicleOnPolicy.applyFreshPid(speed, pid = "04", value = 20.0, nowMs = 8_000L)
         assertEquals(7_000L, other.lastProofAtMs)
+
+        val runtime = VehicleOnPolicy.applyFreshPid(
+            VehicleOnPolicy.onSessionReset(sawPositiveRpm = true),
+            pid = "1F",
+            value = 3.0,
+            nowMs = 9_000L,
+        )
+        val rising = VehicleOnPolicy.applyFreshPid(runtime, pid = "1f", value = 4.0, nowMs = 10_000L)
+        assertEquals(10_000L, rising.lastProofAtMs)
     }
 
     @Test
@@ -154,7 +164,13 @@ class VehicleOnPolicyTest {
         state = VehicleOnPolicy.onRpm(state, rpm = 704.0, nowMs = 100_400L)
 
         assertFalse(VehicleOnPolicy.isVehicleOn(state, nowMs = 100_400L))
-        assertTrue(VehicleOnPolicy.shouldReleaseAdapter(state))
+        assertFalse(VehicleOnPolicy.shouldReleaseAdapter(state, nowMs = 100_400L))
+        assertTrue(
+            VehicleOnPolicy.shouldReleaseAdapter(
+                state,
+                nowMs = 100_300L + VehicleOnPolicy.PARKED_CONFIRM_MS,
+            ),
+        )
     }
 
     @Test
@@ -164,7 +180,7 @@ class VehicleOnPolicyTest {
         state = VehicleOnPolicy.onRpm(state, rpm = 720.0, nowMs = 50_000L)
         state = VehicleOnPolicy.onSpeed(state, speedKph = 0.0, nowMs = 50_100L)
         assertTrue(VehicleOnPolicy.isVehicleOn(state, nowMs = 50_100L))
-        assertFalse(VehicleOnPolicy.shouldReleaseAdapter(state))
+        assertFalse(VehicleOnPolicy.shouldReleaseAdapter(state, nowMs = 50_100L))
     }
 
     @Test
@@ -174,7 +190,12 @@ class VehicleOnPolicyTest {
         assertTrue(rpmOnly.sawPositiveRpm)
         assertNull(rpmOnly.lastProofAtMs)
         assertFalse(VehicleOnPolicy.isVehicleOn(rpmOnly, nowMs = 10_000L))
-        assertFalse(VehicleOnPolicy.shouldReleaseAdapter(rpmOnly))
+        assertFalse(
+            VehicleOnPolicy.shouldReleaseAdapter(
+                rpmOnly,
+                nowMs = 10_000L + VehicleOnPolicy.PARKED_CONFIRM_MS,
+            ),
+        )
     }
 
     @Test
@@ -187,6 +208,62 @@ class VehicleOnPolicyTest {
         state = VehicleOnPolicy.onVoltage(state, volts = 12.49, nowMs = 3_000L)
         assertNull(state.lastProofAtMs)
         assertFalse(VehicleOnPolicy.isVehicleOn(state, nowMs = 3_000L))
-        assertTrue(VehicleOnPolicy.shouldReleaseAdapter(state))
+        assertTrue(VehicleOnPolicy.shouldReleaseAdapter(state, nowMs = 3_000L + VehicleOnPolicy.PARKED_CONFIRM_MS))
+    }
+
+    @Test
+    fun `cranking after ICE with rest voltage is not immediate parked release`() {
+        // Friend started the car while the previous ICE flag was still persisted.
+        // Alternator has not raised voltage yet; speed is 0. Must not sleep the dongle.
+        var state = VehicleOnPolicy.onSessionReset(sawPositiveRpm = true)
+        state = VehicleOnPolicy.onRpm(state, rpm = 700.0, nowMs = 10_000L)
+        state = VehicleOnPolicy.onVoltage(state, volts = 12.4, nowMs = 10_100L)
+        state = VehicleOnPolicy.onSpeed(state, speedKph = 0.0, nowMs = 10_200L)
+        assertFalse(VehicleOnPolicy.isVehicleOn(state, nowMs = 10_200L))
+        assertFalse(VehicleOnPolicy.shouldReleaseAdapter(state, nowMs = 10_200L))
+    }
+
+    @Test
+    fun `rest voltage and RPM without decoded speed is not parked release`() {
+        var state = VehicleOnPolicy.onSessionReset(sawPositiveRpm = true)
+        state = VehicleOnPolicy.onRpm(state, rpm = 704.0, nowMs = 10_000L)
+        state = VehicleOnPolicy.onVoltage(state, volts = 12.49, nowMs = 10_100L)
+        assertFalse(
+            VehicleOnPolicy.shouldReleaseAdapter(
+                state,
+                nowMs = 10_100L + VehicleOnPolicy.PARKED_CONFIRM_MS,
+            ),
+        )
+    }
+
+    @Test
+    fun `increasing engine runtime is a vehicle-on proof after ICE`() {
+        var state = VehicleOnPolicy.onSessionReset(sawPositiveRpm = true)
+        state = VehicleOnPolicy.onRpm(state, rpm = 700.0, nowMs = 10_000L)
+        state = VehicleOnPolicy.onVoltage(state, volts = 12.4, nowMs = 10_100L)
+        state = VehicleOnPolicy.onSpeed(state, speedKph = 0.0, nowMs = 10_200L)
+        state = VehicleOnPolicy.onRuntime(state, seconds = 1.0, nowMs = 10_300L)
+        state = VehicleOnPolicy.onRuntime(state, seconds = 2.0, nowMs = 11_300L)
+        assertEquals(11_300L, state.lastProofAtMs)
+        assertTrue(VehicleOnPolicy.isVehicleOn(state, nowMs = 11_300L))
+        assertFalse(VehicleOnPolicy.shouldReleaseAdapter(state, nowMs = 11_300L))
+    }
+
+    @Test
+    fun `stale constant engine runtime is not a proof and parked rest can release after confirm`() {
+        var state = VehicleOnPolicy.onSessionReset(sawPositiveRpm = true)
+        state = VehicleOnPolicy.onRpm(state, rpm = 704.0, nowMs = 100_000L)
+        state = VehicleOnPolicy.onVoltage(state, volts = 12.49, nowMs = 100_200L)
+        state = VehicleOnPolicy.onSpeed(state, speedKph = 0.0, nowMs = 100_300L)
+        state = VehicleOnPolicy.onRuntime(state, seconds = 1_234.0, nowMs = 100_400L)
+        state = VehicleOnPolicy.onRuntime(state, seconds = 1_234.0, nowMs = 101_400L)
+        assertFalse(VehicleOnPolicy.isVehicleOn(state, nowMs = 101_400L))
+        assertFalse(VehicleOnPolicy.shouldReleaseAdapter(state, nowMs = 101_400L))
+        assertTrue(
+            VehicleOnPolicy.shouldReleaseAdapter(
+                state,
+                nowMs = 100_300L + VehicleOnPolicy.PARKED_CONFIRM_MS,
+            ),
+        )
     }
 }

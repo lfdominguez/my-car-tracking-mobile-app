@@ -109,6 +109,7 @@ object ObdBleManager {
         "0c", // RPM
         "0d", // Speed
         "42", // Module voltage (EV-friendly live signal)
+        "1f", // Engine run time (crank vs parked-off)
         "04", // Engine load
         "43", // Absolute load
         "49", // Accelerator
@@ -127,7 +128,6 @@ object ObdBleManager {
         "31", // Distance since codes cleared (not dash odometer)
         "05", // Coolant
         "46", // Ambient
-        "1f", // Engine run time
         "33", // Barometric
         "0f", // IAT (MAP fuel fallback)
     )
@@ -1028,7 +1028,7 @@ object ObdBleManager {
                 persistVehicleOnFlag(vehicleOnState.sawPositiveRpm)
             }
             publishVehicleOn(now)
-            shouldRelease = VehicleOnPolicy.shouldReleaseAdapter(vehicleOnState)
+            shouldRelease = VehicleOnPolicy.shouldReleaseAdapter(vehicleOnState, now)
         }
         if (shouldRelease) {
             releaseAdapterForParkedSleep()
@@ -1058,8 +1058,13 @@ object ObdBleManager {
     fun refreshVehicleOn(nowMs: Long = System.currentTimeMillis()) {
         if (!isInitialized) return
         publishPidValues(_pidValues.value, nowMs)
+        val shouldRelease: Boolean
         synchronized(vehicleOnLock) {
             publishVehicleOn(nowMs)
+            shouldRelease = VehicleOnPolicy.shouldReleaseAdapter(vehicleOnState, nowMs)
+        }
+        if (shouldRelease) {
+            releaseAdapterForParkedSleep()
         }
     }
 
@@ -1092,7 +1097,9 @@ object ObdBleManager {
         applyPidMiss(pid)
         if (!noDataLogged.add(pid)) return
         val hint = rawHint?.replace('\n', ' ')?.trim()?.take(80) ?: "empty/timeout"
-        logW("PID $pid miss ($hint) — last-good RPM/speed dropped")
+        val dropNote =
+            if (pid.lowercase() in PidPollPolicy.DROP_ON_MISS) " — last-good RPM/speed dropped" else ""
+        logW("PID $pid miss ($hint)$dropNote")
     }
 
     private fun markPidSeen(pid: String, nowMs: Long) {
