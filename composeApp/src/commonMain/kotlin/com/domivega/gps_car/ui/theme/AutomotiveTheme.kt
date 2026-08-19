@@ -14,28 +14,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// High-contrast accent colors
-val NeonBlue = Color(0xFF00E5FF)
-val NeonAmber = Color(0xFFFFC400)
-val DarkBackground = Color(0xFF0A0A0A)
-val SurfaceDark = Color(0xFF1C1C1E)
-val OnSurfaceLight = Color(0xFFE0E0E0)
-val ErrorRed = Color(0xFFCF6679)
+// Dark-first cockpit tokens: cooler surfaces, one cyan accent
+val AccentCyan = Color(0xFF5EE0F0)
+val DarkBackground = Color(0xFF0B0F12)
+val SurfaceDark = Color(0xFF151A1E)
+val SurfaceContainer = Color(0xFF1C2328)
+val OnSurfaceLight = Color(0xFFE6EEF2)
+val ErrorRed = Color(0xFFFF8A80)
 
 private val AutomotiveDarkColorScheme = darkColorScheme(
-    primary = NeonBlue,
-    onPrimary = Color.Black,
-    primaryContainer = Color(0xFF004B57),
-    onPrimaryContainer = NeonBlue,
-    secondary = NeonAmber,
-    onSecondary = Color.Black,
-    secondaryContainer = Color(0xFF524200),
-    onSecondaryContainer = NeonAmber,
+    primary = AccentCyan,
+    onPrimary = Color(0xFF00363D),
+    primaryContainer = Color(0xFF0E3A42),
+    onPrimaryContainer = AccentCyan,
+    secondary = Color(0xFF9BB0B8),
+    onSecondary = Color(0xFF101417),
+    secondaryContainer = Color(0xFF243036),
+    onSecondaryContainer = Color(0xFFD5E3E8),
     background = DarkBackground,
+    onSurface = OnSurfaceLight,
     onBackground = OnSurfaceLight,
     surface = SurfaceDark,
-    onSurface = OnSurfaceLight,
-    error = ErrorRed
+    surfaceVariant = SurfaceContainer,
+    onSurfaceVariant = Color(0xFFB5C4CA),
+    error = ErrorRed,
+    errorContainer = Color(0xFF5C1F1F),
+    onErrorContainer = Color(0xFFFFDAD6),
+    outline = Color(0xFF3A474D),
 )
 
 // Large Rounded Corners as requested
