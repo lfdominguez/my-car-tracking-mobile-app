@@ -113,7 +113,7 @@ fun DashboardScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text = if (state.obdEnabled) "Enable" else "Disable",
+                text = if (state.obdEnabled) "Enabled" else "Disabled",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -135,7 +135,7 @@ fun DashboardScreen(
         AlertDialog(
             onDismissRequest = { confirmDisable = false },
             title = { Text("Stop tracking and release the OBD adapter?") },
-            text = { Text("Stop tracking and release the OBD adapter?") },
+            text = { Text("The current trip will end, and this app will not reconnect until you enable OBD again.") },
             confirmButton = {
                 TextButton(
                     onClick = {
