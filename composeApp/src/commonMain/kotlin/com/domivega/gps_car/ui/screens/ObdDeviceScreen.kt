@@ -55,6 +55,7 @@ fun ObdDeviceScreen(
     onVehicleObdProfileSelected: (String) -> Unit = {},
     onVwOdometerDidChange: (String) -> Unit = {},
     onWwhObdOnlyChange: (Boolean) -> Unit = {},
+    onObdPerformanceModeChange: (Boolean) -> Unit = {},
     onScanClick: () -> Unit = {},
     onDeviceSelected: (address: String, name: String?) -> Unit = { _, _ -> },
     onConnectClick: () -> Unit = {},
@@ -295,6 +296,27 @@ fun ObdDeviceScreen(
                 Switch(
                     checked = state.wwhObdOnly,
                     onCheckedChange = onWwhObdOnlyChange,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Performance mode")
+                    Text(
+                        text = "Faster ELM polling (expected response lines + aggressive timing). " +
+                            "Line suffix applies on the next PID query; ATAT2 on next OBD reconnect. " +
+                            "Turn off if PIDs start dropping.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.obdPerformanceMode,
+                    onCheckedChange = onObdPerformanceModeChange,
                 )
             }
         }
