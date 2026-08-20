@@ -10,6 +10,18 @@ object PidPollPolicy {
      */
     val DROP_ON_MISS: Set<String> = setOf("0c", "0d")
 
+    /**
+     * VW cluster UDS readings locked for the session. They are not Mode 01-polled
+     * every round, so a 10s last-good expiry would drop odometer/oil from UI and
+     * uploads after the pre-Mode 01 hop.
+     */
+    val SESSION_HOLD_KEYS: Set<String> = setOf(
+        OdometerReading.UDS_KM_KEY.lowercase(),
+        VwClusterDids.KEY_OIL_C.lowercase(),
+        VwClusterDids.KEY_FUEL_PCT.lowercase(),
+        VwClusterDids.KEY_DOORS.lowercase(),
+    )
+
     fun afterSuccess(
         previous: Map<String, Double>,
         pid: String,
@@ -41,6 +53,7 @@ object PidPollPolicy {
     ): Map<String, Double> {
         if (values.isEmpty()) return values
         return values.filterKeys { pid ->
+            if (pid.lowercase() in SESSION_HOLD_KEYS) return@filterKeys true
             val seen = lastSeenAtMs[pid]
                 ?: lastSeenAtMs[pid.lowercase()]
                 ?: lastSeenAtMs.entries

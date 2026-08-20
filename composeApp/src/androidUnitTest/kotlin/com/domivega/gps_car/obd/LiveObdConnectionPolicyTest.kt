@@ -60,4 +60,57 @@ class LiveObdConnectionPolicyTest {
         assertFalse(LiveObdConnectionPolicy.isLivePid("04"))
         assertFalse(LiveObdConnectionPolicy.isLivePid("10"))
     }
+
+    @Test
+    fun `round with a live decode resets miss streak`() {
+        val next = LiveObdConnectionPolicy.onRoundEnd(
+            currentlyConnected = true,
+            consecutiveMisses = 4,
+            liveDecodedThisRound = true,
+        )
+        assertTrue(next.ecuConnected)
+        assertEquals(0, next.consecutiveMisses)
+    }
+
+    @Test
+    fun `five rounds without live decode marks disconnected`() {
+        var state = LiveObdConnectionPolicy.State(ecuConnected = true, consecutiveMisses = 0)
+        repeat(4) {
+            state = LiveObdConnectionPolicy.onRoundEnd(
+                currentlyConnected = state.ecuConnected,
+                consecutiveMisses = state.consecutiveMisses,
+                liveDecodedThisRound = false,
+            )
+            assertTrue(state.ecuConnected)
+        }
+        state = LiveObdConnectionPolicy.onRoundEnd(
+            currentlyConnected = state.ecuConnected,
+            consecutiveMisses = state.consecutiveMisses,
+            liveDecodedThisRound = false,
+        )
+        assertFalse(state.ecuConnected)
+        assertEquals(5, state.consecutiveMisses)
+    }
+
+    @Test
+    fun `unsupported live pid is not counted as a miss`() {
+        assertFalse(
+            LiveObdConnectionPolicy.shouldCountLiveMiss(
+                pid = "42",
+                supportedMode01 = setOf(0x0C, 0x0D),
+            ),
+        )
+        assertTrue(
+            LiveObdConnectionPolicy.shouldCountLiveMiss(
+                pid = "0c",
+                supportedMode01 = setOf(0x0C, 0x0D),
+            ),
+        )
+        assertTrue(
+            LiveObdConnectionPolicy.shouldCountLiveMiss(
+                pid = "0c",
+                supportedMode01 = emptySet(),
+            ),
+        )
+    }
 }

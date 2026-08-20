@@ -1173,6 +1173,7 @@ object ObdBleManager {
             resp
         } catch (t: Throwable) {
             logW("${if (isInit) "Init" else "Cmd"} $cmd failed: ${t.message}")
+            if (ElmCommandFailure.isFatalWrite(t.message)) throw t
             null
         }
     }
@@ -1268,7 +1269,10 @@ object ObdBleManager {
                     HOT_PIDS,
                     SLOW_PIDS,
                     SLOW_EVERY,
+                    supportedMode01 = supportedMode01Pids,
                 )
+                var liveDecodedThisRound = false
+                var liveAttemptedThisRound = false
                 try {
                     for (pid in pids) {
                         if (!sessionReady.get()) break
@@ -1279,7 +1283,14 @@ object ObdBleManager {
                         }
                         val raw = sendCommandLogged(cmd, isInit = false)
                         if (raw == null) {
-                            if (!sessionReady.get() || !transport.isLinked) break
+                            if (
+                                ElmCommandFailure.shouldAbortPoll(
+                                    isLinked = transport.isLinked,
+                                    writeFailed = false,
+                                ) || !sessionReady.get()
+                            ) {
+                                break
+                            }
                             consecutiveEngineTimeouts += 1
                             if (
                                 UdsRestorePolicy.shouldHardRecoverSession(
@@ -1299,8 +1310,13 @@ object ObdBleManager {
                                 break
                             }
                             notePidMiss(pid, null)
-                            if (LiveObdConnectionPolicy.isLivePid(pid)) {
-                                applyLiveMissToConnection()
+                            if (
+                                LiveObdConnectionPolicy.shouldCountLiveMiss(
+                                    pid,
+                                    supportedMode01Pids,
+                                )
+                            ) {
+                                liveAttemptedThisRound = true
                             }
                             continue
                         }
@@ -1318,16 +1334,26 @@ object ObdBleManager {
                         }
                         if (value == null) {
                             notePidMiss(pid, raw)
-                            if (LiveObdConnectionPolicy.isLivePid(pid)) {
-                                applyLiveMissToConnection()
+                            if (
+                                LiveObdConnectionPolicy.shouldCountLiveMiss(
+                                    pid,
+                                    supportedMode01Pids,
+                                )
+                            ) {
+                                liveAttemptedThisRound = true
                             }
                             continue
                         }
                         if (!isValidPidValue(pid, value)) {
                             logW("Invalid value for PID $pid: $value")
                             applyPidMiss(pid)
-                            if (LiveObdConnectionPolicy.isLivePid(pid)) {
-                                applyLiveMissToConnection()
+                            if (
+                                LiveObdConnectionPolicy.shouldCountLiveMiss(
+                                    pid,
+                                    supportedMode01Pids,
+                                )
+                            ) {
+                                liveAttemptedThisRound = true
                             }
                             continue
                         }
@@ -1351,6 +1377,7 @@ object ObdBleManager {
                         engineOkCount += 1
 
                         if (LiveObdConnectionPolicy.isLivePid(pid)) {
+                            liveDecodedThisRound = true
                             applyLiveSuccessToConnection()
                         }
                         applyVehicleOnPid(pid, value)
@@ -1362,7 +1389,15 @@ object ObdBleManager {
                             )
                         }
                     }
+                    if (liveAttemptedThisRound && !liveDecodedThisRound) {
+                        applyLiveMissToConnection()
+                    }
                 } catch (t: Throwable) {
+                    if (ElmCommandFailure.isFatalWrite(t.message)) {
+                        logW("Adapter write failed — stopping poll (link dead?)")
+                        handleLinkLost("write failed")
+                        break
+                    }
                     logW("Poll cycle error: ${t.message}")
                     Log.w(TAG, "Poll cycle error", t)
                 }

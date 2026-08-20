@@ -25,4 +25,33 @@ class ObdPollScheduleTest {
     fun `slowEvery 1 always includes slow`() {
         assertEquals(hot + slow, ObdPollSchedule.pidsForRound(1, hot, slow, slowEvery = 1))
     }
+
+    @Test
+    fun `skips Mode 01 pids the ECU did not advertise`() {
+        val supported = setOf(0x0C, 0x0D, 0x10)
+        assertEquals(
+            listOf("0c", "0d", "10"),
+            ObdPollSchedule.pidsForRound(
+                round = 1,
+                hot = listOf("0c", "0d", "42", "10"),
+                slow = emptyList(),
+                slowEvery = 5,
+                supportedMode01 = supported,
+            ),
+        )
+    }
+
+    @Test
+    fun `empty support bitmap still polls the full schedule`() {
+        assertEquals(
+            hot,
+            ObdPollSchedule.pidsForRound(
+                round = 1,
+                hot = hot,
+                slow = slow,
+                slowEvery = 5,
+                supportedMode01 = emptySet(),
+            ),
+        )
+    }
 }

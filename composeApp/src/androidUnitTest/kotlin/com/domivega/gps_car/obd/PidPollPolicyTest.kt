@@ -78,4 +78,29 @@ class PidPollPolicyTest {
         assertNull(next["0d"])
         assertNull(next["0c"])
     }
+
+    @Test
+    fun expireOlderThan_keepsSessionLockedClusterOdometerAndOil() {
+        val values = mapOf(
+            OdometerReading.UDS_KM_KEY to 45012.0,
+            VwClusterDids.KEY_OIL_C to 39.0,
+            VwClusterDids.KEY_FUEL_PCT to 55.0,
+            "0c" to 800.0,
+        )
+        val seenAt = mapOf(
+            OdometerReading.UDS_KM_KEY to 1_000L,
+            VwClusterDids.KEY_OIL_C to 1_000L,
+            VwClusterDids.KEY_FUEL_PCT to 1_000L,
+            "0c" to 1_000L,
+        )
+        val next = PidPollPolicy.expireOlderThan(
+            values,
+            lastSeenAtMs = seenAt,
+            nowMs = 1_000L + PidPollPolicy.MAX_AGE_MS,
+        )
+        assertEquals(45012.0, next[OdometerReading.UDS_KM_KEY])
+        assertEquals(39.0, next[VwClusterDids.KEY_OIL_C])
+        assertEquals(55.0, next[VwClusterDids.KEY_FUEL_PCT])
+        assertNull(next["0c"])
+    }
 }

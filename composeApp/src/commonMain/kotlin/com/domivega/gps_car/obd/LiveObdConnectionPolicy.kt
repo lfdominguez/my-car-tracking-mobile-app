@@ -38,4 +38,31 @@ object LiveObdConnectionPolicy {
         val connected = currentlyConnected && misses < threshold
         return State(ecuConnected = connected, consecutiveMisses = misses)
     }
+
+    /**
+     * One transition per poll round. Per-PID live misses (0c then 0d then 42)
+     * used to flip [ecuConnected] false in a couple of seconds and punch holes
+     * in uploaded tracks even while other PIDs still decoded.
+     */
+    fun onRoundEnd(
+        currentlyConnected: Boolean,
+        consecutiveMisses: Int,
+        liveDecodedThisRound: Boolean,
+        threshold: Int = DEFAULT_MISS_THRESHOLD,
+    ): State {
+        return if (liveDecodedThisRound) {
+            onLiveSuccess(currentlyConnected, consecutiveMisses)
+        } else {
+            onLiveMiss(currentlyConnected, consecutiveMisses, threshold)
+        }
+    }
+
+    /** Skip miss accounting for live PIDs the ECU never advertised. */
+    fun shouldCountLiveMiss(
+        pid: String,
+        supportedMode01: Set<Int>,
+    ): Boolean {
+        if (!isLivePid(pid)) return false
+        return PidSupport.isMode01Supported(supportedMode01, pid)
+    }
 }
