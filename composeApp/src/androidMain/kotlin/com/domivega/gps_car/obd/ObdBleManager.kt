@@ -745,6 +745,7 @@ object ObdBleManager {
             delay(500)
             drainBuffer()
 
+            val performance = settings.obdPerformanceMode
             val baseSteps = listOf(
                 "ATZ" to ATZ_TIMEOUT_MS,
                 "ATE0" to COMMAND_TIMEOUT_MS,
@@ -752,7 +753,7 @@ object ObdBleManager {
                 "ATS0" to COMMAND_TIMEOUT_MS,
                 "ATH0" to COMMAND_TIMEOUT_MS,
                 "ATAL" to COMMAND_TIMEOUT_MS, // long/multi-frame (e.g. odometer A6)
-                "ATAT1" to COMMAND_TIMEOUT_MS,
+                ElmPerformanceMode.adaptiveTimingCommand(performance) to COMMAND_TIMEOUT_MS,
             )
             for ((cmd, timeout) in baseSteps) {
                 val resp = sendCommandLogged(cmd, timeout, isInit = true)
@@ -794,7 +795,7 @@ object ObdBleManager {
                 logI(
                     "ELM init OK — WWH-OBD only header=$sessionEngineHeader " +
                         "hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size} " +
-                        "ecuLive=${_ecuConnected.value}",
+                        "performance=$performance ecuLive=${_ecuConnected.value}",
                 )
                 return true
             }
@@ -824,7 +825,7 @@ object ObdBleManager {
             logI(
                 "ELM init OK — mode01 support=${supportedMode01Pids.size} " +
                     "protocol=${protocol.name} hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size} " +
-                    "(tracking waits for live 0c/0d/42)",
+                    "performance=$performance (tracking waits for live 0c/0d/42)",
             )
             true
         } catch (t: Throwable) {
@@ -1279,7 +1280,10 @@ object ObdBleManager {
                         val cmd = if (wwhEngineOnly) {
                             WwhObd.commandForPidHex(pid)
                         } else {
-                            "01${pid.uppercase()}"
+                            ElmPerformanceMode.mode01PollCommand(
+                                pid,
+                                settings.obdPerformanceMode,
+                            )
                         }
                         val raw = sendCommandLogged(cmd, isInit = false)
                         if (raw == null) {
@@ -1855,7 +1859,11 @@ object ObdBleManager {
             }
             true
         } else {
-            val live = sendCommandLogged("010C", MODE01_HEALTH_TIMEOUT_MS, isInit = false)
+            val live = sendCommandLogged(
+                ElmPerformanceMode.mode01PollCommand("0c", settings.obdPerformanceMode),
+                MODE01_HEALTH_TIMEOUT_MS,
+                isInit = false,
+            )
             if (!ElmHeaderRestore.isMode01Live(live, expectPid = 0x0C)) return false
             val rpm = live?.let { parser.decodePid("0c", it) }
             if (rpm != null && isValidPidValue("0c", rpm)) {
