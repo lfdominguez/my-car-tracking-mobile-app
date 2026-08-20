@@ -25,6 +25,8 @@ data class SettingsUiState(
     val vwOdometerDid: String = "",
     /** Experimental WWH-OBD / OBDonUDS engine stack only. */
     val wwhObdOnly: Boolean = false,
+    /** Faster ELM polling (ATAT2 + Mode 01 line suffix). Default off. */
+    val obdPerformanceMode: Boolean = false,
     val obdEnabled: Boolean = true,
     /** FuelTypePreset name; default E10. */
     val fuelType: String = "E10",

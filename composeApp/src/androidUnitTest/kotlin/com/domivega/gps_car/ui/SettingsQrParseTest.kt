@@ -26,6 +26,7 @@ private class FakeSettingsRepository : SettingsRepository {
     override var vehicleObdProfile: String = "Generic"
     override var vwOdometerDid: String = ""
     override var wwhObdOnly: Boolean = false
+    override var obdPerformanceMode: Boolean = false
     override var obdEnabled: Boolean = true
     override var fuelType: String = "E10"
     override var fuelStoichAfr: Double = 14.08
@@ -150,5 +151,15 @@ class SettingsQrParseTest {
         vm.updateObdEnabled(false)
         assertEquals(false, repo.obdEnabled)
         assertEquals(false, vm.uiState.value.obdEnabled)
+    }
+
+    @Test
+    fun updateObdPerformanceMode_persistsFlag() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        assertEquals(false, vm.uiState.value.obdPerformanceMode)
+        vm.updateObdPerformanceMode(true)
+        assertEquals(true, repo.obdPerformanceMode)
+        assertEquals(true, vm.uiState.value.obdPerformanceMode)
     }
 }

@@ -19,6 +19,7 @@ class AppSettings(context: Context) {
         private const val KEY_VEHICLE_OBD_PROFILE = "vehicle_obd_profile"
         private const val KEY_VW_ODOMETER_DID = "vw_odometer_did"
         private const val KEY_WWH_OBD_ONLY = "wwh_obd_only"
+        private const val KEY_OBD_PERFORMANCE_MODE = "obd_performance_mode"
         private const val KEY_OBD_ENABLED = "obd_enabled"
         private const val KEY_FUEL_TYPE = "fuel_type"
         private const val KEY_FUEL_STOICH_AFR = "fuel_stoich_afr"
@@ -58,6 +59,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_VEHICLE_OBD_PROFILE = "Generic"
         const val DEFAULT_VW_ODOMETER_DID = ""
         const val DEFAULT_WWH_OBD_ONLY = false
+        const val DEFAULT_OBD_PERFORMANCE_MODE = false
         const val DEFAULT_OBD_ENABLED = true
 
         // Example vehicle defaults: compact 1.0L turbo on E10 (edit in Settings)
@@ -123,6 +125,11 @@ class AppSettings(context: Context) {
     var wwhObdOnly: Boolean
         get() = prefs.getBoolean(KEY_WWH_OBD_ONLY, DEFAULT_WWH_OBD_ONLY)
         set(value) = prefs.edit().putBoolean(KEY_WWH_OBD_ONLY, value).apply()
+
+    /** Faster ELM polling: ATAT2 + Mode 01 expected-line suffix. Default off (Normal). */
+    var obdPerformanceMode: Boolean
+        get() = prefs.getBoolean(KEY_OBD_PERFORMANCE_MODE, DEFAULT_OBD_PERFORMANCE_MODE)
+        set(value) = prefs.edit().putBoolean(KEY_OBD_PERFORMANCE_MODE, value).apply()
 
     var obdEnabled: Boolean
         get() = prefs.getBoolean(KEY_OBD_ENABLED, DEFAULT_OBD_ENABLED)

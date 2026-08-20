@@ -51,6 +51,7 @@ class SettingsViewModel(
                 vehicleObdProfile = repository.vehicleObdProfile,
                 vwOdometerDid = repository.vwOdometerDid,
                 wwhObdOnly = repository.wwhObdOnly,
+                obdPerformanceMode = repository.obdPerformanceMode,
                 obdEnabled = repository.obdEnabled,
                 fuelType = repository.fuelType,
                 fuelStoichAfr = repository.fuelStoichAfr,
@@ -125,6 +126,11 @@ class SettingsViewModel(
     fun updateWwhObdOnly(enabled: Boolean) {
         repository.wwhObdOnly = enabled
         _uiState.update { it.copy(wwhObdOnly = enabled) }
+    }
+
+    fun updateObdPerformanceMode(enabled: Boolean) {
+        repository.obdPerformanceMode = enabled
+        _uiState.update { it.copy(obdPerformanceMode = enabled) }
     }
 
     fun updateObdEnabled(enabled: Boolean) {

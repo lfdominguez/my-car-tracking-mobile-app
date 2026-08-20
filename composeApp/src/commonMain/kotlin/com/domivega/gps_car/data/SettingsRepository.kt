@@ -17,6 +17,7 @@ interface SettingsRepository {
     var vehicleObdProfile: String
     var vwOdometerDid: String
     var wwhObdOnly: Boolean
+    var obdPerformanceMode: Boolean
     var obdEnabled: Boolean
     var fuelType: String
     var fuelStoichAfr: Double

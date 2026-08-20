@@ -63,6 +63,10 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
         get() = appSettings.wwhObdOnly
         set(value) { appSettings.wwhObdOnly = value }
 
+    override var obdPerformanceMode: Boolean
+        get() = appSettings.obdPerformanceMode
+        set(value) { appSettings.obdPerformanceMode = value }
+
     override var obdEnabled: Boolean
         get() = appSettings.obdEnabled
         set(value) { appSettings.obdEnabled = value }
