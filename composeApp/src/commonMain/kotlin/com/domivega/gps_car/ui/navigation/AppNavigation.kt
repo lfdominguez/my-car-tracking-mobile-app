@@ -182,6 +182,7 @@ fun AppNavigation(
                         onScanQrCode = onScanQrCode,
                         onTestConnection = settingsViewModel::testConnection,
                         onClearQrError = settingsViewModel::clearQrError,
+                        onFuelClassSelected = settingsViewModel::updateFuelClass,
                         onFuelTypeSelected = settingsViewModel::updateFuelType,
                         onFuelStoichAfrChange = settingsViewModel::updateFuelStoichAfr,
                         onFuelDensityGlChange = settingsViewModel::updateFuelDensityGl,

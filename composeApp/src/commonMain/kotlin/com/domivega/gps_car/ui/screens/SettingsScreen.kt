@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.domivega.gps_car.fuel.FuelClass
 import com.domivega.gps_car.fuel.FuelTypePreset
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import com.domivega.gps_car.ui.state.SettingsUiState
@@ -46,7 +47,8 @@ fun SettingsScreen(
     onScanQrCode: () -> Unit,
     onTestConnection: () -> Unit = {},
     onClearQrError: () -> Unit = {},
-    fuelTypeOptions: List<Pair<String, String>> = FuelTypePreset.entries.map { it.name to it.displayName },
+    fuelTypeOptions: List<Pair<String, String>> = emptyList(),
+    onFuelClassSelected: (String) -> Unit = {},
     onFuelTypeSelected: (String) -> Unit = {},
     onFuelStoichAfrChange: (Double) -> Unit = {},
     onFuelDensityGlChange: (Double) -> Unit = {},
@@ -56,9 +58,21 @@ fun SettingsScreen(
     onSampleUploadFieldFlagsChange: (SampleUploadFieldFlags) -> Unit = {},
 ) {
     val scrollState = rememberScrollState()
+    var fuelClassExpanded by remember { mutableStateOf(false) }
     var fuelTypeExpanded by remember { mutableStateOf(false) }
 
-    val selectedFuelTypeLabel = fuelTypeOptions
+    val selectedFuelClass = FuelClass.fromName(state.fuelClass)
+    val fuelClassOptions = FuelClass.entries.map { it.name to it.displayName }
+    val gradeOptions = FuelTypePreset.gradesFor(selectedFuelClass)
+        .map { it.name to it.displayName }
+        .ifEmpty { fuelTypeOptions }
+
+    val selectedFuelClassLabel = fuelClassOptions
+        .firstOrNull { it.first == selectedFuelClass.name }
+        ?.second
+        ?: selectedFuelClass.displayName
+
+    val selectedFuelTypeLabel = gradeOptions
         .firstOrNull { it.first == state.fuelType }
         ?.second
         ?: state.fuelType
@@ -171,9 +185,42 @@ fun SettingsScreen(
 
         SettingsSection(
             title = "Fuel",
-            supporting = "Fuel rate (L/h) is estimated from MAF and these values. Defaults: E10, 1.0 L. VE is used only if MAF is unavailable (MAP estimate).",
+            supporting = "Gasoline uses MAF × λ. Diesel uses MAF and load-based AFR (PID 04). Defaults: E10 or B7. Set displacement for the engine (1.9 L for a 1.9 TDI). VE only if MAF is unavailable.",
         ) {
-        if (fuelTypeOptions.isNotEmpty()) {
+            ExposedDropdownMenuBox(
+                expanded = fuelClassExpanded,
+                onExpandedChange = { fuelClassExpanded = it },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = selectedFuelClassLabel,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Fuel class") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fuelClassExpanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    singleLine = true
+                )
+                ExposedDropdownMenu(
+                    expanded = fuelClassExpanded,
+                    onDismissRequest = { fuelClassExpanded = false }
+                ) {
+                    fuelClassOptions.forEach { (id, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                fuelClassExpanded = false
+                                onFuelClassSelected(id)
+                            }
+                        )
+                    }
+                }
+            }
+
+        if (gradeOptions.isNotEmpty()) {
             ExposedDropdownMenuBox(
                 expanded = fuelTypeExpanded,
                 onExpandedChange = { fuelTypeExpanded = it },
@@ -195,7 +242,7 @@ fun SettingsScreen(
                     expanded = fuelTypeExpanded,
                     onDismissRequest = { fuelTypeExpanded = false }
                 ) {
-                    fuelTypeOptions.forEach { (id, label) ->
+                    gradeOptions.forEach { (id, label) ->
                         DropdownMenuItem(
                             text = { Text(label) },
                             onClick = {
