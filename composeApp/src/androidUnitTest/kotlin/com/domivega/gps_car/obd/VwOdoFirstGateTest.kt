@@ -11,6 +11,7 @@ class VwOdoFirstGateTest {
     fun `requires odometer before Mode 01 only for VwMqb`() {
         assertTrue(VwOdoFirstGate.requiresOdometerBeforeMode01(VehicleObdProfile.VwMqb))
         assertFalse(VwOdoFirstGate.requiresOdometerBeforeMode01(VehicleObdProfile.Generic))
+        assertFalse(VwOdoFirstGate.requiresOdometerBeforeMode01(VehicleObdProfile.VwGolfMk4Tdi))
     }
 
     @Test

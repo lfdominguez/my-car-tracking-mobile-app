@@ -8,6 +8,7 @@ class VehicleObdProfileTest {
     fun `display names match product labels`() {
         assertEquals("Generic OBD", VehicleObdProfile.Generic.displayName)
         assertEquals("VW MQB (Nivus)", VehicleObdProfile.VwMqb.displayName)
+        assertEquals("VW Golf mk4 TDI (ASZ)", VehicleObdProfile.VwGolfMk4Tdi.displayName)
     }
 
     @Test
@@ -15,6 +16,8 @@ class VehicleObdProfileTest {
         assertEquals(VehicleObdProfile.Generic, VehicleObdProfile.fromName("Generic"))
         assertEquals(VehicleObdProfile.VwMqb, VehicleObdProfile.fromName("VwMqb"))
         assertEquals(VehicleObdProfile.VwMqb, VehicleObdProfile.fromName("vwmqb"))
+        assertEquals(VehicleObdProfile.VwGolfMk4Tdi, VehicleObdProfile.fromName("VwGolfMk4Tdi"))
+        assertEquals(VehicleObdProfile.VwGolfMk4Tdi, VehicleObdProfile.fromName("vwgolfmk4tdi"))
         assertEquals(VehicleObdProfile.Generic, VehicleObdProfile.fromName("NOPE"))
         assertEquals(VehicleObdProfile.Generic, VehicleObdProfile.fromName(""))
     }
