@@ -44,6 +44,10 @@ object PidSupport {
     /**
      * Whether [pidHex] (e.g. "0C", "a6") is listed as supported.
      * Non-standard / manufacturer PIDs (length != 2 hex) are treated as "unknown" → [unknownDefault].
+     *
+     * A support page that was advertised (next-page bit) but never successfully
+     * fetched is incomplete: PIDs on that page and later stay [unknownDefault]
+     * so a failed `0120` does not hide accelerator pedal (`49`) or voltage (`42`).
      */
     fun isMode01Supported(
         supported: Set<Int>,
@@ -56,7 +60,21 @@ object PidSupport {
         }
         if (supported.isEmpty()) return true // no discovery yet → allow poll
         val pid = normalized.toInt(16)
-        return pid in supported
+        if (pid in supported) return true
+
+        var page = 0
+        while (page <= 0xE0) {
+            val pageEnd = page + 0x20
+            if (pid <= pageEnd) {
+                val populated = supported.any { it in (page + 1)..pageEnd }
+                return if (populated) false else unknownDefault
+            }
+            if (pageEnd !in supported) return false
+            val nextPopulated = supported.any { it in (pageEnd + 1)..(pageEnd + 0x20) }
+            if (!nextPopulated) return unknownDefault
+            page += 0x20
+        }
+        return unknownDefault
     }
 
     /**

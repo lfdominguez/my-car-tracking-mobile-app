@@ -54,4 +54,22 @@ class ObdPollScheduleTest {
             ),
         )
     }
+
+    @Test
+    fun `incomplete 0120 still schedules accelerator pedal`() {
+        val firstPageOnly = setOf(
+            0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0C, 0x0D,
+            0x0E, 0x0F, 0x10, 0x11, 0x13, 0x1C, 0x1F, 0x20,
+        )
+        assertEquals(
+            listOf("0c", "0d", "49"),
+            ObdPollSchedule.pidsForRound(
+                round = 1,
+                hot = listOf("0c", "0d", "0b", "49"),
+                slow = emptyList(),
+                slowEvery = 5,
+                supportedMode01 = firstPageOnly,
+            ),
+        )
+    }
 }

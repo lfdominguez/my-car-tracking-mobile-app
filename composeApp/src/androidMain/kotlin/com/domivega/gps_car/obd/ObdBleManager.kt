@@ -61,6 +61,8 @@ object ObdBleManager {
     /** Per-attempt wait for 0100 during init (keep short — cold ECU is handled by retries). */
     private const val ECU_PROBE_TIMEOUT_MS = 2_500L
     private const val ECU_PROBE_ATTEMPTS = 8
+    /** Retries for 0120/0140/… after 0100 already proved the ECU is awake. */
+    private const val SUPPORT_QUERY_ATTEMPTS = 4
     private const val SCAN_PERIOD_MS = 12_000L
     /** Do not run cluster UDS until engine stack has produced this many successful decodes. */
     private const val VW_ODO_MIN_ENGINE_OK = 8
@@ -136,7 +138,7 @@ object ObdBleManager {
 
     private const val SLOW_EVERY = 5
 
-    /** Mode 01 PIDs reported supported by the ECU (empty = not discovered yet). Log-only. */
+    /** Mode 01 PIDs reported supported by the ECU (empty = not discovered yet). */
     @Volatile
     private var supportedMode01Pids: Set<Int> = emptySet()
 
@@ -949,9 +951,26 @@ object ObdBleManager {
             guard += 1
             val cmdPid = next
             val cmd = "01" + cmdPid.toString(16).uppercase().padStart(2, '0')
-            val raw = sendCommandLogged(cmd, ECU_PROBE_TIMEOUT_MS, isInit = true)
-            if (!isSuccessfulMode01Response(raw, expectPid = cmdPid) || raw == null) {
-                logW("Support query $cmd failed; stopping discovery")
+            var raw: String? = null
+            var ok = false
+            for (attempt in 0 until SUPPORT_QUERY_ATTEMPTS) {
+                raw = sendCommandLogged(cmd, ECU_PROBE_TIMEOUT_MS, isInit = true)
+                if (isSuccessfulMode01Response(raw, expectPid = cmdPid) && raw != null) {
+                    if (attempt > 0) {
+                        logI("$cmd OK on attempt ${attempt + 1}/$SUPPORT_QUERY_ATTEMPTS")
+                    }
+                    ok = true
+                    break
+                }
+                logW(
+                    "Support query $cmd attempt ${attempt + 1}/$SUPPORT_QUERY_ATTEMPTS failed: " +
+                        (raw?.take(80) ?: "timeout/null"),
+                )
+                delay(200L + attempt * 150L)
+                drainBuffer()
+            }
+            if (!ok || raw == null) {
+                logW("Support query $cmd failed; incomplete bitmap (higher PIDs still polled)")
                 break
             }
             all += PidSupport.parseSupportBitmap(cmdPid, raw)
