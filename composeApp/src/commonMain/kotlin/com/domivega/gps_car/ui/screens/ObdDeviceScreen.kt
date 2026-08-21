@@ -229,7 +229,7 @@ fun ObdDeviceScreen(
 
         SettingsSection(
             title = "Vehicle",
-            supporting = "Profile and experimental protocol",
+            supporting = "Generic OBD, VW MQB cluster, or Golf mk4 TDI (ASZ) K-line defaults",
         ) {
             if (vehicleObdProfileOptions.isNotEmpty()) {
                 ExposedDropdownMenuBox(
@@ -264,6 +264,15 @@ fun ObdDeviceScreen(
                         }
                     }
                 }
+            }
+
+            if (state.vehicleObdProfile == VehicleObdProfile.VwGolfMk4Tdi.name) {
+                Text(
+                    text = "Applies ISO 9141-2, Diesel B7, 1.9 L displacement, and 55 L tank capacity. " +
+                        "This ECU has no SAE odometer or tank %. Reconnect OBD after changing profile.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             if (state.vehicleObdProfile == VehicleObdProfile.VwMqb.name) {

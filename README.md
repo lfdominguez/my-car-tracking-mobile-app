@@ -130,7 +130,7 @@ Install the debug APK, open **Settings**, then:
    Classic: pair in system Bluetooth first (PIN often `1234` / `0000`), fully quit Torque/other OBD apps, then Scan
 5. **Adapter** — scan, select, save (auto-reconnect next time)
 6. **OBD protocol** — leave default CAN 11/500 unless your car needs another
-7. **Vehicle & fuel** — Gasoline/Diesel class and grade (E10 or B7 defaults); set displacement. A 2003 Golf mk4 TDI has no SAE odometer (`A6`) or tank PID (`2F`); the VW MQB cluster hop does not apply.
+7. **Vehicle & fuel** — Gasoline/Diesel class and grade (E10 or B7 defaults); set displacement. **VW Golf mk4 TDI (ASZ)** profile applies ISO 9141-2, Diesel B7, 1.9 L, and 55 L tank; it does not invent SAE odometer (`A6`) or tank PID (`2F`), and does not use the VW MQB cluster hop.
 
 Grant **location (always)** and **Bluetooth** permissions when prompted.
 
