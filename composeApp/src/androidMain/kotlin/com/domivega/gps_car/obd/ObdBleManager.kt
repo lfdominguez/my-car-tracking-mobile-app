@@ -14,6 +14,7 @@ import com.domivega.gps_car.ObdEnableGate
 import com.domivega.gps_car.WaitingFgsGate
 import com.domivega.gps_car.fuel.FuelCalcConfig
 import com.domivega.gps_car.fuel.FuelCalcSensors
+import com.domivega.gps_car.fuel.FuelClass
 import com.domivega.gps_car.fuel.FuelConsumptionCalculator
 import com.domivega.gps_car.settings.AppSettings
 import com.domivega.gps_car.startForegroundServiceCompat
@@ -1226,6 +1227,7 @@ object ObdBleManager {
             densityGl = settings.fuelDensityGl,
             displacementL = settings.engineDisplacementL,
             ve = settings.engineVe,
+            isDiesel = FuelClass.fromName(settings.fuelClass) == FuelClass.DIESEL,
         )
         val sensors = FuelCalcSensors(
             mafGs = into["10"],
@@ -1237,6 +1239,7 @@ object ObdBleManager {
             ltftPct = into["07"],
             ecuFuelRateLh = into["5e"],
             speedKph = into["0d"],
+            calculatedLoadPct = into["04"],
         )
         // Publish estimated air mass when ECU has no MAF, or MAF is peak-air idle fraud.
         // Samples prefer ESTIMATED_MAF_KEY over raw PID 0x10 so stored mass_air_flow is sane.
