@@ -34,7 +34,7 @@
 | 🚦 **ECU-driven session** | Tracking starts when the ECU responds and stops when it drops |
 | ⚡ **Prioritized PID poll** | Hot PIDs (RPM, speed, load, MAF, …) every round; slow PIDs every 5th round at max adapter rate |
 | 📬 **Durable send queue** | Room-backed pending samples; ~60 s batch flush with retry / backoff |
-| ⛽ **Vehicle & fuel math** | Presets (E0/E10/E27/E100/Custom), AFR, density, displacement, VE → estimated L/h from MAF + λ (MAP fallback; peak-air idle MAF sanitized) |
+| ⛽ **Vehicle & fuel math** | Gasoline or Diesel class; gasoline grades E0/E10/E27/E100/Custom; diesel B7/Custom. Gasoline L/h from MAF × λ; diesel L/h from MAF and PID 04 load-based AFR (MAP fallback; peak-air idle MAF sanitized) |
 | 🧪 **OBD debug log** | Init steps, BLE lifecycle, errors (Debug tab) — not full successful TX/RX spam |
 | 📊 **Dashboard** | Live gauges and metrics while tracking |
 | 📱 **QR bootstrap** | Scan platform provisioning QR for token, track URLs, fuel/engine, optional car name |
@@ -130,7 +130,7 @@ Install the debug APK, open **Settings**, then:
    Classic: pair in system Bluetooth first (PIN often `1234` / `0000`), fully quit Torque/other OBD apps, then Scan
 5. **Adapter** — scan, select, save (auto-reconnect next time)
 6. **OBD protocol** — leave default CAN 11/500 unless your car needs another
-7. **Vehicle & fuel** — usually filled from QR; adjust if needed
+7. **Vehicle & fuel** — Gasoline/Diesel class and grade (E10 or B7 defaults); set displacement. A 2003 Golf mk4 TDI has no SAE odometer (`A6`) or tank PID (`2F`); the VW MQB cluster hop does not apply.
 
 Grant **location (always)** and **Bluetooth** permissions when prompted.
 
