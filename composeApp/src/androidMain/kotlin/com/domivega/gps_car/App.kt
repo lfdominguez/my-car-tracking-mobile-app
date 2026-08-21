@@ -20,6 +20,7 @@ import com.domivega.gps_car.network.ApiClient
 import com.domivega.gps_car.settings.AppSettings
 import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.ObdBleManager
+import com.domivega.gps_car.obd.ObdLogShare
 import com.domivega.gps_car.obd.ObdPresenceController
 import com.domivega.gps_car.obd.ObdProtocol
 import com.domivega.gps_car.ui.MainViewModel
@@ -273,6 +274,7 @@ fun App() {
             onBleDisconnectClick = { ObdBleManager.disconnect() },
             obdLogEntries = obdLogEntries,
             onClearObdLog = { ObdBleManager.clearDebugLog() },
+            onShareObdLog = { ObdLogShare.share(context, obdLogEntries) },
         )
     }
 }

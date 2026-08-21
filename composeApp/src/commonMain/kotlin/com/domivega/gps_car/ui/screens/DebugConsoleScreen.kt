@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.domivega.gps_car.obd.ObdLogEntry
 import com.domivega.gps_car.obd.ObdLogLevel
+import com.domivega.gps_car.obd.formatObdLogTimeUtc
 import kotlin.math.round
 
 @Composable
@@ -34,6 +35,7 @@ fun DebugConsoleScreen(
     connectionStatus: String = "",
     logEntries: List<ObdLogEntry> = emptyList(),
     onClearLog: () -> Unit = {},
+    onShareLog: () -> Unit = {},
 ) {
     val logListState = rememberLazyListState()
 
@@ -63,6 +65,9 @@ fun DebugConsoleScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
+            TextButton(onClick = onShareLog) {
+                Text("Share")
+            }
             TextButton(onClick = onClearLog) {
                 Text("Clear log")
             }
@@ -100,7 +105,7 @@ fun DebugConsoleScreen(
                         ObdLogLevel.INFO -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
                     Text(
-                        text = "${formatLogTimeUtc(entry.timestampMs)} ${entry.level.name.take(1)} ${entry.message}",
+                        text = "${formatObdLogTimeUtc(entry.timestampMs)} ${entry.level.name.take(1)} ${entry.message}",
                         color = color,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
@@ -154,13 +159,4 @@ fun DebugConsoleScreen(
             }
         }
     }
-}
-
-/** UTC wall-clock HH:mm:ss from epoch ms (portable commonMain). */
-private fun formatLogTimeUtc(ms: Long): String {
-    val s = ((ms / 1000) % 86_400).toInt()
-    val hh = (s / 3600).toString().padStart(2, '0')
-    val mm = ((s % 3600) / 60).toString().padStart(2, '0')
-    val ss = (s % 60).toString().padStart(2, '0')
-    return "$hh:$mm:$ss"
 }

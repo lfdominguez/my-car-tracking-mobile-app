@@ -49,6 +49,7 @@ fun AppNavigation(
     onBleDisconnectClick: () -> Unit = {},
     obdLogEntries: List<ObdLogEntry> = emptyList(),
     onClearObdLog: () -> Unit = {},
+    onShareObdLog: () -> Unit = {},
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -197,6 +198,7 @@ fun AppNavigation(
                         connectionStatus = connectionStatus,
                         logEntries = obdLogEntries,
                         onClearLog = onClearObdLog,
+                        onShareLog = onShareObdLog,
                     )
                     "About" -> AboutScreen(
                         logoPainter = logoPainter
