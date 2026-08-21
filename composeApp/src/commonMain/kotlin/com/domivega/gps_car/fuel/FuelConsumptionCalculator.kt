@@ -5,6 +5,7 @@ data class FuelCalcConfig(
     val densityGl: Double,
     val displacementL: Double,
     val ve: Double,
+    val isDiesel: Boolean = false,
 )
 
 data class FuelCalcSensors(
@@ -19,6 +20,8 @@ data class FuelCalcSensors(
     val ecuFuelRateLh: Double? = null,
     /** OBD speed (kph); null treated as stopped for idle peak-air MAF detect. */
     val speedKph: Double? = null,
+    /** SAE PID 04 calculated load (%); used for diesel AFR. */
+    val calculatedLoadPct: Double? = null,
 )
 
 object FuelConsumptionCalculator {
@@ -40,6 +43,15 @@ object FuelConsumptionCalculator {
     const val IDLE_RPM_MIN = 400.0
     const val IDLE_RPM_MAX = 1500.0
 
+    /** Typical TDI cruise AFR (lean of smoke limit, not gasoline stoich). */
+    const val DIESEL_AFR_CRUISE = 17.5
+
+    /** Typical TDI idle AFR when PID 04 load is ~0%. */
+    const val DIESEL_AFR_IDLE = 38.0
+
+    /** Load at/above this uses cruise AFR; below blends toward idle AFR. */
+    const val DIESEL_IDLE_LOAD_MAX_PCT = 25.0
+
     /** MAF ≥ this × peak air at the same RPM is treated as “wide-open at idle RPM”. */
     const val PEAK_AIR_DETECT_RATIO = 0.70
 
@@ -47,13 +59,31 @@ object FuelConsumptionCalculator {
         sensors.ecuFuelRateLh?.let { r ->
             if (r.isFinite() && r > 0.0 && r <= 100.0) return r
         }
-        if (config.stoichAfr <= 0.0 || config.densityGl <= 0.0) return null
+        if (config.densityGl <= 0.0) return null
+        if (!config.isDiesel && config.stoichAfr <= 0.0) return null
         val airGs = airMassGs(config, sensors) ?: return null
         if (airGs <= 0.0 || airGs.isNaN() || airGs.isInfinite()) return null
+        if (config.isDiesel) {
+            val afr = dieselAfr(sensors.calculatedLoadPct)
+            val dieselLh = airGs * 3600.0 / (afr * config.densityGl)
+            return dieselLh.takeIf { it.isFinite() && it > 0.0 && it <= 200.0 }
+        }
         val lambda = sensors.lambda?.takeIf { it in 0.5..1.5 } ?: 1.0
         val trim = trimFactor(sensors.stftPct, sensors.ltftPct)
         val lh = airGs * 3600.0 / (config.stoichAfr * lambda * config.densityGl) * trim
         return lh.takeIf { it.isFinite() && it > 0.0 && it <= 200.0 }
+    }
+
+    /**
+     * Diesel AFR from PID 04 load: lean at idle (0% → 38), cruise from 25% up (17.5).
+     * Unknown/invalid load uses cruise so highway is not understated.
+     */
+    fun dieselAfr(loadPct: Double?): Double {
+        if (loadPct == null || !loadPct.isFinite()) return DIESEL_AFR_CRUISE
+        val load = loadPct.coerceIn(0.0, 100.0)
+        if (load >= DIESEL_IDLE_LOAD_MAX_PCT) return DIESEL_AFR_CRUISE
+        val t = load / DIESEL_IDLE_LOAD_MAX_PCT
+        return DIESEL_AFR_IDLE + (DIESEL_AFR_CRUISE - DIESEL_AFR_IDLE) * t
     }
 
     /**

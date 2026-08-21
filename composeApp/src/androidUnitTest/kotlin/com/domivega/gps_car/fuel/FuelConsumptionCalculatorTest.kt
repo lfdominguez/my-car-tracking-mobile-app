@@ -14,6 +14,14 @@ class FuelConsumptionCalculatorTest {
         ve = 0.85,
     )
 
+    private val dieselConfig = FuelCalcConfig(
+        stoichAfr = 14.5,
+        densityGl = 835.0,
+        displacementL = 1.9,
+        ve = 0.85,
+        isDiesel = true,
+    )
+
     @Test
     fun `maf path e10 lambda 1`() {
         // L/h = 10 * 3600 / (14.08 * 1.0 * 745) ≈ 3.433
@@ -255,5 +263,65 @@ class FuelConsumptionCalculatorTest {
             FuelCalcSensors(mafGs = 13.68, rpm = 650.0, speedKph = null),
         )!!
         assertEquals(peak * 0.85 * FuelConsumptionCalculator.IDLE_MAP_FRACTION, air, 1e-9)
+    }
+
+    @Test
+    fun `dieselAfr idle load blends toward 38`() {
+        assertEquals(38.0, FuelConsumptionCalculator.dieselAfr(0.0), 0.001)
+        assertEquals(27.75, FuelConsumptionCalculator.dieselAfr(12.5), 0.001)
+        assertEquals(17.5, FuelConsumptionCalculator.dieselAfr(25.0), 0.001)
+    }
+
+    @Test
+    fun `dieselAfr high or unknown load is cruise 17_5`() {
+        assertEquals(17.5, FuelConsumptionCalculator.dieselAfr(80.0), 0.001)
+        assertEquals(17.5, FuelConsumptionCalculator.dieselAfr(null), 0.001)
+        assertEquals(17.5, FuelConsumptionCalculator.dieselAfr(Double.NaN), 0.001)
+    }
+
+    @Test
+    fun `diesel idle load uses leaner AFR than cruise load`() {
+        val idle = FuelConsumptionCalculator.litersPerHour(
+            dieselConfig,
+            FuelCalcSensors(mafGs = 6.0, calculatedLoadPct = 10.0),
+        )!!
+        val cruise = FuelConsumptionCalculator.litersPerHour(
+            dieselConfig,
+            FuelCalcSensors(mafGs = 6.0, calculatedLoadPct = 40.0),
+        )!!
+        assertTrue(idle < cruise)
+        // cruise: 6*3600/(17.5*835) ≈ 1.480
+        assertEquals(1.480, cruise, 0.01)
+    }
+
+    @Test
+    fun `diesel ignores gasoline lambda and fuel trims`() {
+        val base = FuelConsumptionCalculator.litersPerHour(
+            dieselConfig,
+            FuelCalcSensors(mafGs = 10.0, calculatedLoadPct = 50.0),
+        )!!
+        val withLambda = FuelConsumptionCalculator.litersPerHour(
+            dieselConfig,
+            FuelCalcSensors(mafGs = 10.0, calculatedLoadPct = 50.0, lambda = 0.8, stftPct = 10.0),
+        )!!
+        assertEquals(base, withLambda, 1e-9)
+    }
+
+    @Test
+    fun `diesel still prefers ECU PID 5E`() {
+        val result = FuelConsumptionCalculator.litersPerHour(
+            dieselConfig,
+            FuelCalcSensors(mafGs = 10.0, calculatedLoadPct = 50.0, ecuFuelRateLh = 8.0),
+        )
+        assertEquals(8.0, result!!, 1e-9)
+    }
+
+    @Test
+    fun `gasoline path unchanged when isDiesel false`() {
+        val result = FuelConsumptionCalculator.litersPerHour(
+            e10Config,
+            FuelCalcSensors(mafGs = 10.0, lambda = 1.0, calculatedLoadPct = 10.0),
+        )
+        assertEquals(3.433, result!!, 0.01)
     }
 }
