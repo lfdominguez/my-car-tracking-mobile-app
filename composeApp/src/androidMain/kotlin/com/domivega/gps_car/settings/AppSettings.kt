@@ -21,6 +21,7 @@ class AppSettings(context: Context) {
         private const val KEY_WWH_OBD_ONLY = "wwh_obd_only"
         private const val KEY_OBD_PERFORMANCE_MODE = "obd_performance_mode"
         private const val KEY_OBD_ENABLED = "obd_enabled"
+        private const val KEY_FUEL_CLASS = "fuel_class"
         private const val KEY_FUEL_TYPE = "fuel_type"
         private const val KEY_FUEL_STOICH_AFR = "fuel_stoich_afr"
         private const val KEY_FUEL_DENSITY_GL = "fuel_density_gl"
@@ -63,6 +64,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_OBD_ENABLED = true
 
         // Example vehicle defaults: compact 1.0L turbo on E10 (edit in Settings)
+        const val DEFAULT_FUEL_CLASS = "GASOLINE"
         const val DEFAULT_FUEL_TYPE = "E10"
         const val DEFAULT_FUEL_STOICH_AFR = 14.08
         const val DEFAULT_FUEL_DENSITY_GL = 745.0
@@ -134,6 +136,11 @@ class AppSettings(context: Context) {
     var obdEnabled: Boolean
         get() = prefs.getBoolean(KEY_OBD_ENABLED, DEFAULT_OBD_ENABLED)
         set(value) = prefs.edit().putBoolean(KEY_OBD_ENABLED, value).apply()
+
+    /** Stored as [com.domivega.gps_car.fuel.FuelClass] enum name. */
+    var fuelClass: String
+        get() = prefs.getString(KEY_FUEL_CLASS, DEFAULT_FUEL_CLASS) ?: DEFAULT_FUEL_CLASS
+        set(value) = prefs.edit().putString(KEY_FUEL_CLASS, value).apply()
 
     /** Stored as [com.domivega.gps_car.fuel.FuelTypePreset] enum name. */
     var fuelType: String

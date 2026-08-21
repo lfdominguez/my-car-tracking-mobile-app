@@ -28,6 +28,7 @@ private class FakeSettingsRepository : SettingsRepository {
     override var wwhObdOnly: Boolean = false
     override var obdPerformanceMode: Boolean = false
     override var obdEnabled: Boolean = true
+    override var fuelClass: String = "GASOLINE"
     override var fuelType: String = "E10"
     override var fuelStoichAfr: Double = 14.08
     override var fuelDensityGl: Double = 745.0
@@ -161,5 +162,64 @@ class SettingsQrParseTest {
         vm.updateObdPerformanceMode(true)
         assertEquals(true, repo.obdPerformanceMode)
         assertEquals(true, vm.uiState.value.obdPerformanceMode)
+    }
+
+    @Test
+    fun updateFuelClass_dieselWritesB7Constants() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        vm.updateFuelClass("DIESEL")
+        assertEquals("DIESEL", repo.fuelClass)
+        assertEquals("B7", repo.fuelType)
+        assertEquals(14.5, repo.fuelStoichAfr, 0.0001)
+        assertEquals(835.0, repo.fuelDensityGl, 0.0001)
+        assertEquals("DIESEL", vm.uiState.value.fuelClass)
+        assertEquals("B7", vm.uiState.value.fuelType)
+    }
+
+    @Test
+    fun updateFuelClass_gasolineWritesE10Constants() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        vm.updateFuelClass("DIESEL")
+        vm.updateFuelClass("GASOLINE")
+        assertEquals("GASOLINE", repo.fuelClass)
+        assertEquals("E10", repo.fuelType)
+        assertEquals(14.08, repo.fuelStoichAfr, 0.0001)
+        assertEquals(745.0, repo.fuelDensityGl, 0.0001)
+    }
+
+    @Test
+    fun updateFuelStoichAfr_keepsDieselClassWhenCustom() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        vm.updateFuelClass("DIESEL")
+        vm.updateFuelStoichAfr(14.2)
+        assertEquals("CUSTOM", repo.fuelType)
+        assertEquals("DIESEL", repo.fuelClass)
+        assertEquals(14.2, repo.fuelStoichAfr, 0.0001)
+    }
+
+    @Test
+    fun qrWithFuelClass_appliesDiesel() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        val qr = """
+            {
+              "apiToken": "tok",
+              "startUrl": "https://track.example.com/api/track/start",
+              "stopUrl": "https://track.example.com/api/track/stop",
+              "sampleUrl": "https://track.example.com/api/track/sample",
+              "samplesUrl": "https://track.example.com/api/track/samples",
+              "fuelClass": "DIESEL",
+              "fuelType": "B7",
+              "fuelStoichAfr": 14.5,
+              "fuelDensityGl": 835.0
+            }
+        """.trimIndent()
+        vm.updateSettingsFromQr(qr)
+        assertEquals("", vm.uiState.value.qrError)
+        assertEquals("DIESEL", repo.fuelClass)
+        assertEquals("B7", repo.fuelType)
     }
 }

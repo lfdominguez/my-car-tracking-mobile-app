@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.domivega.gps_car.data.BackendConnectionTester
 import com.domivega.gps_car.data.ConnectionTestOutcome
 import com.domivega.gps_car.data.SettingsRepository
+import com.domivega.gps_car.fuel.FuelClass
 import com.domivega.gps_car.fuel.FuelTypePreset
 import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.VehicleObdProfile
@@ -53,6 +54,7 @@ class SettingsViewModel(
                 wwhObdOnly = repository.wwhObdOnly,
                 obdPerformanceMode = repository.obdPerformanceMode,
                 obdEnabled = repository.obdEnabled,
+                fuelClass = repository.fuelClass,
                 fuelType = repository.fuelType,
                 fuelStoichAfr = repository.fuelStoichAfr,
                 fuelDensityGl = repository.fuelDensityGl,
@@ -136,6 +138,25 @@ class SettingsViewModel(
     fun updateObdEnabled(enabled: Boolean) {
         repository.obdEnabled = enabled
         _uiState.update { it.copy(obdEnabled = enabled) }
+    }
+
+    fun updateFuelClass(name: String) {
+        val fuelClass = FuelClass.fromName(name)
+        val grade = FuelTypePreset.defaultGrade(fuelClass)
+        repository.fuelClass = fuelClass.name
+        repository.fuelType = grade.name
+        if (grade.stoichAfr != null && grade.densityGl != null) {
+            repository.fuelStoichAfr = grade.stoichAfr
+            repository.fuelDensityGl = grade.densityGl
+        }
+        _uiState.update {
+            it.copy(
+                fuelClass = fuelClass.name,
+                fuelType = grade.name,
+                fuelStoichAfr = repository.fuelStoichAfr,
+                fuelDensityGl = repository.fuelDensityGl,
+            )
+        }
     }
 
     fun updateFuelType(typeName: String) {
@@ -276,6 +297,9 @@ class SettingsViewModel(
             // blank default means "leave existing" only when payload omitted the field (defaults).
             if (newState.vwOdometerDid.isNotEmpty()) {
                 repository.vwOdometerDid = newState.vwOdometerDid.trim().filter { it.isLetterOrDigit() }.uppercase()
+            }
+            if (newState.fuelClass.isNotEmpty()) {
+                repository.fuelClass = FuelClass.fromName(newState.fuelClass).name
             }
             if (newState.fuelType.isNotEmpty()) repository.fuelType = newState.fuelType
             repository.fuelStoichAfr = newState.fuelStoichAfr

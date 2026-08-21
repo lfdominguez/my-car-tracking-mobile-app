@@ -19,6 +19,7 @@ interface SettingsRepository {
     var wwhObdOnly: Boolean
     var obdPerformanceMode: Boolean
     var obdEnabled: Boolean
+    var fuelClass: String
     var fuelType: String
     var fuelStoichAfr: Double
     var fuelDensityGl: Double

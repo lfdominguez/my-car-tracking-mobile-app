@@ -28,6 +28,8 @@ data class SettingsUiState(
     /** Faster ELM polling (ATAT2 + Mode 01 line suffix). Default off. */
     val obdPerformanceMode: Boolean = false,
     val obdEnabled: Boolean = true,
+    /** [FuelClass] enum name; default GASOLINE. */
+    val fuelClass: String = "GASOLINE",
     /** FuelTypePreset name; default E10. */
     val fuelType: String = "E10",
     val fuelStoichAfr: Double = 14.08,

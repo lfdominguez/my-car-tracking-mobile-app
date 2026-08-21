@@ -71,6 +71,10 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
         get() = appSettings.obdEnabled
         set(value) { appSettings.obdEnabled = value }
 
+    override var fuelClass: String
+        get() = appSettings.fuelClass
+        set(value) { appSettings.fuelClass = value }
+
     override var fuelType: String
         get() = appSettings.fuelType
         set(value) { appSettings.fuelType = value }
