@@ -8,6 +8,7 @@ import com.domivega.gps_car.data.SettingsRepository
 import com.domivega.gps_car.fuel.FuelClass
 import com.domivega.gps_car.fuel.FuelTypePreset
 import com.domivega.gps_car.obd.BluetoothTransport
+import com.domivega.gps_car.obd.GolfMk4TdiDefaults
 import com.domivega.gps_car.obd.VehicleObdProfile
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import com.domivega.gps_car.ui.state.SettingsUiState
@@ -117,6 +118,13 @@ class SettingsViewModel(
         val profile = VehicleObdProfile.fromName(profileName)
         repository.vehicleObdProfile = profile.name
         _uiState.update { it.copy(vehicleObdProfile = profile.name) }
+        if (profile == VehicleObdProfile.VwGolfMk4Tdi) {
+            updateObdProtocol(GolfMk4TdiDefaults.PROTOCOL)
+            updateFuelClass(FuelClass.DIESEL.name)
+            updateEngineDisplacementL(GolfMk4TdiDefaults.DISPLACEMENT_L)
+            updateTankCapacityL(GolfMk4TdiDefaults.TANK_CAPACITY_L)
+            updateWwhObdOnly(false)
+        }
     }
 
     fun updateVwOdometerDid(did: String) {

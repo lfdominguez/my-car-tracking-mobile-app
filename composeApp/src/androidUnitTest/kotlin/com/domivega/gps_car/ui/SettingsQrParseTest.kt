@@ -5,6 +5,7 @@ import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import com.domivega.gps_car.ui.state.SettingsUiState
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -221,5 +222,46 @@ class SettingsQrParseTest {
         assertEquals("", vm.uiState.value.qrError)
         assertEquals("DIESEL", repo.fuelClass)
         assertEquals("B7", repo.fuelType)
+    }
+
+    @Test
+    fun updateVehicleObdProfile_golfMk4WritesAszPack() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        vm.updateVehicleObdProfile("VwGolfMk4Tdi")
+        assertEquals("VwGolfMk4Tdi", repo.vehicleObdProfile)
+        assertEquals("ISO_9141_2", repo.obdProtocol)
+        assertEquals("DIESEL", repo.fuelClass)
+        assertEquals("B7", repo.fuelType)
+        assertEquals(14.5, repo.fuelStoichAfr, 0.0001)
+        assertEquals(835.0, repo.fuelDensityGl, 0.0001)
+        assertEquals(1.9, repo.engineDisplacementL, 0.0001)
+        assertEquals(55.0, repo.tankCapacityL, 0.0001)
+        assertFalse(repo.wwhObdOnly)
+    }
+
+    @Test
+    fun updateVehicleObdProfile_leavingGolfDoesNotRevertAszPack() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        vm.updateVehicleObdProfile("VwGolfMk4Tdi")
+        vm.updateVehicleObdProfile("Generic")
+        assertEquals("Generic", repo.vehicleObdProfile)
+        assertEquals("ISO_9141_2", repo.obdProtocol)
+        assertEquals("DIESEL", repo.fuelClass)
+        assertEquals(1.9, repo.engineDisplacementL, 0.0001)
+        assertEquals(55.0, repo.tankCapacityL, 0.0001)
+    }
+
+    @Test
+    fun updateVehicleObdProfile_mqbDoesNotWriteAszPack() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        vm.updateVehicleObdProfile("VwMqb")
+        assertEquals("VwMqb", repo.vehicleObdProfile)
+        assertEquals("ISO_15765_4_CAN_11_500", repo.obdProtocol)
+        assertEquals("GASOLINE", repo.fuelClass)
+        assertEquals(1.0, repo.engineDisplacementL, 0.0001)
+        assertEquals(0.0, repo.tankCapacityL, 0.0001)
     }
 }
