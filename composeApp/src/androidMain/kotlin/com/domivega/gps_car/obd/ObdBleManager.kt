@@ -802,9 +802,13 @@ object ObdBleManager {
             }
 
             // Functional OBD header before first 0100 (best-effort).
-            sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = true)
-            sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = true)
-            sessionEngineHeader = "7DF"
+            // Skip on Golf mk4 TDI: ISO 9141 K-line must not use CAN ATSH7DF.
+            val profile = VehicleObdProfile.fromName(settings.vehicleObdProfile)
+            if (ElmInitPolicy.sendCanFunctionalHeader(profile)) {
+                sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = true)
+                sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = true)
+                sessionEngineHeader = "7DF"
+            }
 
             val ecuRaw = probeEcuSupportedPids(attempts = ECU_PROBE_ATTEMPTS)
             if (ecuRaw == null) {
