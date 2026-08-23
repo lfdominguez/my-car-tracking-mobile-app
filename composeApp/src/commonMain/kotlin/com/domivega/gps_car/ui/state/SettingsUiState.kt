@@ -38,6 +38,7 @@ data class SettingsUiState(
     val engineVe: Double = 0.85,
     /** Liters; 0 = unknown (no tank-level fuel cross-check). */
     val tankCapacityL: Double = 0.0,
+    val batteryCapacityKwh: Double = 0.0,
     /** Optional Sample metrics to upload (lat/lon/speed/RPM always on). */
     val sampleUploadFieldFlags: SampleUploadFieldFlags = SampleUploadFieldFlags.ALL_ENABLED,
     /** Last QR parse error (cleared on successful apply). */

@@ -104,6 +104,8 @@ object ObdBleManager {
         ESTIMATED_MAF_KEY to "Mass Air Flow (estimated)",
         "44" to "Fuel/Air Ratio",
         "5e" to "Engine Fuel Rate",
+        "5b" to "HV Battery SoC",
+        "9a" to "HV Remaining Charge",
         "33" to "Barometric Pressure",
         "0f" to "Intake Air Temp",
     )
@@ -128,6 +130,8 @@ object ObdBleManager {
     private val SLOW_PIDS = listOf(
         "2f", // Fuel level
         "5e", // Engine fuel rate L/h (prefer over estimated ff125a when live)
+        "5b", // Hybrid/EV battery SoC
+        "9a", // Hybrid/EV remaining charge (fallback SoC)
         "a6", // Vehicle odometer (SAE PID A6)
         "31", // Distance since codes cleared (not dash odometer)
         "05", // Coolant
@@ -1046,12 +1050,25 @@ object ObdBleManager {
         _vehicleOn.value = VehicleOnPolicy.isVehicleOn(vehicleOnState, nowMs)
     }
 
+    private fun powertrainKind(): PowertrainKind =
+        when (FuelClass.fromName(settings.fuelClass)) {
+            FuelClass.HYBRID -> PowertrainKind.HYBRID
+            FuelClass.FULL_ELECTRIC -> PowertrainKind.ELECTRIC
+            else -> PowertrainKind.ICE
+        }
+
     private fun applyVehicleOnPid(pid: String, value: Double) {
         val now = System.currentTimeMillis()
         val shouldRelease: Boolean
         synchronized(vehicleOnLock) {
             val prev = vehicleOnState.sawPositiveRpm
-            vehicleOnState = VehicleOnPolicy.applyFreshPid(vehicleOnState, pid, value, now)
+            vehicleOnState = VehicleOnPolicy.applyFreshPid(
+                vehicleOnState,
+                pid,
+                value,
+                now,
+                powertrainKind(),
+            )
             if (pid.equals("0d", ignoreCase = true)) {
                 obdSpeedDecoded = true
             }
@@ -1059,7 +1076,11 @@ object ObdBleManager {
                 persistVehicleOnFlag(vehicleOnState.sawPositiveRpm)
             }
             publishVehicleOn(now)
-            shouldRelease = VehicleOnPolicy.shouldReleaseAdapter(vehicleOnState, now)
+            shouldRelease = VehicleOnPolicy.shouldReleaseAdapter(
+                vehicleOnState,
+                now,
+                powertrain = powertrainKind(),
+            )
         }
         if (shouldRelease) {
             releaseAdapterForParkedSleep()
@@ -1071,7 +1092,12 @@ object ObdBleManager {
         if (!speedKph.isFinite() || speedKph < 0.0) return
         synchronized(vehicleOnLock) {
             if (!VehicleOnPolicy.shouldAcceptGpsSpeed(obdSpeedDecoded, _ecuConnected.value)) return
-            vehicleOnState = VehicleOnPolicy.onSpeed(vehicleOnState, speedKph, nowMs)
+            vehicleOnState = VehicleOnPolicy.onSpeed(
+                vehicleOnState,
+                speedKph,
+                nowMs,
+                powertrainKind(),
+            )
             publishVehicleOn(nowMs)
         }
     }
@@ -1092,7 +1118,11 @@ object ObdBleManager {
         val shouldRelease: Boolean
         synchronized(vehicleOnLock) {
             publishVehicleOn(nowMs)
-            shouldRelease = VehicleOnPolicy.shouldReleaseAdapter(vehicleOnState, nowMs)
+            shouldRelease = VehicleOnPolicy.shouldReleaseAdapter(
+                vehicleOnState,
+                nowMs,
+                powertrain = powertrainKind(),
+            )
         }
         if (shouldRelease) {
             releaseAdapterForParkedSleep()
@@ -1245,12 +1275,14 @@ object ObdBleManager {
     }
 
     private fun recomputeFuelRate(into: MutableMap<String, Double>) {
+        val fuelClass = FuelClass.fromName(settings.fuelClass)
         val config = FuelCalcConfig(
             stoichAfr = settings.fuelStoichAfr,
             densityGl = settings.fuelDensityGl,
             displacementL = settings.engineDisplacementL,
             ve = settings.engineVe,
-            isDiesel = FuelClass.fromName(settings.fuelClass) == FuelClass.DIESEL,
+            isDiesel = fuelClass == FuelClass.DIESEL,
+            fuelClass = fuelClass,
         )
         val sensors = FuelCalcSensors(
             mafGs = into["10"],
@@ -1930,6 +1962,7 @@ object ObdBleManager {
             "04", "43", "45", "49" -> value in 0.0..100.0
             "10", ESTIMATED_MAF_KEY -> value in 0.0..655.35
             "5e" -> value in 0.0..100.0
+            "5b", "9a" -> value in 0.0..100.0
             "ff125a" -> value in 0.0..200.0
             "42" -> value in 0.0..20.0
             "a6", OdometerReading.UDS_KM_KEY -> value in 0.0..2_000_000.0

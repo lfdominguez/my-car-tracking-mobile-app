@@ -55,6 +55,7 @@ fun SettingsScreen(
     onEngineDisplacementLChange: (Double) -> Unit = {},
     onEngineVeChange: (Double) -> Unit = {},
     onTankCapacityLChange: (Double) -> Unit = {},
+    onBatteryCapacityKwhChange: (Double) -> Unit = {},
     onSampleUploadFieldFlagsChange: (SampleUploadFieldFlags) -> Unit = {},
 ) {
     val scrollState = rememberScrollState()
@@ -283,6 +284,12 @@ fun SettingsScreen(
             value = state.tankCapacityL,
             onValueChange = onTankCapacityLChange,
             label = "Tank capacity (L, 0 = unknown)"
+        )
+
+        SettingsDoubleField(
+            value = state.batteryCapacityKwh,
+            onValueChange = onBatteryCapacityKwhChange,
+            label = "HV battery (kWh, 0 = unknown)"
         )
         }
 

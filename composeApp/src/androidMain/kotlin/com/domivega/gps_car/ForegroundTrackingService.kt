@@ -42,6 +42,7 @@ import com.domivega.gps_car.network.SampleFieldFilter
 import com.domivega.gps_car.obd.EcuTrackingGate
 import com.domivega.gps_car.obd.FuelLevelReading
 import com.domivega.gps_car.obd.ObdBleManager
+import com.domivega.gps_car.obd.TelemetrySpikeFilter
 import com.domivega.gps_car.obd.OdometerReading
 import com.domivega.gps_car.settings.AppSettings
 import androidx.core.net.toUri
@@ -87,6 +88,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     // Tweakable thresholds (conservative defaults)
     private val maxAccurancyMetters = 15.0        // require reasonably accurate GNSS
     private val stationaryFilter = StationaryPositionFilter()
+    private val spikeFilter = TelemetrySpikeFilter()
     /** Wall clock when OBD speed first became exactly 0.0; cleared when moving or unknown. */
     private var speedZeroSinceMs: Long? = null
 
@@ -244,6 +246,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         val epoch = collectionEpoch.incrementAndGet()
         currentState = TrackingState.TRACKING
         speedZeroSinceMs = null
+        spikeFilter.reset()
         Log.d(TAG, "Starting tracking... epoch=$epoch")
 
         // IMPORTANT: When started via startForegroundService(), we must call startForeground
@@ -337,16 +340,23 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             // Snapshot latest OBD metrics (updated independently at max BLE rate).
             val pidValues = ObdBleManager.pidValues.value
             val nowMs = System.currentTimeMillis()
-            val lastObdSpeed = pidValues["0d"]
+            val gpsSpeedMps = loc.takeIf { it.hasSpeed() }?.speed?.toDouble()
+            val gpsSpeedKph = gpsSpeedMps?.times(3.6)
+            val cleaned = spikeFilter.accept(
+                speedKph = pidValues["0d"],
+                rpm = pidValues["0c"],
+                nowMs = nowMs,
+                gpsSpeedKph = gpsSpeedKph,
+            )
             speedZeroSinceMs = GpsRecordingGate.nextZeroSinceMs(
                 previousZeroSinceMs = speedZeroSinceMs,
-                lastValidObdSpeedKph = lastObdSpeed,
+                lastValidObdSpeedKph = cleaned.speedKph,
                 nowMs = nowMs,
             )
             if (!GpsRecordingGate.shouldEnqueue(
                     ecuConnected = ObdBleManager.ecuConnected.value,
                     vehicleOn = ObdBleManager.vehicleOn.value,
-                    lastValidObdSpeedKph = lastObdSpeed,
+                    lastValidObdSpeedKph = cleaned.speedKph,
                     speedZeroSinceMs = speedZeroSinceMs,
                     nowMs = nowMs,
                 )
@@ -366,12 +376,11 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             }
 
             updateLiveTrackingNotification("Tracking started", epochAtStart)
-            val gpsSpeedMps = loc.takeIf { it.hasSpeed() }?.speed?.toDouble()
             val filtered = stationaryFilter.accept(
                 latitude = loc.latitude,
                 longitude = loc.longitude,
                 accuracy = accMeters,
-                obdSpeedKph = pidValues["0d"],
+                obdSpeedKph = cleaned.speedKph,
                 gpsSpeedMps = gpsSpeedMps,
             )
 
@@ -401,8 +410,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 lon = filtered.longitude,
                 acc = filtered.accuracy,
 
-                vehicleEngineRpm = pidValues["0c"],
-                vehicleSpeedKph = pidValues["0d"],
+                vehicleEngineRpm = cleaned.rpm,
+                vehicleSpeedKph = cleaned.speedKph,
                 fuelConsumptionRate = pidValues["ff125a"],
                 engineLoadPct = pidValues["04"],
                 absoluteEngineLoadPct = pidValues["43"],
@@ -424,6 +433,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 lambdaCmd = pidValues["44"],
                 atmosphericPressure = pidValues["33"],
                 intakeAirTemperature = pidValues["0f"],
+                batterySocPct = pidValues["5b"] ?: pidValues["9a"],
             )
             // Local enqueue only — never block collection on network.
             val toEnqueue = SampleFieldFilter.apply(sample, appSettings.sampleUploadFieldFlags())

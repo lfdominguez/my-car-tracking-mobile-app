@@ -6,7 +6,10 @@ data class FuelCalcConfig(
     val displacementL: Double,
     val ve: Double,
     val isDiesel: Boolean = false,
-)
+    val fuelClass: FuelClass = if (isDiesel) FuelClass.DIESEL else FuelClass.GASOLINE,
+) {
+    val dieselLike: Boolean get() = isDiesel || fuelClass == FuelClass.DIESEL
+}
 
 data class FuelCalcSensors(
     val mafGs: Double? = null,
@@ -56,14 +59,18 @@ object FuelConsumptionCalculator {
     const val PEAK_AIR_DETECT_RATIO = 0.70
 
     fun litersPerHour(config: FuelCalcConfig, sensors: FuelCalcSensors): Double? {
+        if (!config.fuelClass.usesLiquidFuel) return null
+        if (config.fuelClass.liquidFuelRequiresRpm && (sensors.rpm ?: 0.0) <= 0.0) {
+            return 0.0
+        }
         sensors.ecuFuelRateLh?.let { r ->
             if (r.isFinite() && r > 0.0 && r <= 100.0) return r
         }
         if (config.densityGl <= 0.0) return null
-        if (!config.isDiesel && config.stoichAfr <= 0.0) return null
+        if (!config.dieselLike && config.stoichAfr <= 0.0) return null
         val airGs = airMassGs(config, sensors) ?: return null
         if (airGs <= 0.0 || airGs.isNaN() || airGs.isInfinite()) return null
-        if (config.isDiesel) {
+        if (config.dieselLike) {
             val afr = dieselAfr(sensors.calculatedLoadPct)
             val dieselLh = airGs * 3600.0 / (afr * config.densityGl)
             return dieselLh.takeIf { it.isFinite() && it > 0.0 && it <= 200.0 }

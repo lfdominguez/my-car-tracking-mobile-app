@@ -28,6 +28,7 @@ class AppSettings(context: Context) {
         private const val KEY_ENGINE_DISPLACEMENT_L = "engine_displacement_l"
         private const val KEY_ENGINE_VE = "engine_ve"
         private const val KEY_TANK_CAPACITY_L = "tank_capacity_l"
+        private const val KEY_BATTERY_CAPACITY_KWH = "battery_capacity_kwh"
         private const val KEY_CAR_ID = "car_id"
         private const val KEY_CAR_NAME = "car_name"
 
@@ -72,6 +73,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_ENGINE_VE = 0.85
         /** 0 = unknown (no level cross-check). */
         const val DEFAULT_TANK_CAPACITY_L = 0.0
+        const val DEFAULT_BATTERY_CAPACITY_KWH = 0.0
     }
 
     var apiToken: String
@@ -167,6 +169,11 @@ class AppSettings(context: Context) {
     var tankCapacityL: Double
         get() = getDouble(KEY_TANK_CAPACITY_L, DEFAULT_TANK_CAPACITY_L)
         set(value) = putDouble(KEY_TANK_CAPACITY_L, value)
+
+    /** HV pack capacity in kWh; 0 = unknown. */
+    var batteryCapacityKwh: Double
+        get() = getDouble(KEY_BATTERY_CAPACITY_KWH, DEFAULT_BATTERY_CAPACITY_KWH)
+        set(value) = putDouble(KEY_BATTERY_CAPACITY_KWH, value)
 
     var carId: String
         get() = prefs.getString(KEY_CAR_ID, "") ?: ""

@@ -8,6 +8,10 @@ Guidance for AI coding agents and humans working in this repository.
 - **Stack:** Kotlin Multiplatform (Android app target), Jetpack Compose, Coroutines/Flow, Room, OkHttp, Android BLE  
 - **Purpose:** Collect GPS + OBD-II metrics, queue locally, batch-upload to a user-owned telemetry backend  
 
+Workspace orchestration (TODO files, no app code) lives in
+`/home/luis/Work/Personal/workspaces_ia/car_platform`.
+Companion platform: `/home/luis/Work/Personal/Rust/car-tracking-platform`.
+
 ## Hard rules
 
 1. **No secrets in git** — API tokens, Basic auth strings, private hostnames, BLE addresses, or real credentials must not be committed. Defaults stay empty or `YOUR_SERVER.example`.
@@ -52,9 +56,13 @@ devenv shell -- ./gradlew :composeApp:compileDebugKotlinAndroid
 - **GPS** (~1 Hz) only **snapshots** latest `pidValues`; never block samples on BLE.
 - **Queue**: enqueue on accept; flusher batch-posts `/samples`; mark sent only after success.
 - **ECU auto tracking**: start only after a vehicle-on proof — RPM>0, speed>0, increasing engine-runtime PID `1f`, or (before this session has seen RPM>0) module voltage `42`. After RPM>0, rest-battery voltage (≤12.8 V) with **decoded** speed 0 is engine-off even if the ECU still publishes idle RPM; only charging voltage (≥13.2 V) or rising `1f` keeps the session as a proof. Unknown speed is not parked. Adapter sleep waits 20s of continuous parked rest so cranking rest-voltage is not treated as parked. Sustained lack of proof → offline → 90s grace → end trip but stay in WAITING FGS until user Shutdown. Confirmed parked engine-off disconnects BLE (5 min idle-reconnect backoff) so the adapter can sleep. Hung adapter ages out via the 5s reconcile. WAITING FGS when a dongle address is configured — on boot/process start **and** when the user first selects a dongle (not only after Play).
+- **Hybrid / Electric**: RPM may be 0 while the vehicle is still on. Voltage and speed remain keep-alives. Electric does not treat RPM as an on-proof.
 - **PID last-good**: miss/timeout on RPM (`0c`) or speed (`0d`) drops that value immediately — GPS samples must not reuse the last well-known RPM. Other PIDs expire after 10s without a fresh decode.
 - **Sample upload fields**: Settings toggles optional metrics; always send lat/lon, velocity, RPM (plus tracking id / accuracy). Filter at enqueue via `SampleFieldFilter`.
-- **Fuel L/h** (`ff125a`): `FuelConsumptionCalculator` + settings (not a fixed ×0.339 gasoline hack). Rejects peak-air idle MAF (`peak×VE×0.14` bound; MAP preferred when present).
+- **Fuel L/h** (`ff125a`): `FuelConsumptionCalculator` + settings (not a fixed ×0.339 gasoline hack). Rejects peak-air idle MAF (`peak×VE×0.14` bound; MAP preferred when present). Electric: no liquid L/h. Hybrid: liquid L/h only when RPM > 0.
+- **Battery**: poll OBD PID `5B` (and `9A` fallback) for HV SoC; upload `battery_soc_pct`. Capacity kWh comes from settings / platform QR.
+- **Spike filter**: drop isolated 200 km/h / RPM hiccups before enqueue. When phone GPS speed is present, replace implausible OBD speed (0/240 hiccups or large disagreement) with GPS velocity instead of hold-last-good.
+- **Fuel class** from platform QR: `GASOLINE` / `DIESEL` / `HYBRID` / `FULL_ELECTRIC`. Diesel grade **B7** is first-class.
 - **OBD debug log**: errors + init/lifecycle; not full successful PID TX/RX spam.
 
 ## Settings surface
@@ -63,7 +71,7 @@ Configurable in-app (and via `AppSettings` / `SettingsRepository`):
 
 - API URLs + token  
 - BLE device + OBD protocol  
-- Fuel type preset / AFR / density / displacement / VE  
+- Fuel class + grade preset / AFR / density / displacement / VE / HV battery kWh  
 - Optional sample fields to upload (lat/lon, velocity, RPM always on)  
 
 Changing defaults in code: keep them **non-secret** and documented in README.

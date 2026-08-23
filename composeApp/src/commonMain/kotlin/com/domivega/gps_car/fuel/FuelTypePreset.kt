@@ -4,11 +4,24 @@ enum class FuelClass(
     val displayName: String,
 ) {
     GASOLINE("Gasoline"),
-    DIESEL("Diesel");
+    DIESEL("Diesel"),
+    HYBRID("Hybrid"),
+    FULL_ELECTRIC("Full Electric");
+
+    val usesLiquidFuel: Boolean get() = this != FULL_ELECTRIC
+    val usesBattery: Boolean get() = this == HYBRID || this == FULL_ELECTRIC
+    val rpmMayBeZeroWhileOn: Boolean get() = usesBattery
+    val liquidFuelRequiresRpm: Boolean get() = this == HYBRID
 
     companion object {
-        fun fromName(name: String): FuelClass =
-            entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: GASOLINE
+        fun fromName(name: String): FuelClass {
+            val key = name.trim().uppercase().replace('-', '_').replace(' ', '_')
+            return entries.firstOrNull { it.name.equals(key, ignoreCase = true) }
+                ?: when (key) {
+                    "ELECTRIC", "EV", "BEV" -> FULL_ELECTRIC
+                    else -> GASOLINE
+                }
+        }
     }
 }
 
@@ -30,9 +43,17 @@ enum class FuelTypePreset(
             entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: CUSTOM
 
         fun gradesFor(fuelClass: FuelClass): List<FuelTypePreset> =
-            entries.filter { it == CUSTOM || it.fuelClass == fuelClass }
+            when (fuelClass) {
+                FuelClass.FULL_ELECTRIC -> listOf(CUSTOM)
+                FuelClass.HYBRID -> entries.filter { it == CUSTOM || it.fuelClass == FuelClass.GASOLINE || it.fuelClass == FuelClass.DIESEL }
+                else -> entries.filter { it == CUSTOM || it.fuelClass == fuelClass }
+            }
 
         fun defaultGrade(fuelClass: FuelClass): FuelTypePreset =
-            if (fuelClass == FuelClass.DIESEL) B7 else E10
+            when (fuelClass) {
+                FuelClass.DIESEL -> B7
+                FuelClass.FULL_ELECTRIC -> CUSTOM
+                else -> E10
+            }
     }
 }

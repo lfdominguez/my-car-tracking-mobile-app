@@ -251,4 +251,8 @@ data class Sample(
     /** OBD PID 0F intake air temperature (°C). */
     @SerialName("intake_air_temperature")
     val intakeAirTemperature: Double? = null,
+    @SerialName("battery_soc_pct")
+    val batterySocPct: Double? = null,
+    @SerialName("battery_power_kw")
+    val batteryPowerKw: Double? = null,
 )

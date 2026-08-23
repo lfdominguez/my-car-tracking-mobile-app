@@ -62,6 +62,7 @@ class SettingsViewModel(
                 engineDisplacementL = repository.engineDisplacementL,
                 engineVe = repository.engineVe,
                 tankCapacityL = repository.tankCapacityL,
+                batteryCapacityKwh = repository.batteryCapacityKwh,
                 sampleUploadFieldFlags = repository.sampleUploadFieldFlags,
             )
         }
@@ -222,6 +223,12 @@ class SettingsViewModel(
         _uiState.update { it.copy(tankCapacityL = clamped) }
     }
 
+    fun updateBatteryCapacityKwh(value: Double) {
+        val clamped = value.coerceAtLeast(0.0)
+        repository.batteryCapacityKwh = clamped
+        _uiState.update { it.copy(batteryCapacityKwh = clamped) }
+    }
+
     fun updateSampleUploadFieldFlags(flags: SampleUploadFieldFlags) {
         repository.sampleUploadFieldFlags = flags
         _uiState.update { it.copy(sampleUploadFieldFlags = flags) }
@@ -316,6 +323,9 @@ class SettingsViewModel(
             repository.engineVe = newState.engineVe
             if (newState.tankCapacityL > 0.0) {
                 repository.tankCapacityL = newState.tankCapacityL
+            }
+            if (newState.batteryCapacityKwh > 0.0) {
+                repository.batteryCapacityKwh = newState.batteryCapacityKwh
             }
 
             _uiState.update {

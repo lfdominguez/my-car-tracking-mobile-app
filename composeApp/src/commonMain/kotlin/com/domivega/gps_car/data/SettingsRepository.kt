@@ -27,5 +27,6 @@ interface SettingsRepository {
     var engineVe: Double
     /** Liters; 0 = unknown. */
     var tankCapacityL: Double
+    var batteryCapacityKwh: Double
     var sampleUploadFieldFlags: SampleUploadFieldFlags
 }

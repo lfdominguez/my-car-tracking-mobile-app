@@ -190,6 +190,7 @@ fun AppNavigation(
                         onEngineDisplacementLChange = settingsViewModel::updateEngineDisplacementL,
                         onEngineVeChange = settingsViewModel::updateEngineVe,
                         onTankCapacityLChange = settingsViewModel::updateTankCapacityL,
+                        onBatteryCapacityKwhChange = settingsViewModel::updateBatteryCapacityKwh,
                         onSampleUploadFieldFlagsChange = settingsViewModel::updateSampleUploadFieldFlags,
                     )
                     "Debug" -> DebugConsoleScreen(

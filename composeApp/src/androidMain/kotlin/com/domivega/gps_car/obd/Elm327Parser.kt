@@ -54,6 +54,14 @@ class Elm327Parser {
             "10" -> ((a * 256.0) + b) / 100.0 // MAF
             // SAE J1979 PID 0x5E: engine fuel rate (L/h)
             "5E" -> ((a * 256.0) + b) * 0.05
+            // Hybrid/EV battery pack remaining (SoC %)
+            "5B" -> (a * 100.0) / 255.0
+            // Hybrid/EV remaining charge (prefer 2-byte when present)
+            "9A" -> if (data.length >= 4) {
+                ((a * 256.0) + b) * 100.0 / 65535.0
+            } else {
+                (a * 100.0) / 255.0
+            }
             else -> null
         }
     }

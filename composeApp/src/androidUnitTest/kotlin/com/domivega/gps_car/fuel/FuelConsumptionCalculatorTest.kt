@@ -98,6 +98,36 @@ class FuelConsumptionCalculatorTest {
     }
 
     @Test
+    fun `electric never reports liquid liters`() {
+        val ev = e10Config.copy(fuelClass = FuelClass.FULL_ELECTRIC)
+        assertNull(
+            FuelConsumptionCalculator.litersPerHour(
+                ev,
+                FuelCalcSensors(mafGs = 10.0, lambda = 1.0, rpm = 0.0),
+            ),
+        )
+    }
+
+    @Test
+    fun `hybrid liquid fuel is zero when RPM is zero`() {
+        val hybrid = e10Config.copy(fuelClass = FuelClass.HYBRID)
+        assertEquals(
+            0.0,
+            FuelConsumptionCalculator.litersPerHour(
+                hybrid,
+                FuelCalcSensors(mafGs = 10.0, lambda = 1.0, rpm = 0.0),
+            )!!,
+            1e-9,
+        )
+        val running = FuelConsumptionCalculator.litersPerHour(
+            hybrid,
+            FuelCalcSensors(mafGs = 10.0, lambda = 1.0, rpm = 1500.0),
+        )
+        assertNotNull(running)
+        assertTrue(running!! > 0.0)
+    }
+
+    @Test
     fun `returns null without usable sensors`() {
         assertNull(
             FuelConsumptionCalculator.litersPerHour(

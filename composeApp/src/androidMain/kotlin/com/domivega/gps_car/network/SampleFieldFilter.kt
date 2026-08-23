@@ -23,5 +23,7 @@ object SampleFieldFilter {
             lambdaCmd = sample.lambdaCmd.takeIf { flags.lambdaCmd },
             atmosphericPressure = sample.atmosphericPressure.takeIf { flags.atmosphericPressure },
             intakeAirTemperature = sample.intakeAirTemperature.takeIf { flags.intakeAirTemperature },
+            batterySocPct = sample.batterySocPct,
+            batteryPowerKw = sample.batteryPowerKw,
         )
 }

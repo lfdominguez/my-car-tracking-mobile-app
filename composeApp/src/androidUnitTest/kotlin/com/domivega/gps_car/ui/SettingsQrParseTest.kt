@@ -36,6 +36,7 @@ private class FakeSettingsRepository : SettingsRepository {
     override var engineDisplacementL: Double = 1.0
     override var engineVe: Double = 0.85
     override var tankCapacityL: Double = 0.0
+    override var batteryCapacityKwh: Double = 0.0
     override var sampleUploadFieldFlags: SampleUploadFieldFlags = SampleUploadFieldFlags.ALL_ENABLED
 }
 

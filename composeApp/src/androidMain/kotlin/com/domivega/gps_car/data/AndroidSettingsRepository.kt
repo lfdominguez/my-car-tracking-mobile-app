@@ -99,6 +99,10 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
         get() = appSettings.tankCapacityL
         set(value) { appSettings.tankCapacityL = value }
 
+    override var batteryCapacityKwh: Double
+        get() = appSettings.batteryCapacityKwh
+        set(value) { appSettings.batteryCapacityKwh = value }
+
     override var sampleUploadFieldFlags: SampleUploadFieldFlags
         get() = appSettings.sampleUploadFieldFlags()
         set(value) { appSettings.applySampleUploadFieldFlags(value) }

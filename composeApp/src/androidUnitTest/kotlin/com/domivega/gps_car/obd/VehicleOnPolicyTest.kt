@@ -31,6 +31,37 @@ class VehicleOnPolicyTest {
     }
 
     @Test
+    fun `hybrid voltage stays a proof after RPM`() {
+        val running = VehicleOnPolicy.onRpm(
+            VehicleOnPolicy.State(),
+            rpm = 800.0,
+            nowMs = 1_000L,
+            powertrain = PowertrainKind.HYBRID,
+        )
+        val evMode = VehicleOnPolicy.onRpm(running, rpm = 0.0, nowMs = 2_000L, PowertrainKind.HYBRID)
+        val afterVoltage = VehicleOnPolicy.onVoltage(
+            evMode,
+            volts = 13.8,
+            nowMs = 3_000L,
+            powertrain = PowertrainKind.HYBRID,
+        )
+        assertTrue(VehicleOnPolicy.isVehicleOn(afterVoltage, nowMs = 3_000L))
+    }
+
+    @Test
+    fun `electric ignores RPM as on proof`() {
+        val rpm = VehicleOnPolicy.onRpm(
+            VehicleOnPolicy.State(),
+            rpm = 900.0,
+            nowMs = 1_000L,
+            powertrain = PowertrainKind.ELECTRIC,
+        )
+        assertFalse(VehicleOnPolicy.isVehicleOn(rpm, nowMs = 1_000L))
+        val volts = VehicleOnPolicy.onVoltage(rpm, volts = 13.5, nowMs = 2_000L, PowertrainKind.ELECTRIC)
+        assertTrue(VehicleOnPolicy.isVehicleOn(volts, nowMs = 2_000L))
+    }
+
+    @Test
     fun `zero RPM is never a proof`() {
         val afterZero = VehicleOnPolicy.onRpm(VehicleOnPolicy.State(), rpm = 0.0, nowMs = 1_000L)
         assertFalse(afterZero.sawPositiveRpm)
