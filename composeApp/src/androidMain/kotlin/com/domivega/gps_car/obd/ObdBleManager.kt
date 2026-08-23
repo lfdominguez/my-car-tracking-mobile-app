@@ -115,13 +115,13 @@ object ObdBleManager {
         "0c", // RPM
         "0d", // Speed
         "42", // Module voltage (EV-friendly live signal)
-        "1f", // Engine run time (crank vs parked-off)
         "10", // MAF (fuel rate primary input)
         "0b", // MAP (fuel rate fallback when MAF absent)
     )
 
     /** Slow-changing PIDs polled every [SLOW_EVERY]th round. */
     private val SLOW_PIDS = listOf(
+        "1f", // Engine run time (crank vs parked-off) — seconds, slow-changing
         "04", // Engine load
         "43", // Absolute load
         "49", // Accelerator
