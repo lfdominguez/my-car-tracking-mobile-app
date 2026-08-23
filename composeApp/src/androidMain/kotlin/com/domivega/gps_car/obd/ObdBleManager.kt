@@ -110,24 +110,24 @@ object ObdBleManager {
         "0f" to "Intake Air Temp",
     )
 
-    /** High-dynamics PIDs polled every round (includes live-session gates 0c/0d/42). */
+    /** High-dynamics PIDs polled every round (tracking gates + fuel rate inputs). */
     private val HOT_PIDS = listOf(
         "0c", // RPM
         "0d", // Speed
         "42", // Module voltage (EV-friendly live signal)
         "1f", // Engine run time (crank vs parked-off)
-        "04", // Engine load
-        "43", // Absolute load
-        "49", // Accelerator
-        "10", // MAF
-        "44", // Lambda
-        "0b", // MAP
-        "06", // STFT
-        "07", // LTFT
+        "10", // MAF (fuel rate primary input)
+        "0b", // MAP (fuel rate fallback when MAF absent)
     )
 
     /** Slow-changing PIDs polled every [SLOW_EVERY]th round. */
     private val SLOW_PIDS = listOf(
+        "04", // Engine load
+        "43", // Absolute load
+        "49", // Accelerator
+        "44", // Lambda
+        "06", // STFT
+        "07", // LTFT
         "2f", // Fuel level
         "5e", // Engine fuel rate L/h (prefer over estimated ff125a when live)
         "5b", // Hybrid/EV battery SoC
