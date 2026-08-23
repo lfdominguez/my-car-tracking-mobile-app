@@ -12,7 +12,10 @@ object ObdLogShare {
     private const val AUTHORITY_SUFFIX = ".fileprovider"
 
     fun share(context: Context, entries: List<ObdLogEntry>) {
-        val text = formatObdLogAsText(entries)
+        shareText(context, formatObdLogAsText(entries), "OBD debug log")
+    }
+
+    fun shareText(context: Context, text: String, subject: String = "OBD debug log") {
         val file = File(context.cacheDir, FILE_NAME)
         try {
             file.writeText(text)
@@ -24,13 +27,13 @@ object ObdLogShare {
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "OBD debug log")
+                putExtra(Intent.EXTRA_SUBJECT, subject)
                 clipData = ClipData.newRawUri(FILE_NAME, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(send, "Share OBD debug log"))
+            context.startActivity(Intent.createChooser(send, "Share log"))
         } catch (_: Exception) {
-            Toast.makeText(context, "Could not share debug log", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Could not share log", Toast.LENGTH_SHORT).show()
         }
     }
 }

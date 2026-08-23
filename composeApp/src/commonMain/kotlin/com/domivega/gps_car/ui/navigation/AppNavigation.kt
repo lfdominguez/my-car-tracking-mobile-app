@@ -23,6 +23,7 @@ import com.domivega.gps_car.ui.screens.DebugConsoleScreen
 import com.domivega.gps_car.ui.screens.ObdDeviceScreen
 import com.domivega.gps_car.ui.screens.SettingsScreen
 import com.domivega.gps_car.obd.ObdLogEntry
+import com.domivega.gps_car.obd.TripLogRecord
 import com.domivega.gps_car.ui.state.DashboardState
 import kotlinx.coroutines.launch
 
@@ -48,8 +49,10 @@ fun AppNavigation(
     onBleConnectClick: () -> Unit = {},
     onBleDisconnectClick: () -> Unit = {},
     obdLogEntries: List<ObdLogEntry> = emptyList(),
+    tripLogs: List<TripLogRecord> = emptyList(),
     onClearObdLog: () -> Unit = {},
     onShareObdLog: () -> Unit = {},
+    onShareTripLog: (TripLogRecord) -> Unit = {},
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -198,8 +201,10 @@ fun AppNavigation(
                         pidNames = dashboardState.pidNames,
                         connectionStatus = connectionStatus,
                         logEntries = obdLogEntries,
+                        tripLogs = tripLogs,
                         onClearLog = onClearObdLog,
                         onShareLog = onShareObdLog,
+                        onShareTripLog = onShareTripLog,
                     )
                     "About" -> AboutScreen(
                         logoPainter = logoPainter

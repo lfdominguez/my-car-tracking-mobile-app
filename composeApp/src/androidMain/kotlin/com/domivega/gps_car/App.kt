@@ -22,6 +22,7 @@ import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.ObdLogShare
 import com.domivega.gps_car.obd.ObdPresenceController
+import com.domivega.gps_car.obd.TripLogStore
 import com.domivega.gps_car.obd.ObdProtocol
 import com.domivega.gps_car.ui.MainViewModel
 import com.domivega.gps_car.ui.SettingsViewModel
@@ -108,6 +109,7 @@ fun App() {
         // --- BLE OBD status / scan results ---
         val connectionStatus by ObdBleManager.connectionStatus.collectAsState()
         val obdLogEntries by ObdBleManager.debugLog.collectAsState()
+        val tripLogs by TripLogStore.tripLogs.collectAsState()
         val scannedBleDevices by ObdBleManager.scannedDevices.collectAsState()
         val protocolOptions = remember {
             ObdProtocol.entries.map { it.name to it.displayName }
@@ -273,8 +275,12 @@ fun App() {
             onBleConnectClick = { connectWithPermissions() },
             onBleDisconnectClick = { ObdBleManager.disconnect() },
             obdLogEntries = obdLogEntries,
+            tripLogs = tripLogs,
             onClearObdLog = { ObdBleManager.clearDebugLog() },
             onShareObdLog = { ObdLogShare.share(context, obdLogEntries) },
+            onShareTripLog = { record ->
+                ObdLogShare.shareText(context, record.logText, "Trip log ${record.trackingId}")
+            },
         )
     }
 }

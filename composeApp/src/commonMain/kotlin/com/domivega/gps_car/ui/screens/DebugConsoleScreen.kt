@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.domivega.gps_car.obd.ObdLogEntry
 import com.domivega.gps_car.obd.ObdLogLevel
+import com.domivega.gps_car.obd.TripLogRecord
 import com.domivega.gps_car.obd.formatObdLogTimeUtc
 import kotlin.math.round
 
@@ -34,8 +35,10 @@ fun DebugConsoleScreen(
     pidNames: Map<String, String>,
     connectionStatus: String = "",
     logEntries: List<ObdLogEntry> = emptyList(),
+    tripLogs: List<TripLogRecord> = emptyList(),
     onClearLog: () -> Unit = {},
     onShareLog: () -> Unit = {},
+    onShareTripLog: (TripLogRecord) -> Unit = {},
 ) {
     val logListState = rememberLazyListState()
 
@@ -112,6 +115,49 @@ fun DebugConsoleScreen(
                         lineHeight = 14.sp,
                         modifier = Modifier.padding(vertical = 1.dp),
                     )
+                }
+            }
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+        Text(
+            text = "Past Trip Logs",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+
+        if (tripLogs.isEmpty()) {
+            Text(
+                text = "No completed trips recorded yet.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        } else {
+            tripLogs.forEach { record ->
+                val durationSec = ((record.endedAtMs - record.startedAtMs) / 1000).coerceAtLeast(0)
+                val durationMin = durationSec / 60
+                val durationSecRem = durationSec % 60
+                val durationLabel = if (durationMin > 0) "${durationMin}m ${durationSecRem}s" else "${durationSecRem}s"
+                val timeLabel = formatObdLogTimeUtc(record.startedAtMs)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Trip @ ${timeLabel} UTC  ($durationLabel)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { onShareTripLog(record) }) {
+                        Text("Share")
+                    }
                 }
             }
         }

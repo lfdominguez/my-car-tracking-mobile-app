@@ -42,8 +42,10 @@ import com.domivega.gps_car.network.SampleFieldFilter
 import com.domivega.gps_car.obd.EcuTrackingGate
 import com.domivega.gps_car.obd.FuelLevelReading
 import com.domivega.gps_car.obd.ObdBleManager
+import com.domivega.gps_car.obd.ObdDebugLog
 import com.domivega.gps_car.obd.TelemetrySpikeFilter
 import com.domivega.gps_car.obd.OdometerReading
+import com.domivega.gps_car.obd.TripLogStore
 import com.domivega.gps_car.settings.AppSettings
 import androidx.core.net.toUri
 import com.domivega.gps_car.gps.GpsLocator
@@ -84,6 +86,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     private val shuttingDown = AtomicBoolean(false)
 
     private var currentState: TrackingState = TrackingState.WAITING
+    /** Wall clock when the current tracking trip started; 0 if no trip is active. */
+    private var tripStartedAtMs: Long = 0L
 
     // Tweakable thresholds (conservative defaults)
     private val maxAccurancyMetters = 15.0        // require reasonably accurate GNSS
@@ -245,6 +249,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         // New collection generation so work from a prior trip cannot resume.
         val epoch = collectionEpoch.incrementAndGet()
         currentState = TrackingState.TRACKING
+        tripStartedAtMs = System.currentTimeMillis()
         speedZeroSinceMs = null
         spikeFilter.reset()
         Log.d(TAG, "Starting tracking... epoch=$epoch")
@@ -484,10 +489,13 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     }
 
     private fun stopTracking() {
+        val logSnapshot = ObdDebugLog.entries.value
+        val tripStart = tripStartedAtMs
         val idToStop = stopTrackingInternal(updateWaitingNotification = true)
         if (idToStop != null) {
             rememberPendingStop(idToStop)
         }
+        saveTripLog(idToStop, tripStart, logSnapshot)
         serviceScope.launch(Dispatchers.IO) {
             runCatching { uploader.flushUntilEmpty() }
             flushPendingStop()
@@ -495,15 +503,31 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         }
     }
 
+    private fun saveTripLog(trackingId: String?, tripStart: Long, entries: List<com.domivega.gps_car.obd.ObdLogEntry>) {
+        if (tripStart <= 0L) return
+        TripLogStore.save(
+            context = this,
+            scope = serviceScope,
+            trackingId = trackingId ?: "local",
+            startedAtMs = tripStart,
+            endedAtMs = System.currentTimeMillis(),
+            entries = entries,
+        )
+        tripStartedAtMs = 0L
+    }
+
     private fun shutdownService() {
         Log.d(TAG, "Shutting down service.")
         ObdBleManager.clearSawPositiveRpm()
         val myShutdown = shutdownEpoch.incrementAndGet()
         shuttingDown.set(true)
+        val logSnapshot = ObdDebugLog.entries.value
+        val tripStart = tripStartedAtMs
         val idToStop = stopTrackingInternal(updateWaitingNotification = false)
         if (idToStop != null) {
             rememberPendingStop(idToStop)
         }
+        saveTripLog(idToStop, tripStart, logSnapshot)
         // Drop the "Running v=…" banner immediately — do not wait for leftover flush.
         stopForeground(STOP_FOREGROUND_REMOVE)
         // Keep service alive until bounded flush completes, then stopSelf.
