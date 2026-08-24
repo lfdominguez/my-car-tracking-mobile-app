@@ -15,6 +15,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -33,6 +34,8 @@ class BleElmTransport : ElmTransport {
         private val CCCD = uuid("00002902-0000-1000-8000-00805F9B34FB")
         private const val CONNECT_TIMEOUT_MS = 15_000L
         private const val GATT_SUCCESS = 0
+        private const val WRITE_BUSY_RETRIES = 4
+        private const val WRITE_BUSY_RETRY_DELAY_MS = 25L
 
         private fun uuid(s: String): UUID = UUID.fromString(s)
     }
@@ -150,7 +153,16 @@ class BleElmTransport : ElmTransport {
     override suspend fun write(payload: ByteArray): Boolean {
         val g = gatt ?: return false
         val wc = writeChar ?: return false
-        return writeCharacteristic(g, wc, payload)
+        // Android allows only one outstanding GATT operation at a time; writeCharacteristic()
+        // returns non-success ("busy") if the previous write's onCharacteristicWrite callback
+        // has not landed yet. That is transient (a few ms), not a dead link — retry briefly
+        // instead of surfacing it as a fatal write failure that tears down the whole session.
+        repeat(WRITE_BUSY_RETRIES) { attempt ->
+            if (writeCharacteristic(g, wc, payload)) return true
+            if (gatt !== g) return false
+            if (attempt < WRITE_BUSY_RETRIES - 1) delay(WRITE_BUSY_RETRY_DELAY_MS)
+        }
+        return false
     }
 
     @SuppressLint("MissingPermission")

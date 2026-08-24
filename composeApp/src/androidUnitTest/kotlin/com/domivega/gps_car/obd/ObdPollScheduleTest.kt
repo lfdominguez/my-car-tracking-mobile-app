@@ -8,22 +8,31 @@ class ObdPollScheduleTest {
     private val slow = listOf("2f", "05")
 
     @Test
-    fun `round 1 is hot only when slowEvery is 5`() {
-        // rounds are 1-based in API: slow when round % slowEvery == 0
-        assertEquals(hot, ObdPollSchedule.pidsForRound(1, hot, slow, slowEvery = 5))
-        assertEquals(hot, ObdPollSchedule.pidsForRound(2, hot, slow, slowEvery = 5))
-        assertEquals(hot, ObdPollSchedule.pidsForRound(4, hot, slow, slowEvery = 5))
+    fun `every round includes hot plus a slow slice, never hot alone`() {
+        // Bursting all slow PIDs onto one round (old behavior) let a just-refreshed
+        // slow value (e.g. fuel level) go stale for `slowEvery` rounds and then
+        // expire before the burst round's response landed. Every round must carry
+        // hot plus at least a slice of slow so no slow PID goes that long unrefreshed.
+        for (round in 1..8) {
+            val pids = ObdPollSchedule.pidsForRound(round, hot, slow, slowEvery = 5)
+            assertEquals(hot, pids.take(hot.size))
+            assertEquals(1, pids.size - hot.size)
+        }
     }
 
     @Test
-    fun `every 5th round appends slow after hot`() {
-        assertEquals(hot + slow, ObdPollSchedule.pidsForRound(5, hot, slow, slowEvery = 5))
-        assertEquals(hot + slow, ObdPollSchedule.pidsForRound(10, hot, slow, slowEvery = 5))
+    fun `slow PIDs rotate and each one is covered within slowEvery rounds`() {
+        val bigSlow = listOf("2f", "05", "46", "33")
+        val seenByRound4 = (1..2).flatMap {
+            ObdPollSchedule.pidsForRound(it, hot, bigSlow, slowEvery = 2).drop(hot.size)
+        }.toSet()
+        assertEquals(bigSlow.toSet(), seenByRound4)
     }
 
     @Test
-    fun `slowEvery 1 always includes slow`() {
+    fun `slowEvery 1 always includes the full slow list every round`() {
         assertEquals(hot + slow, ObdPollSchedule.pidsForRound(1, hot, slow, slowEvery = 1))
+        assertEquals(hot + slow, ObdPollSchedule.pidsForRound(2, hot, slow, slowEvery = 1))
     }
 
     @Test
@@ -48,7 +57,7 @@ class ObdPollScheduleTest {
             ObdPollSchedule.pidsForRound(
                 round = 1,
                 hot = hot,
-                slow = slow,
+                slow = emptyList(),
                 slowEvery = 5,
                 supportedMode01 = emptySet(),
             ),
