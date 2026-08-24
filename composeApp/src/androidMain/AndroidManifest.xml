@@ -38,6 +38,14 @@
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
+    <!-- Signature-level permission: only this app (same signing key) may start/stop tracking
+         via broadcast/service intents. System broadcasts (BOOT_COMPLETED, etc.) are exempt
+         from this check because they're sent by the system UID. -->
+    <permission
+        android:name="com.domivega.gps_car.permission.CONTROL_SERVICE"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.domivega.gps_car.permission.CONTROL_SERVICE" />
+
     <application
         android:name=".GpsCarApp"
         android:allowBackup="true"
@@ -49,6 +57,7 @@
         <service
             android:name=".ForegroundTrackingService"
             android:exported="true"
+            android:permission="com.domivega.gps_car.permission.CONTROL_SERVICE"
             android:foregroundServiceType="location|connectedDevice">
             <intent-filter>
                 <action android:name="com.domivega.gps_car.action.START_TRACKING" />
@@ -67,7 +76,8 @@
 
         <receiver
             android:name=".ServiceControlReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="com.domivega.gps_car.permission.CONTROL_SERVICE">
             <intent-filter>
                 <action android:name="com.domivega.gps_car.action.TOGGLE_FROM_NOTIFICATION" />
                 <action android:name="com.domivega.gps_car.action.START_TRACKING" />
