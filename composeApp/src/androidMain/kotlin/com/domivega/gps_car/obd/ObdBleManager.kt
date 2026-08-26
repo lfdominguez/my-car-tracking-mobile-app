@@ -175,6 +175,15 @@ object ObdBleManager {
     private val noDataLogged = ConcurrentHashMap.newKeySet<String>()
 
     /**
+     * Per-PID decode/miss counts for the current throughput window. [noDataLogged]
+     * reports a PID once per session, which proves *that* requests are failing but
+     * not *which* ones; these feed the `worst=` field of the rate line. Racy by
+     * design, like the window counters — they only ever produce a log line.
+     */
+    private val pidOkWindow = ConcurrentHashMap<String, Int>()
+    private val pidMissWindow = ConcurrentHashMap<String, Int>()
+
+    /**
      * Consecutive misses before a PID that has NEVER decoded this session stops
      * being scheduled. Without this, a failed `0100` leaves [supportedMode01Pids]
      * empty, [ObdPollSchedule] filters nothing, and every unsupported PID burns
@@ -182,6 +191,13 @@ object ObdBleManager {
      * [PidPollPolicy] budget, so the trip reads as dead while the link is fine.
      */
     private const val SESSION_DISABLE_MISS_STREAK = 6
+
+    /**
+     * Mid-trip 7E0 re-probes per session. The init probe can lose to a cold ECU, but
+     * a car that genuinely does not answer 7E0 should stop paying two commands a
+     * minute for the question.
+     */
+    private const val MAX_PHYSICAL_REPROBES = 3
 
     /** PIDs that decoded at least once this session (never auto-disabled). */
     private val pidEverDecoded = ConcurrentHashMap.newKeySet<String>()
@@ -228,6 +244,26 @@ object ObdBleManager {
     /** True if the current/last UDS probe issued ATCRA (needs ATAR to clear). */
     @Volatile
     private var udsReceiveFilterWasSet: Boolean = false
+
+    /** ELM `ST` response timer currently pinned for this session, as ATST hex. */
+    @Volatile
+    private var sessionStHex: String = ElmPerformanceMode.ST_BASELINE_HEX
+
+    /** True while polling is still on 7DF and a mid-session 7E0 re-probe is worth trying. */
+    @Volatile
+    private var physicalHeaderProbePending: Boolean = false
+
+    /** Poll round of the last 7E0 adoption attempt (0 = init only, no re-probe yet). */
+    @Volatile
+    private var lastPhysicalProbeRound: Int = 0
+
+    /** Mid-trip 7E0 re-probes already spent this session (see [MAX_PHYSICAL_REPROBES]). */
+    @Volatile
+    private var physicalReprobesUsed: Int = 0
+
+    /** True if this session pinned ATCRA7E8 alongside the physical engine header. */
+    @Volatile
+    private var engineReceiveFilterSet: Boolean = false
 
     private val loggedVwUdsStart = AtomicBoolean(false)
     private val loggedVwUdsSuccess = AtomicBoolean(false)
@@ -856,6 +892,12 @@ object ObdBleManager {
                 "ATH0" to COMMAND_TIMEOUT_MS,
                 "ATAL" to COMMAND_TIMEOUT_MS, // long/multi-frame (e.g. odometer A6)
                 ElmPerformanceMode.adaptiveTimingCommand(performance) to COMMAND_TIMEOUT_MS,
+                // ST after AT: adaptive timing resets the working timer, and ST was
+                // never sent at all before, so every session inherited whatever the
+                // adapter had saved. A clone defaulting to ~200 ms gives up on a
+                // gateway-relayed functional request long before the ECU answers.
+                ElmPerformanceMode.responseTimeoutCommand(ElmPerformanceMode.ST_BASELINE_HEX)
+                    to COMMAND_TIMEOUT_MS,
             )
             for ((cmd, timeout) in baseSteps) {
                 val resp = sendCommandLogged(cmd, timeout, isInit = true)
@@ -931,7 +973,13 @@ object ObdBleManager {
             // Discovery is done (it needs every module to answer), so pin routine
             // polling to the engine module only.
             if (usesElevenBitCanHeaders(profile)) {
-                adoptPhysicalEngineHeaderIfLive()
+                if (!adoptPhysicalEngineHeaderIfLive(profile)) {
+                    // Still broadcasting. Widen the window anyway: without the count
+                    // suffix the adapter waits ST out on every reply, so keep this
+                    // below the single-responder ceiling.
+                    applySessionStHex(ElmPerformanceMode.ST_FUNCTIONAL_HEX)
+                    physicalHeaderProbePending = true
+                }
             }
 
             // Do not set ecuConnected from bus contact alone — wait for live PID decode.
@@ -970,28 +1018,113 @@ object ObdBleManager {
      * together and [Elm327Parser] takes the first `41xx` it finds, so a second
      * responder — a transmission module answering 010D or 0105 is the classic
      * case — can silently supply a value attributed to the engine. Physical
-     * addressing removes the ambiguity, and it also makes performance mode's
-     * "expect 1 response" suffix correct by construction instead of by luck.
+     * addressing removes the ambiguity, and it also makes the "expect 1 response"
+     * suffix correct by construction instead of by luck, which is what lets the
+     * session run a wider ST window without paying for it on every reply.
      *
      * Support discovery deliberately runs first, on 7DF, because the bitmap should
      * reflect every module. Reverts to 7DF when 7E0 does not answer.
      */
-    private suspend fun adoptPhysicalEngineHeaderIfLive(): Boolean {
+    private suspend fun adoptPhysicalEngineHeaderIfLive(profile: VehicleObdProfile): Boolean {
         val sh = sendCommandLogged("ATSH7E0", COMMAND_TIMEOUT_MS, isInit = true)
         if (sh == null || !ElmHeaderRestore.isAcceptableAtResponse(sh)) {
             logW("ATSH7E0 rejected — staying on functional 7DF")
             return false
         }
-        val raw = sendCommandLogged("010C", MODE01_HEALTH_TIMEOUT_MS, isInit = true)
-        if (isSuccessfulMode01Response(raw, expectPid = 0x0C)) {
-            sessionEngineHeader = "7E0"
-            logI("Engine polling pinned to physical header 7E0 (was functional 7DF)")
-            return true
+        if (PhysicalHeaderPolicy.shouldApplyReceiveFilter(profile)) {
+            val cra = sendCommandLogged(
+                "ATCRA${ElmHeaderRestore.ENGINE_RECEIVE_FILTER_HEX}",
+                COMMAND_TIMEOUT_MS,
+                isInit = true,
+            )
+            // Best-effort: some clones reject CRA but still honour the send header.
+            engineReceiveFilterSet = ElmHeaderRestore.isAcceptableAtResponse(cra)
         }
-        logW("No 010C on physical 7E0 — reverting to functional 7DF")
+
+        // One 010C used to decide this. A momentarily mute ECU then pinned the whole
+        // session to the slower functional header, so retry on an alternate PID too.
+        val deadline = System.currentTimeMillis() + PhysicalHeaderPolicy.PROBE_BUDGET_MS
+        var attempt = 0
+        while (attempt < PhysicalHeaderPolicy.PROBE_ATTEMPTS) {
+            val probePid = PhysicalHeaderPolicy.probePidHex(attempt)
+            val raw = sendCommandLogged(
+                ElmPerformanceMode.mode01PollCommand(
+                    probePid,
+                    settings.obdPerformanceMode,
+                    singleResponder = true,
+                ),
+                ECU_PROBE_TIMEOUT_MS,
+                isInit = true,
+            )
+            if (isSuccessfulMode01Response(raw, expectPid = probePid.toInt(16))) {
+                sessionEngineHeader = "7E0"
+                physicalHeaderProbePending = false
+                // Safe to widen now: the count suffix returns on the first frame, so
+                // the longer ceiling is only ever paid by a PID with no answer.
+                applySessionStHex(ElmPerformanceMode.ST_SINGLE_RESPONDER_HEX)
+                val filterNote = if (engineReceiveFilterSet) " +ATCRA7E8" else ""
+                logI(
+                    "Engine polling pinned to physical header 7E0 (was functional 7DF) " +
+                        "via 01$probePid on attempt ${attempt + 1}$filterNote",
+                )
+                return true
+            }
+            attempt += 1
+            if (attempt >= PhysicalHeaderPolicy.PROBE_ATTEMPTS) break
+            if (System.currentTimeMillis() >= deadline) break
+            delay(PhysicalHeaderPolicy.probeBackoffMs(attempt))
+            drainBuffer()
+        }
+        logW("No Mode 01 on physical 7E0 in $attempt tries — reverting to functional 7DF")
+        if (engineReceiveFilterSet) {
+            sendCommandLogged("ATAR", COMMAND_TIMEOUT_MS, isInit = true)
+            engineReceiveFilterSet = false
+        }
         sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = true)
         sessionEngineHeader = "7DF"
         return false
+    }
+
+    /** Pin the ELM response timer and remember it for the throughput log line. */
+    private suspend fun applySessionStHex(stHex: String) {
+        if (sessionStHex == stHex) return
+        val resp = sendCommandLogged(
+            ElmPerformanceMode.responseTimeoutCommand(stHex),
+            COMMAND_TIMEOUT_MS,
+            isInit = true,
+        )
+        if (ElmHeaderRestore.isAcceptableAtResponse(resp)) sessionStHex = stHex
+    }
+
+    /**
+     * Retry 7E0 adoption mid-trip. The init probe can lose to a cold ECU that is
+     * answering fine a minute later, and a whole trip on 7DF is the difference
+     * between one responder and every module answering each poll.
+     */
+    private suspend fun maybeReprobePhysicalHeader(round: Int) {
+        if (wwhEngineOnly || !physicalHeaderProbePending) return
+        if (physicalReprobesUsed >= MAX_PHYSICAL_REPROBES) {
+            physicalHeaderProbePending = false
+            return
+        }
+        if (
+            !PhysicalHeaderPolicy.shouldReprobe(
+                round = round,
+                lastProbeRound = lastPhysicalProbeRound,
+                onFunctionalHeader = sessionEngineHeader == "7DF",
+                engineOkCount = engineOkCount,
+            )
+        ) {
+            return
+        }
+        lastPhysicalProbeRound = round
+        physicalReprobesUsed += 1
+        val profile = VehicleObdProfile.fromName(settings.vehicleObdProfile)
+        if (!usesElevenBitCanHeaders(profile)) {
+            physicalHeaderProbePending = false
+            return
+        }
+        adoptPhysicalEngineHeaderIfLive(profile)
     }
 
     /**
@@ -1146,6 +1279,11 @@ object ObdBleManager {
         engineOkCount = 0
         wwhEngineOnly = false
         sessionEngineHeader = "7DF"
+        sessionStHex = ElmPerformanceMode.ST_BASELINE_HEX
+        physicalHeaderProbePending = false
+        lastPhysicalProbeRound = 0
+        physicalReprobesUsed = 0
+        engineReceiveFilterSet = false
         udsReceiveFilterWasSet = false
         loggedVwUdsStart.set(false)
         loggedVwUdsSuccess.set(false)
@@ -1319,6 +1457,8 @@ object ObdBleManager {
     }
 
     private fun clearPidCache() {
+        pidOkWindow.clear()
+        pidMissWindow.clear()
         pidSeenAtMs.clear()
         pidMissStreak.clear()
         pidExpiryLoggedAtMs.clear()
@@ -1384,6 +1524,7 @@ object ObdBleManager {
         val now = System.currentTimeMillis()
         pidMissStreak.remove(touchedPid.lowercase())
         pidEverDecoded.add(touchedPid.lowercase())
+        pidOkWindow.merge(touchedPid.lowercase(), 1, Int::plus)
         markPidSeen(touchedPid, now)
         _pidLastGood.value = updated
         if (updated.containsKey("ff125a")) markPidSeen("ff125a", now)
@@ -1396,6 +1537,7 @@ object ObdBleManager {
         val streak = (pidMissStreak[key] ?: 0) + 1
         pidMissStreak[key] = streak
         missesSinceRateLog += 1
+        pidMissWindow.merge(key, 1, Int::plus)
         val dropping =
             key in PidPollPolicy.DROP_ON_MISS &&
                 streak >= PidPollPolicy.DROP_ON_MISS_THRESHOLD
@@ -1619,6 +1761,11 @@ object ObdBleManager {
                 var liveDecodedThisRound = false
                 var liveAttemptedThisRound = false
                 try {
+                    // Between rounds, never mid-round: commandMutex would serialise it
+                    // anyway, but a probe interleaved with a pending poll muddies that
+                    // PID's miss accounting. Inside the try so a fatal write is handled
+                    // by the same recovery path as a failed poll.
+                    maybeReprobePhysicalHeader(round)
                     for (pid in pids) {
                         if (!sessionReady.get()) break
                         val cmd = if (wwhEngineOnly) {
@@ -1627,6 +1774,7 @@ object ObdBleManager {
                             ElmPerformanceMode.mode01PollCommand(
                                 pid,
                                 settings.obdPerformanceMode,
+                                singleResponder = sessionEngineHeader == "7E0",
                             )
                         }
                         val raw = sendCommandLogged(cmd, isInit = false)
@@ -1771,14 +1919,19 @@ object ObdBleManager {
                     val rate = pidsOkWindow / secs
                     val rounds = (round - windowStartRound).coerceAtLeast(1)
                     val roundMs = ((now - windowStartMs) / rounds).toInt()
+                    val tally = ObdPollStats.formatMissTally(pidOkWindow, pidMissWindow)
+                    val tallyNote = if (tally.isEmpty()) "" else " $tally"
                     logI(
                         "OBD poll ~${"%.1f".format(rate)} PID/s round=$round " +
                             "avgRound=${roundMs}ms misses=$missesSinceRateLog " +
-                            "expired=$expiredSinceRateLog",
+                            "expired=$expiredSinceRateLog header=$sessionEngineHeader " +
+                            "st=$sessionStHex count=${sessionEngineHeader == "7E0"}$tallyNote",
                     )
                     pidsOkWindow = 0
                     missesSinceRateLog = 0
                     expiredSinceRateLog = 0
+                    pidOkWindow.clear()
+                    pidMissWindow.clear()
                     windowStartMs = now
                     windowStartRound = round
                 }
@@ -2198,7 +2351,11 @@ object ObdBleManager {
             true
         } else {
             val live = sendCommandLogged(
-                ElmPerformanceMode.mode01PollCommand("0c", settings.obdPerformanceMode),
+                ElmPerformanceMode.mode01PollCommand(
+                    "0c",
+                    settings.obdPerformanceMode,
+                    singleResponder = sessionEngineHeader == "7E0",
+                ),
                 MODE01_HEALTH_TIMEOUT_MS,
                 isInit = false,
             )

@@ -1,18 +1,57 @@
 package com.domivega.gps_car.obd
 
 /**
- * ELM327 Performance-mode command helpers.
- * Normal mode keeps ATAT1 and unsuffixed Mode 01 polls (adapter waits for timeout).
- * Performance uses ATAT2 and a trailing expected-line count for single-frame Mode 01 PIDs.
+ * ELM327 timing and response-shaping commands.
+ *
+ * Performance mode is the user-facing opt-in: it swaps ATAT1 for the aggressive
+ * ATAT2. The expected-response-count suffix is *not* tied to it — it is applied
+ * whenever the session polls a single responder (a physical header such as 7E0),
+ * where asking for one line is correct by construction.
  */
 object ElmPerformanceMode {
+    /**
+     * ELM327 `ST` timer, in units of 4 ms, as the two hex digits `ATST` expects.
+     *
+     * `ST` is how long the adapter waits for the ECU before answering `NO DATA`.
+     * It was never sent at all, so every session inherited whatever the clone had
+     * saved — nominally 0x32, but not guaranteed. Sending it makes the timing
+     * deterministic instead of adapter-dependent.
+     */
+    const val ST_BASELINE_HEX: String = "32" // 50 → 200 ms, the documented ELM default
+
+    /**
+     * Ceiling once polling is pinned to a physical header. Costs nothing in the
+     * common case: with [mode01PollCommand]'s count suffix the adapter returns on
+     * the first frame instead of waiting the window out, so the longer timer is
+     * only ever paid by a PID that genuinely has no answer.
+     */
+    const val ST_SINGLE_RESPONDER_HEX: String = "96" // 150 → 600 ms
+
+    /**
+     * Ceiling while still on the functional header. Lower than
+     * [ST_SINGLE_RESPONDER_HEX] because without the count suffix the adapter waits
+     * the full window after *every* reply, looking for a second responder.
+     */
+    const val ST_FUNCTIONAL_HEX: String = "64" // 100 → 400 ms
+
     fun adaptiveTimingCommand(performance: Boolean): String =
         if (performance) "ATAT2" else "ATAT1"
 
-    fun mode01PollCommand(pidHex: String, performance: Boolean): String {
+    fun responseTimeoutCommand(stHex: String): String = "ATST${stHex.trim().uppercase()}"
+
+    /**
+     * @param singleResponder true when the session polls one module (physical
+     * header), so a "stop after 1 line" hint cannot drop another ECU's reply.
+     */
+    fun mode01PollCommand(
+        pidHex: String,
+        performance: Boolean,
+        singleResponder: Boolean = false,
+    ): String {
         val pid = pidHex.trim().lowercase()
         val base = "01" + pid.uppercase()
-        if (!performance || !expectsSingleResponseLine(pid)) return base
+        if (!performance && !singleResponder) return base
+        if (!expectsSingleResponseLine(pid)) return base
         return base + "1"
     }
 
