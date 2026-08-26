@@ -41,6 +41,7 @@ import com.domivega.gps_car.network.Sample
 import com.domivega.gps_car.network.SampleFieldFilter
 import com.domivega.gps_car.obd.EcuTrackingGate
 import com.domivega.gps_car.obd.FuelLevelReading
+import com.domivega.gps_car.obd.HvBatteryReading
 import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.ObdDebugLog
 import com.domivega.gps_car.obd.TelemetrySpikeFilter
@@ -438,9 +439,10 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 lambdaCmd = pidValues["44"],
                 atmosphericPressure = pidValues["33"],
                 intakeAirTemperature = pidValues["0f"],
-                // PID 0x5B only. 0x9A is multi-field Hybrid/EV system data, not a
-                // percentage — using it as a fallback uploaded a meaningless number.
+                // Pack remaining life (PID 0x5B). PID 0x9A is not a percentage and is
+                // no longer used here; it supplies battery_power_kw below instead.
                 batterySocPct = pidValues["5b"],
+                batteryPowerKw = pidValues[HvBatteryReading.KEY_PACK_KW],
             )
             // Local enqueue only — never block collection on network.
             val toEnqueue = SampleFieldFilter.apply(sample, appSettings.sampleUploadFieldFlags())

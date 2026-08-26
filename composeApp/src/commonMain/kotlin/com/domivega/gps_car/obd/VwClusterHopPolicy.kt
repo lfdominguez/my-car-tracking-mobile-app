@@ -29,9 +29,4 @@ object VwClusterHopPolicy {
         return !gotOdometerKm
     }
 
-    /**
-     * Cluster fuel/oil/doors extras share the hop (still on CRA77E). Skip on odo miss
-     * so failed probes do not burn multi-second UDS timeouts before header restore.
-     */
-    fun shouldPollClusterExtras(gotOdometerKm: Boolean): Boolean = gotOdometerKm
 }

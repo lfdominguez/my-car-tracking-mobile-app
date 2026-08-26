@@ -19,10 +19,12 @@ data class DashboardState(
     val fuelLevel: Reading? = null,
     /** Vehicle odometer km from cluster UDS or SAE PID A6 when available. */
     val odometerKm: Double? = null,
-    /** Oil temp °C from VW cluster UDS when available. */
-    val oilTempC: Double? = null,
-    /** Human door summary from VW cluster UDS, or null if never read. */
-    val doorsSummary: String? = null,
+    /** Hybrid/EV pack power (kW), negative while charging. From SAE PID 0x9A. */
+    val hvPackKw: Double? = null,
+    /** Hybrid/EV pack voltage (V). From SAE PID 0x9A. */
+    val hvPackVolts: Double? = null,
+    /** Hybrid/EV pack current (A), negative while charging. From SAE PID 0x9A. */
+    val hvPackAmps: Double? = null,
     val isTracking: Boolean = false,
     val obdEnabled: Boolean = true,
     val isGpsLocked: Boolean = false,

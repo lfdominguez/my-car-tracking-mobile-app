@@ -50,10 +50,4 @@ class VwClusterHopPolicyTest {
         assertTrue(VwClusterHopPolicy.USE_RECEIVE_FILTER)
     }
 
-    @Test
-    fun `cluster extras only after odometer success to shorten failed hops`() {
-        // Failed/long hops with CRA+6s extras leave Mode 01 dead; skip extras on miss.
-        assertTrue(VwClusterHopPolicy.shouldPollClusterExtras(gotOdometerKm = true))
-        assertFalse(VwClusterHopPolicy.shouldPollClusterExtras(gotOdometerKm = false))
-    }
 }

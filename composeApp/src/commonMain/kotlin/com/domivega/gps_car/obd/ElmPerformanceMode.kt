@@ -18,7 +18,9 @@ object ElmPerformanceMode {
 
     fun expectsSingleResponseLine(pidHex: String): Boolean {
         val pid = pidHex.trim().lowercase()
-        if (pid == "a6") return false
+        // Multi-frame payloads: 0xA6 is 4 data bytes plus header, 0x9A is 6, and both
+        // land past the 7-byte single-frame limit once the 41xx marker is counted.
+        if (pid == "a6" || pid == "9a") return false
         val n = pid.toIntOrNull(16) ?: return false
         // SAE J1979 support bitmaps: 00, 20, 40, 60, 80, A0, C0
         if (n % 0x20 == 0) return false

@@ -20,10 +20,24 @@ class DashboardPresentationTest {
     }
 
     @Test
-    fun clusterExtras_joinWhenPresent() {
-        assertNull(DashboardPresentation.clusterExtras(null, null))
-        assertEquals("Oil 92°C", DashboardPresentation.clusterExtras(92.4, null))
-        assertEquals("Doors closed", DashboardPresentation.clusterExtras(null, "Doors closed"))
-        assertEquals("Oil 90°C · Doors closed", DashboardPresentation.clusterExtras(90.0, "Doors closed"))
+    fun hvBatterySummary_joinWhenPresent() {
+        assertNull(DashboardPresentation.hvBatterySummary(null, null, null))
+        assertEquals("18.4 kW", DashboardPresentation.hvBatterySummary(18.44, null, null))
+        assertEquals("355 V", DashboardPresentation.hvBatterySummary(null, 355.6, null))
+        assertEquals(
+            "18.4 kW · 355 V · 51.8 A",
+            DashboardPresentation.hvBatterySummary(18.44, 355.6, 51.83),
+        )
+    }
+
+    @Test
+    fun hvBatterySummary_rendersChargingAsNegative() {
+        // Negative current is charge going into the pack (regen or plug-in).
+        assertEquals(
+            "-18.4 kW · 355 V · -51.8 A",
+            DashboardPresentation.hvBatterySummary(-18.44, 355.6, -51.83),
+        )
+        // Values that round inside the first tenth keep their sign.
+        assertEquals("-0.4 kW", DashboardPresentation.hvBatterySummary(-0.44, null, null))
     }
 }

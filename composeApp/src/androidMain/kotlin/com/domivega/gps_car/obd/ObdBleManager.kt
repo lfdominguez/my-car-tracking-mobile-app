@@ -95,9 +95,6 @@ object ObdBleManager {
         "06" to "STFT",
         "07" to "LTFT",
         "2f" to "Fuel Level",
-        VwClusterDids.KEY_FUEL_PCT to "Fuel Level (cluster)",
-        VwClusterDids.KEY_OIL_C to "Oil Temperature",
-        VwClusterDids.KEY_DOORS to "Door Status",
         OdometerReading.UDS_KM_KEY to "Odometer (cluster)",
         "49" to "Accelerator Pedal",
         "46" to "Ambient Air Temp",
@@ -112,6 +109,10 @@ object ObdBleManager {
         "44" to "Fuel/Air Ratio",
         "5e" to "Engine Fuel Rate",
         "5b" to "HV Battery Remaining Life",
+        HvBatteryReading.KEY_PACK_VOLT to "HV Pack Voltage",
+        HvBatteryReading.KEY_PACK_AMP to "HV Pack Current",
+        HvBatteryReading.KEY_PACK_KW to "HV Pack Power",
+        HvBatteryReading.KEY_MODE to "HV Drive Mode",
         "33" to "Barometric Pressure",
         "0f" to "Intake Air Temp",
     )
@@ -137,8 +138,7 @@ object ObdBleManager {
         "2f", // Fuel level
         "5e", // Engine fuel rate L/h (prefer over estimated ff125a when live)
         "5b", // Hybrid battery pack remaining life (closest standard SoC proxy)
-        // 0x9A intentionally not polled: it is multi-field Hybrid/EV system data
-        // (mode flags + pack voltage + pack current), never a charge percentage.
+        "9a", // Hybrid/EV pack voltage + current + drive mode (see HvBatteryReading)
         "a6", // Vehicle odometer (SAE PID A6)
         "31", // Distance since codes cleared (not dash odometer)
         "05", // Coolant
@@ -164,13 +164,6 @@ object ObdBleManager {
     private const val UI_HOT_STALE_MS = 3_000L
     private const val UI_SLOW_STALE_MS = 12_000L
 
-    /**
-     * Cluster extras refresh once per stop, so "old" starts much later for them.
-     * They are dimmed rather than exempted: a fuel level read 10 minutes ago should
-     * look like one, not like a live reading.
-     */
-    private const val UI_CLUSTER_STALE_MS = 5 * 60 * 1000L
-
     /** Poll throughput summary cadence. Was 10s, which flooded the debug ring. */
     private const val RATE_LOG_INTERVAL_MS = 60_000L
 
@@ -195,6 +188,16 @@ object ObdBleManager {
 
     /** PIDs dropped from the schedule for this session (see [SESSION_DISABLE_MISS_STREAK]). */
     private val pidSessionDisabled = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Hybrid/EV-only PIDs. On an ICE vehicle these can only ever miss, so they are
+     * disabled up front instead of costing six timeouts each before the miss-streak
+     * rule catches them.
+     */
+    private val HV_ONLY_PIDS: Set<String> = setOf("5b", "9a")
+
+    /** First successful PID 0x9A decode log per session. */
+    private val loggedHvBattery = AtomicBoolean(false)
 
     /** First successful UDS odometer DID this session (prefer on later probes). */
     @Volatile
@@ -229,8 +232,6 @@ object ObdBleManager {
     private val loggedVwUdsStart = AtomicBoolean(false)
     private val loggedVwUdsSuccess = AtomicBoolean(false)
     private val loggedVwUdsFail = AtomicBoolean(false)
-    /** First success log per cluster extra metric key this session. */
-    private val loggedVwClusterExtraOk = ConcurrentHashMap.newKeySet<String>()
 
     /**
      * Set when header restore after UDS fails health check.
@@ -1135,6 +1136,10 @@ object ObdBleManager {
         noDataLogged.clear()
         pidEverDecoded.clear()
         pidSessionDisabled.clear()
+        loggedHvBattery.set(false)
+        if (powertrainKind() == PowertrainKind.ICE) {
+            pidSessionDisabled.addAll(HV_ONLY_PIDS)
+        }
         sessionWinningDid = null
         vwOdoSchedule.reset()
         sessionOdometerTracker.reset()
@@ -1145,7 +1150,6 @@ object ObdBleManager {
         loggedVwUdsStart.set(false)
         loggedVwUdsSuccess.set(false)
         loggedVwUdsFail.set(false)
-        loggedVwClusterExtraOk.clear()
         udsHeaderRestoreFailed = false
         vwUdsNotBeforeMs = 0L
         consecutiveEngineTimeouts = 0
@@ -1356,11 +1360,7 @@ object ObdBleManager {
             val key = pid.lowercase()
             if (key in PidPollPolicy.SESSION_HOLD_KEYS) return@filterTo false
             val seen = pidSeenAtMs[key] ?: return@filterTo true
-            val budget = when {
-                key in PidPollPolicy.CLUSTER_KEYS -> UI_CLUSTER_STALE_MS
-                key in SLOW_PID_KEYS -> UI_SLOW_STALE_MS
-                else -> UI_HOT_STALE_MS
-            }
+            val budget = if (key in SLOW_PID_KEYS) UI_SLOW_STALE_MS else UI_HOT_STALE_MS
             nowMs - seen > budget
         }
     }
@@ -1406,6 +1406,48 @@ object ObdBleManager {
         val next = PidPollPolicy.afterMiss(_pidLastGood.value, pid, streak)
         _pidLastGood.value = next
         publishPidValues(next)
+    }
+
+    /**
+     * Decode PID 0x9A and publish its fields under their own keys.
+     *
+     * The PID packs hybrid/EV drive mode, pack voltage and pack current into one
+     * response, so it has no single scalar value to hand [commitPidMap]. Pack power
+     * is derived here rather than server-side so `battery_power_kw` can be filled
+     * from the two measured fields.
+     *
+     * @param mode01Raw a `419A…` response (already shimmed when running WWH-only)
+     * @return true when the response decoded and at least one field was published
+     */
+    private fun applyHvBatteryPid(mode01Raw: String): Boolean {
+        val dataHex = parser.dataHexFor("9a", mode01Raw) ?: return false
+        val reading = HvBatteryReading.fromDataHex(dataHex) ?: return false
+
+        val fields = listOf(
+            HvBatteryReading.KEY_PACK_VOLT to reading.packVolts,
+            HvBatteryReading.KEY_PACK_AMP to reading.packAmps,
+            HvBatteryReading.KEY_PACK_KW to reading.packKw,
+            HvBatteryReading.KEY_MODE to reading.hevMode.toDouble(),
+        ).filter { (key, value) -> isValidPidValue(key, value) }
+        if (fields.isEmpty()) return false
+
+        val now = System.currentTimeMillis()
+        val updated = LinkedHashMap(_pidLastGood.value)
+        fields.forEach { (key, value) ->
+            updated[key] = value
+            markPidSeen(key, now)
+        }
+        commitPidMap(updated, touchedPid = "9a")
+
+        if (loggedHvBattery.compareAndSet(false, true)) {
+            logI(
+                "HV battery PID 9A OK: ${"%.1f".format(reading.packVolts)}V " +
+                    "${"%.1f".format(reading.packAmps)}A " +
+                    "${"%.2f".format(reading.packKw)}kW " +
+                    "mode=${HvBatteryReading.modeLabel(reading.hevMode)}",
+            )
+        }
+        return true
     }
 
     /**
@@ -1632,12 +1674,25 @@ object ObdBleManager {
                             udsHeaderRestoreFailed = false
                             logI("Engine stack healthy again after UDS restore blip")
                         }
-                        val value = if (wwhEngineOnly) {
-                            val shim = WwhObd.mode01CompatibleResponse(pid, raw)
-                            shim?.let { parser.decodePid(pid, it) }
+                        val decodeSource = if (wwhEngineOnly) {
+                            WwhObd.mode01CompatibleResponse(pid, raw)
                         } else {
-                            parser.decodePid(pid, raw)
+                            raw
                         }
+
+                        // PID 0x9A carries several HV/EV fields in one response, so it
+                        // cannot use the single-value path below.
+                        if (pid.equals("9a", ignoreCase = true)) {
+                            if (decodeSource == null || !applyHvBatteryPid(decodeSource)) {
+                                notePidMiss(pid, raw)
+                            } else {
+                                pidsOkWindow++
+                                engineOkCount += 1
+                            }
+                            continue
+                        }
+
+                        val value = decodeSource?.let { parser.decodePid(pid, it) }
                         if (value == null) {
                             notePidMiss(pid, raw)
                             if (
@@ -1888,10 +1943,9 @@ object ObdBleManager {
                 }
             }
 
-            // Same hop: cluster extras only after odo success — failed hops must restore ASAP.
-            if (VwClusterHopPolicy.shouldPollClusterExtras(gotOdometerKm = gotReading)) {
-                pollVwClusterExtras()
-            }
+            // Nothing else is read on this hop. Fuel/oil/doors used to ride along here,
+            // but none of them ever produced a usable reading on the test vehicle and
+            // every extra $22 request extends the window where Mode 01 is broken.
         } catch (t: Throwable) {
             logW("VW UDS cluster error: ${t.message}")
             Log.w(TAG, "pollVwOdometerOnce", t)
@@ -1958,34 +2012,6 @@ object ObdBleManager {
             logW("VW UDS: ATFCSM1 not accepted — multi-frame odo may fail on this adapter")
         }
         return ok
-    }
-
-    /**
-     * Read fixed cluster DIDs while still on ATSH714. Misses do not fail the hop.
-     * Call only from [pollVwOdometerOnce] before header restore.
-     */
-    private suspend fun pollVwClusterExtras() {
-        for (did in VwClusterDids.EXTRA_DIDS) {
-            if (!transport.isLinked) break
-            val key = VwClusterDids.keyForDid(did) ?: continue
-            val cmd = "22" + did.toString(16).uppercase().padStart(4, '0')
-            val raw = sendCommandLogged(cmd, UDS_COMMAND_TIMEOUT_MS, isInit = false)
-                ?: continue
-            val payload = UdsReadDid.parsePositiveReadDid(raw, did) ?: continue
-            val value = VwClusterDids.decodeValue(did, payload) ?: continue
-            if (!isValidPidValue(key, value)) continue
-
-            val updated = LinkedHashMap(
-                PidPollPolicy.afterSuccess(_pidLastGood.value, key, value),
-            )
-            commitPidMap(updated, touchedPid = key)
-            if (loggedVwClusterExtraOk.add(key)) {
-                logI(
-                    "VW UDS cluster OK: DID=${did.toString(16).uppercase().padStart(4, '0')} " +
-                        "$key=$value",
-                )
-            }
-        }
     }
 
     /**
@@ -2218,7 +2244,7 @@ object ObdBleManager {
         return when (pid) {
             "0d" -> value in 0.0..255.0 // 1 byte
             "0c" -> value in 0.0..16383.75
-            "2f", VwClusterDids.KEY_FUEL_PCT -> value in 0.0..100.0
+            "2f" -> value in 0.0..100.0
             "04", "45", "49" -> value in 0.0..100.0
             "43" -> value in 0.0..25_700.0 // absolute load, 2 bytes, >100 % on boost
             "10", ESTIMATED_MAF_KEY -> value in 0.0..655.35
@@ -2230,9 +2256,16 @@ object ObdBleManager {
             "ff125a" -> value in 0.0..200.0
             "42" -> value in 0.0..36.0 // covers 24 V systems
             "a6", OdometerReading.UDS_KM_KEY -> value in 0.0..2_000_000.0
-            VwClusterDids.KEY_OIL_C -> value in -40.0..200.0
-            VwClusterDids.KEY_DOORS -> value in 0.0..4_294_967_295.0
             "31" -> value in 0.0..65535.0
+            // PID 0x9A derived fields. Structural ranges — see HvBatteryReading:
+            // every byte pair decodes inside them, so the real guard is not polling
+            // 0x9A on an ICE vehicle at all.
+            HvBatteryReading.KEY_PACK_VOLT -> value in 0.0..HvBatteryReading.MAX_PACK_VOLT
+            HvBatteryReading.KEY_PACK_AMP ->
+                value in -HvBatteryReading.MAX_PACK_AMP..HvBatteryReading.MAX_PACK_AMP
+            HvBatteryReading.KEY_PACK_KW ->
+                value in -HvBatteryReading.MAX_PACK_KW..HvBatteryReading.MAX_PACK_KW
+            HvBatteryReading.KEY_MODE -> value in 0.0..3.0
             "05", "0f", "46" -> value in -40.0..215.0 // A-40
             "0b", "33" -> value in 0.0..255.0 // kPa, 1 byte
             "1f" -> value in 0.0..65535.0

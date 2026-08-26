@@ -1,18 +1,18 @@
 package com.domivega.gps_car.obd
 
 /**
- * When to run VW MQB cluster UDS hops:
- * - one initial after engine stack is healthy
- * - then once per stop after continuous dwell at ~0 km/h
+ * When to run VW MQB cluster UDS odometer hops:
+ * - one initial after the engine stack is healthy
+ * - then once per stop after continuous dwell at ~0 km/h, until [markLocked]
+ * - after a successful odometer lock via [markLocked], no further hops until [reset]
  * Never on a fixed interval while moving.
  *
- * [markLocked] ends the *urgent* odometer chase (the baseline is in, and PID 0x31
- * deltas carry it from there), but hops keep running on the once-per-stop cadence
- * so the cluster extras sharing the hop — fuel level, oil temperature, doors —
- * keep refreshing. Stopping every hop at lock time is what froze cluster fuel
- * level at its trip-start value for the whole drive, and because
- * [FuelLevelReading] prefers the cluster reading over SAE PID 0x2F, that frozen
- * value shadowed a perfectly live one.
+ * The hop is deliberately rare. Reaching a cluster DID means pointing the ELM at
+ * ATSH714 with a receive filter to issue UDS $22, and on this platform that breaks
+ * Mode 01 afterwards — the engine stack goes silent and has to be nursed back by
+ * ElmHeaderRestore. So the hop happens only until an odometer baseline is captured,
+ * after which Mode 01 PID 0x31 (distance since codes cleared) carries the odometer
+ * for the rest of the session and the header never has to move again.
  */
 class VwOdoSchedule(
     private val engineOkMin: Int = 8,
@@ -42,14 +42,13 @@ class VwOdoSchedule(
     }
 
     /**
-     * Call when cluster odometer km was published. Ends the initial chase and frees
-     * the current stop slot so the next stop refreshes the cluster extras.
+     * Call when cluster odometer km was published. The baseline is captured, so no
+     * further hop is worth risking the Mode 01 stream: disables hops until [reset].
      */
     fun markLocked() {
         locked = true
         hopInFlight = false
         initialDone = true
-        stopHopDone = false
     }
 
     fun onPollTick(
@@ -58,7 +57,7 @@ class VwOdoSchedule(
         engineOkCount: Int,
         udsNotBeforeMs: Long,
     ): TickResult {
-        if (hopInFlight) return TickResult(false)
+        if (hopInFlight || locked) return TickResult(false)
 
         updateMotion(nowMs, speedKmh)
 

@@ -14,11 +14,32 @@ object DashboardPresentation {
         }
     }
 
-    fun clusterExtras(oilTempC: Double?, doorsSummary: String?): String? {
+    /**
+     * Hybrid/EV pack line from SAE PID 0x9A, e.g. `-18.4 kW · 355 V · -51.8 A`.
+     *
+     * Replaces the old VW cluster oil/doors line: those DIDs were never confirmed
+     * working and cost a header switch that breaks Mode 01, so they were removed.
+     * Negative power is charge going into the pack (regen or plug-in charging).
+     */
+    fun hvBatterySummary(
+        packKw: Double?,
+        packVolts: Double?,
+        packAmps: Double?,
+    ): String? {
         val parts = buildList {
-            if (oilTempC != null && oilTempC.isFinite()) add("Oil ${oilTempC.toInt()}°C")
-            if (doorsSummary != null) add(doorsSummary)
+            if (packKw != null && packKw.isFinite()) add("${oneDecimal(packKw)} kW")
+            if (packVolts != null && packVolts.isFinite()) add("${packVolts.toInt()} V")
+            if (packAmps != null && packAmps.isFinite()) add("${oneDecimal(packAmps)} A")
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
+
+    /** One-decimal rendering without String.format, which common Kotlin lacks. */
+    private fun oneDecimal(value: Double): String {
+        val tenths = kotlin.math.round(value * 10.0).toLong()
+        val whole = tenths / 10
+        val frac = kotlin.math.abs(tenths % 10)
+        val sign = if (tenths < 0 && whole == 0L) "-" else ""
+        return "$sign$whole.$frac"
     }
 }

@@ -326,7 +326,11 @@ private fun MetricTile(
 
 @Composable
 private fun SecondaryMetricsRow(state: DashboardState) {
-    val extras = DashboardPresentation.clusterExtras(state.oilTempC, state.doorsSummary)
+    val extras = DashboardPresentation.hvBatterySummary(
+        state.hvPackKw,
+        state.hvPackVolts,
+        state.hvPackAmps,
+    )
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),

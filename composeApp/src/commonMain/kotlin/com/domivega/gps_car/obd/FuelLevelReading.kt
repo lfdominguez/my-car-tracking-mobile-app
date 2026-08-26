@@ -1,20 +1,16 @@
 package com.domivega.gps_car.obd
 
 /**
- * Resolves fuel tank level (%) from polled values.
+ * Resolves fuel tank level (%) from polled values — SAE Mode 01 PID 0x2F.
  *
- * Prefers the VW cluster UDS reading (`ffuelpct`) over SAE Mode 01 PID 0x2F,
- * because on VW it is the value the dash actually shows — but only while the two
- * agree. DID 0x2206 is not corroborated by any public source, and every possible
- * payload byte decodes to a plausible-looking percentage, so a wrong DID cannot
- * be caught by range-checking alone. Disagreement past [AGREEMENT_TOLERANCE_PCT]
- * is the one signal available that the cluster candidate is not fuel level, and
- * the standard PID wins that tie.
+ * The VW cluster UDS candidate (DID 0x2206) is gone: it never produced a working
+ * reading on the test vehicle, it is not corroborated by any public source, and
+ * every possible payload byte decodes to a plausible-looking percentage, so a wrong
+ * DID could not be caught by range-checking. Reaching it also meant switching the
+ * ELM away from engine addressing, which breaks Mode 01 — far too high a price for
+ * a value the standard PID already carries.
  */
 object FuelLevelReading {
-    /** Percentage points of cluster-vs-PID-0x2F disagreement tolerated. */
-    const val AGREEMENT_TOLERANCE_PCT: Double = 15.0
-
     fun fromPidValues(pidValues: Map<String, Double>): Double? =
         sourceKey(pidValues)?.let { pidValues[it] }
 
@@ -22,20 +18,9 @@ object FuelLevelReading {
      * Which key [fromPidValues] resolved from, so callers can look up that PID's
      * freshness. Null when no source is present.
      */
-    fun sourceKey(pidValues: Map<String, Double>): String? {
-        val saeKey = when {
-            pidValues.containsKey("2f") -> "2f"
-            pidValues.containsKey("2F") -> "2F"
-            else -> null
-        }
-        val cluster = pidValues[VwClusterDids.KEY_FUEL_PCT]
-            ?: return saeKey
-        val sae = saeKey?.let { pidValues[it] }
-            ?: return VwClusterDids.KEY_FUEL_PCT
-
-        val agrees = cluster.isFinite() &&
-            sae.isFinite() &&
-            kotlin.math.abs(cluster - sae) <= AGREEMENT_TOLERANCE_PCT
-        return if (agrees) VwClusterDids.KEY_FUEL_PCT else saeKey
+    fun sourceKey(pidValues: Map<String, Double>): String? = when {
+        pidValues.containsKey("2f") -> "2f"
+        pidValues.containsKey("2F") -> "2F"
+        else -> null
     }
 }

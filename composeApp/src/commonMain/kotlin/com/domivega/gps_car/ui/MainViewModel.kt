@@ -7,8 +7,8 @@ import com.domivega.gps_car.data.queue.QueueHealthMessages
 import com.domivega.gps_car.data.queue.UploadStatusDataSource
 import com.domivega.gps_car.objects.GpsDataSource
 import com.domivega.gps_car.obd.FuelLevelReading
+import com.domivega.gps_car.obd.HvBatteryReading
 import com.domivega.gps_car.obd.OdometerReading
-import com.domivega.gps_car.obd.VwClusterDids
 import com.domivega.gps_car.ui.state.DashboardState
 import com.domivega.gps_car.ui.state.Reading
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,8 +59,6 @@ class MainViewModel(
                 FuelLevelReading.fromPidValues(pidValues),
             )
             val odometerKm = OdometerReading.fromPidValues(pidValues)
-            val oilTempC = pidValues[VwClusterDids.KEY_OIL_C]
-            val doorsSummary = VwClusterDids.doorSummaryFromPidValues(pidValues)
 
             val isGpsLocked = location.accuracy != -1.0 && location.accuracy < 50.0
 
@@ -78,8 +76,9 @@ class MainViewModel(
                 engineLoad = engineLoad,
                 fuelLevel = fuelLevel,
                 odometerKm = odometerKm,
-                oilTempC = oilTempC,
-                doorsSummary = doorsSummary,
+                hvPackKw = pidValues[HvBatteryReading.KEY_PACK_KW],
+                hvPackVolts = pidValues[HvBatteryReading.KEY_PACK_VOLT],
+                hvPackAmps = pidValues[HvBatteryReading.KEY_PACK_AMP],
                 isTracking = currentTracking,
                 isGpsLocked = isGpsLocked,
                 ecuConnected = snapshot.ecuConnected,

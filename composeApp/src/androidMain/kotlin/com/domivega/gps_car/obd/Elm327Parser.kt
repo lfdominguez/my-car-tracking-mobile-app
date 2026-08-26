@@ -30,6 +30,31 @@ class Elm327Parser {
     }
 
     /**
+     * Payload hex following `41<pid>`, or null when the response holds no
+     * byte-aligned positive frame for [pidHex].
+     *
+     * Exposed for PIDs whose payload carries several fields and so cannot use
+     * [decodePid]'s single-value path — PID 0x9A, decoded by [HvBatteryReading].
+     */
+    fun dataHexFor(pidHex: String, rawResponse: String): String? {
+        if (rawResponse.isBlank()) return null
+        if (rawResponse.contains("NO DATA", ignoreCase = true) ||
+            rawResponse.contains("ERROR", ignoreCase = true)
+        ) {
+            return null
+        }
+        val clean = rawResponse
+            .replace(" ", "")
+            .replace("\r", "")
+            .replace("\n", "")
+            .uppercase()
+        val marker = "41" + pidHex.uppercase()
+        val index = markerIndex(clean, marker)
+        if (index < 0) return null
+        return clean.substring(index + marker.length).ifEmpty { null }
+    }
+
+    /**
      * Locate `41<pid>` on a byte boundary.
      *
      * [decodePid] used to take the first `indexOf` hit anywhere in the stripped

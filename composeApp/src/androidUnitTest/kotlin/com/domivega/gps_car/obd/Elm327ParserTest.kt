@@ -147,11 +147,19 @@ class Elm327ParserTest {
     }
 
     @Test
-    fun `PID 9A is not decoded as a percentage`() {
-        // 0x9A is multi-field Hybrid/EV system data (mode flags, pack voltage,
-        // pack current) — never a charge percentage.
-        assertNull(parser.decodePid("9A", "41 9A 01 20 00 64 00 0A"))
+    fun `PID 9A is not decoded as a scalar percentage`() {
+        // 0x9A is multi-field Hybrid/EV system data; it goes through
+        // HvBatteryReading via dataHexFor, never the single-value path.
+        assertNull(parser.decodePid("9A", "41 9A 01 00 59 00 02 05"))
         assertNull(parser.decodePid("9a", "419A0120"))
+    }
+
+    @Test
+    fun `dataHexFor returns the raw payload for multi-field PIDs`() {
+        assertEquals("010059000205", parser.dataHexFor("9a", "41 9A 01 00 59 00 02 05"))
+        assertEquals("1AF8", parser.dataHexFor("0C", "410C1AF8"))
+        assertNull(parser.dataHexFor("9a", "NO DATA"))
+        assertNull(parser.dataHexFor("9a", "41 0C 1A F8"))
     }
 
     @Test
