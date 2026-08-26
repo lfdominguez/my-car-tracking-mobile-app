@@ -15,30 +15,27 @@ object PidSupport {
         if (rawResponse.contains("NO DATA", ignoreCase = true)) return emptySet()
         if (rawResponse.contains("UNABLE TO CONNECT", ignoreCase = true)) return emptySet()
 
-        val bytes = extractDataBytes(supportCommandPid, rawResponse) ?: return emptySet()
-        if (bytes.size < 4) return emptySet()
+        val frames = extractDataBytes(supportCommandPid, rawResponse)
+        if (frames.isEmpty()) return emptySet()
 
+        // Union across every responding module. On a functional request each
+        // OBD-capable module answers and ATH0 glues the replies together; reading
+        // only the first meant a PID that just one module supports looked absent,
+        // and which module happened to answer first decided the whole bitmap.
         val supported = linkedSetOf<Int>()
-        var offset = 1
-        for (i in 0 until 4) {
-            val b = bytes[i]
-            for (bit in 7 downTo 0) {
-                if ((b shr bit) and 1 == 1) {
-                    supported.add(supportCommandPid + offset)
+        for (bytes in frames) {
+            var offset = 1
+            for (i in 0 until 4) {
+                val b = bytes[i]
+                for (bit in 7 downTo 0) {
+                    if ((b shr bit) and 1 == 1) {
+                        supported.add(supportCommandPid + offset)
+                    }
+                    offset += 1
                 }
-                offset += 1
             }
         }
         return supported
-    }
-
-    /** Merge multiple support-query responses into one PID set. */
-    fun mergeBitmaps(vararg pairs: Pair<Int, String>): Set<Int> {
-        val out = linkedSetOf<Int>()
-        for ((cmdPid, raw) in pairs) {
-            out += parseSupportBitmap(cmdPid, raw)
-        }
-        return out
     }
 
     /**
@@ -87,18 +84,18 @@ object PidSupport {
         return if (moreBitPid in supported) moreBitPid else null
     }
 
-    private fun extractDataBytes(supportCommandPid: Int, rawResponse: String): List<Int>? {
-        val clean = rawResponse
-            .replace(" ", "")
-            .replace("\r", "")
-            .replace("\n", "")
-            .replace("\t", "")
-            .uppercase()
-        val marker = "41" + supportCommandPid.toString(16).uppercase().padStart(2, '0')
-        val idx = clean.indexOf(marker)
-        if (idx < 0) return null
-        val data = clean.substring(idx + marker.length)
-        val pairs = HEX_PAIR.findAll(data).map { it.value.toInt(16) }.toList()
-        return if (pairs.size >= 4) pairs.take(4) else null
+    /** @return the four bitmap bytes of each responding module, in reply order. */
+    private fun extractDataBytes(supportCommandPid: Int, rawResponse: String): List<List<Int>> {
+        val clean = ElmFrameScan.clean(rawResponse)
+        val marker = ElmFrameScan.positiveMarker(
+            supportCommandPid.toString(16).padStart(2, '0'),
+        )
+        val out = mutableListOf<List<Int>>()
+        for (idx in ElmFrameScan.markerIndices(clean, marker)) {
+            val data = clean.substring(idx + marker.length)
+            val pairs = HEX_PAIR.findAll(data).map { it.value.toInt(16) }.take(4).toList()
+            if (pairs.size == 4) out += pairs
+        }
+        return out
     }
 }

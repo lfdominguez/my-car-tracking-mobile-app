@@ -83,4 +83,45 @@ class PidSupportTest {
         assertFalse(PidSupport.isMode01Supported(noMore, "49"))
         assertFalse(PidSupport.isMode01Supported(noMore, "42"))
     }
+
+    // --- multi-ECU functional responses --------------------------------------
+    // Literal captures from a 2025 Toyota Corolla on the functional header (7DF),
+    // where two modules answer and ATH0 glues the replies together.
+
+    @Test
+    fun multiEcuBitmapUnionsEveryRespondingModule() {
+        val supported = PidSupport.parseSupportBitmap(0x00, "4100BE1FA013410098188003")
+        // Engine: BE1FA013. Second module: 98188003 — a strict subset here.
+        assertTrue(supported.containsAll(listOf(0x01, 0x03, 0x04, 0x05, 0x0C, 0x0D, 0x0F, 0x10)))
+        // 0x0B stays clear: this car has no MAP sensor PID.
+        assertFalse(supported.contains(0x0B))
+    }
+
+    @Test
+    fun multiEcuPage40MarksVoltageAndAcceleratorButNotHybridPids() {
+        val supported = PidSupport.parseSupportBitmap(0x40, "4140FEDCAC114140C0000000")
+        assertTrue(supported.contains(0x42)) // control module voltage
+        assertTrue(supported.contains(0x46)) // ambient air temp
+        assertTrue(supported.contains(0x49)) // accelerator pedal D
+        assertFalse(supported.contains(0x5B)) // hybrid pack remaining life
+        assertFalse(supported.contains(0x5E)) // ECU engine fuel rate
+    }
+
+    @Test
+    fun multiEcuUnionIsOrderIndependent() {
+        // The engine happened to answer first on this car. Nothing guarantees that,
+        // and reading only the first frame made whichever module won the race decide
+        // the whole bitmap.
+        val engineFirst = PidSupport.parseSupportBitmap(0x20, "41208007B815412080018001")
+        val otherFirst = PidSupport.parseSupportBitmap(0x20, "41208001800141208007B815")
+        assertEquals(engineFirst, otherFirst)
+    }
+
+    @Test
+    fun secondEcuContributesPidsTheFirstDoesNotAdvertise() {
+        // 4100: first module supports only 0x01, second only 0x02.
+        val supported = PidSupport.parseSupportBitmap(0x00, "4100800000014100400000FF")
+        assertTrue(supported.contains(0x01))
+        assertTrue(supported.contains(0x02))
+    }
 }

@@ -54,30 +54,9 @@ class Elm327Parser {
         return clean.substring(index + marker.length).ifEmpty { null }
     }
 
-    /**
-     * Locate `41<pid>` on a byte boundary.
-     *
-     * [decodePid] used to take the first `indexOf` hit anywhere in the stripped
-     * stream, so payload bytes of a long frame (e.g. odometer `A6` under `ATAL`)
-     * could spoof the marker at an odd nibble offset and shift every following
-     * byte by half. With `ATH0` and 11-bit CAN the stream is whole bytes, so a
-     * genuine response header always sits at an even offset.
-     *
-     * Falls back to the first match at any offset when no even-offset match
-     * exists, so a stream with an odd-width artifact still decodes as before.
-     */
-    private fun markerIndex(clean: String, marker: String): Int {
-        var first = -1
-        var from = 0
-        while (from <= clean.length - marker.length) {
-            val hit = clean.indexOf(marker, from)
-            if (hit < 0) break
-            if (first < 0) first = hit
-            if (hit % 2 == 0) return hit
-            from = hit + 1
-        }
-        return first
-    }
+    /** Byte-aligned `41<pid>` lookup, shared with [PidSupport] via [ElmFrameScan]. */
+    private fun markerIndex(clean: String, marker: String): Int =
+        ElmFrameScan.markerIndex(clean, marker)
 
     /**
      * Data bytes each PID needs for a complete decode. A short payload means the

@@ -399,6 +399,21 @@ object ObdBleManager {
     private val responseFramer = ElmResponseFramer()
     private var responseDeferred: CompletableDeferred<String>? = null
 
+    /**
+     * Completed frames still owed to commands that already timed out. Guarded by
+     * `responseLock`. Without this the late reply completes the *next* command's
+     * deferred and every following response is one command off.
+     */
+    private var pendingStaleFrames: Int = 0
+
+    /** One warning per session for each desync guard; the counts land in the rate line. */
+    private val loggedStaleFrame = AtomicBoolean(false)
+    private val loggedFrameDesync = AtomicBoolean(false)
+
+    /** Desync events this window: late frames dropped plus mismatched responses. */
+    @Volatile
+    private var desyncSinceRateLog: Int = 0
+
     private val connecting = AtomicBoolean(false)
     private val sessionReady = AtomicBoolean(false)
     private val scanning = AtomicBoolean(false)
@@ -841,9 +856,19 @@ object ObdBleManager {
         synchronized(responseLock) {
             val complete = responseFramer.append(chunk)
             if (complete != null) {
-                val deferred = responseDeferred
-                responseDeferred = null
-                deferred?.complete(complete)
+                if (pendingStaleFrames > 0) {
+                    // Owed to a command that already gave up. Completing the pending
+                    // deferred with it would shift every later response by one.
+                    pendingStaleFrames -= 1
+                    desyncSinceRateLog += 1
+                    if (loggedStaleFrame.compareAndSet(false, true)) {
+                        logW("Dropping late frame from a timed-out command (desync guard)")
+                    }
+                } else {
+                    val deferred = responseDeferred
+                    responseDeferred = null
+                    deferred?.complete(complete)
+                }
             }
         }
     }
@@ -851,6 +876,7 @@ object ObdBleManager {
     private fun failPendingResponse(reason: String) {
         synchronized(responseLock) {
             responseFramer.clear()
+            pendingStaleFrames = 0
             val deferred = responseDeferred
             responseDeferred = null
             deferred?.completeExceptionally(IllegalStateException(reason))
@@ -1280,6 +1306,10 @@ object ObdBleManager {
         wwhEngineOnly = false
         sessionEngineHeader = "7DF"
         sessionStHex = ElmPerformanceMode.ST_BASELINE_HEX
+        synchronized(responseLock) { pendingStaleFrames = 0 }
+        loggedStaleFrame.set(false)
+        loggedFrameDesync.set(false)
+        desyncSinceRateLog = 0
         physicalHeaderProbePending = false
         lastPhysicalProbeRound = 0
         physicalReprobesUsed = 0
@@ -1450,6 +1480,19 @@ object ObdBleManager {
         val dropNote =
             if (pid.lowercase() in PidPollPolicy.DROP_ON_MISS) " — last-good RPM/speed dropped" else ""
         logW("PID $pid miss ($hint)$dropNote")
+    }
+
+    /**
+     * A response arrived carrying some other PID's positive frame. Drop it without
+     * touching [pidMissStreak]: the requested PID was never actually answered for,
+     * and the reply that follows belongs to a command further back in the queue.
+     */
+    private fun noteFrameDesync(pid: String, raw: String?) {
+        drainBuffer()
+        desyncSinceRateLog += 1
+        if (!loggedFrameDesync.compareAndSet(false, true)) return
+        val hint = raw?.replace('\n', ' ')?.trim()?.take(60) ?: ""
+        logW("Response for $pid carried another PID's frame — discarding ($hint)")
     }
 
     private fun markPidSeen(pid: String, nowMs: Long) {
@@ -1683,6 +1726,7 @@ object ObdBleManager {
                         responseDeferred = null
                         drained
                     }
+                    synchronized(responseLock) { pendingStaleFrames += 1 }
                     if (partial.isNotBlank()) {
                         logW(
                             "Discarding unterminated frame for $cmd: " +
@@ -1842,6 +1886,21 @@ object ObdBleManager {
                             continue
                         }
 
+                        if (!ElmFrameCorrelation.isForRequestedPid(decodeSource, pid)) {
+                            // Another PID's positive response. Charging this to `pid`
+                            // would grow the wrong miss streak, and 6 of those disable
+                            // a PID that was answering fine.
+                            noteFrameDesync(pid, raw)
+                            if (
+                                LiveObdConnectionPolicy.shouldCountLiveMiss(
+                                    pid,
+                                    supportedMode01Pids,
+                                )
+                            ) {
+                                liveAttemptedThisRound = true
+                            }
+                            continue
+                        }
                         val value = decodeSource?.let { parser.decodePid(pid, it) }
                         if (value == null) {
                             notePidMiss(pid, raw)
@@ -1922,18 +1981,22 @@ object ObdBleManager {
                     val rounds = (round - windowStartRound).coerceAtLeast(1)
                     val roundMs = ((now - windowStartMs) / rounds).toInt()
                     val tally = ObdPollStats.formatMissTally(pidOkWindow, pidMissWindow)
+                    val desyncNote =
+                        if (desyncSinceRateLog == 0) "" else " desync=$desyncSinceRateLog"
                     val tallyNote = if (tally.isEmpty()) "" else " $tally"
                     logI(
                         "OBD poll ~${"%.1f".format(rate)} PID/s round=$round " +
                             "avgRound=${roundMs}ms misses=$missesSinceRateLog " +
                             "expired=$expiredSinceRateLog header=$sessionEngineHeader " +
-                            "st=$sessionStHex count=${sessionEngineHeader == "7E0"}$tallyNote",
+                            "st=$sessionStHex count=${sessionEngineHeader == "7E0"}" +
+                            "$desyncNote$tallyNote",
                     )
                     pidsOkWindow = 0
                     missesSinceRateLog = 0
                     expiredSinceRateLog = 0
                     pidOkWindow.clear()
                     pidMissWindow.clear()
+                    desyncSinceRateLog = 0
                     windowStartMs = now
                     windowStartRound = round
                 }
