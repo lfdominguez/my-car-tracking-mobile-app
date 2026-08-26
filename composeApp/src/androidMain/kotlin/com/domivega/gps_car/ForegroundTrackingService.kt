@@ -438,7 +438,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
                 lambdaCmd = pidValues["44"],
                 atmosphericPressure = pidValues["33"],
                 intakeAirTemperature = pidValues["0f"],
-                batterySocPct = pidValues["5b"] ?: pidValues["9a"],
+                // PID 0x5B only. 0x9A is multi-field Hybrid/EV system data, not a
+                // percentage — using it as a fallback uploaded a meaningless number.
+                batterySocPct = pidValues["5b"],
             )
             // Local enqueue only — never block collection on network.
             val toEnqueue = SampleFieldFilter.apply(sample, appSettings.sampleUploadFieldFlags())

@@ -23,13 +23,19 @@ object VwClusterDids {
         else -> null
     }
 
+    /**
+     * Mode 01-style `A * 100 / 255`.
+     *
+     * The old "else take raw A as a percent" fallback was unreachable — `A*100/255`
+     * lands in 0..100 for every possible byte — and it advertised a false safety
+     * net. Nothing here can tell a real fuel byte from an unrelated one, so treat a
+     * result from an unconfirmed DID as a candidate, not a fact:
+     * [FuelLevelReading] cross-checks it against SAE PID 0x2F before preferring it.
+     */
     fun decodeFuelPercent(payload: ByteArray): Double? {
         if (payload.isEmpty()) return null
         val a = payload[0].toInt() and 0xFF
-        val scaled = a * 100.0 / 255.0
-        if (scaled in 0.0..100.0) return scaled
-        if (a.toDouble() in 0.0..100.0) return a.toDouble()
-        return null
+        return a * 100.0 / 255.0
     }
 
     fun decodeOilTempC(payload: ByteArray): Double? {

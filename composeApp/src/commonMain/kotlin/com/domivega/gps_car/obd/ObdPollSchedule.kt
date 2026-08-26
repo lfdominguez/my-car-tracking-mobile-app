@@ -12,18 +12,33 @@ import kotlin.math.min
  * [round] is 1-based (first poll cycle = 1).
  */
 object ObdPollSchedule {
+    /**
+     * @param supportedMode01 ECU-advertised PID bitmap; empty when discovery failed,
+     *   in which case nothing is filtered on support and [sessionDisabled] is the
+     *   only thing keeping dead PIDs out of the rotation.
+     * @param sessionDisabled lowercase PIDs that never decoded this session (see
+     *   ObdBleManager.SESSION_DISABLE_MISS_STREAK). Applied regardless of
+     *   [supportedMode01] so a failed `0100` cannot leave the round full of PIDs
+     *   that only ever time out.
+     */
     fun pidsForRound(
         round: Int,
         hot: List<String>,
         slow: List<String>,
         slowEvery: Int = 5,
         supportedMode01: Set<Int> = emptySet(),
+        sessionDisabled: Set<String> = emptySet(),
     ): List<String> {
         require(round >= 1) { "round must be >= 1" }
         require(slowEvery >= 1) { "slowEvery must be >= 1" }
         val scheduled = hot + slowSliceForRound(round, slow, slowEvery)
-        if (supportedMode01.isEmpty()) return scheduled
-        return scheduled.filter { PidSupport.isMode01Supported(supportedMode01, it) }
+        val live = if (sessionDisabled.isEmpty()) {
+            scheduled
+        } else {
+            scheduled.filter { it.lowercase() !in sessionDisabled }
+        }
+        if (supportedMode01.isEmpty()) return live
+        return live.filter { PidSupport.isMode01Supported(supportedMode01, it) }
     }
 
     /**

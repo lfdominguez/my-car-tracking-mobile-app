@@ -1,11 +1,18 @@
 package com.domivega.gps_car.obd
 
 /**
- * When to run VW MQB cluster UDS odometer hops:
+ * When to run VW MQB cluster UDS hops:
  * - one initial after engine stack is healthy
- * - then once per stop after continuous dwell at ~0 km/h (until [markLocked])
- * - after a successful odometer lock via [markLocked], no further hops until [reset]
+ * - then once per stop after continuous dwell at ~0 km/h
  * Never on a fixed interval while moving.
+ *
+ * [markLocked] ends the *urgent* odometer chase (the baseline is in, and PID 0x31
+ * deltas carry it from there), but hops keep running on the once-per-stop cadence
+ * so the cluster extras sharing the hop — fuel level, oil temperature, doors —
+ * keep refreshing. Stopping every hop at lock time is what froze cluster fuel
+ * level at its trip-start value for the whole drive, and because
+ * [FuelLevelReading] prefers the cluster reading over SAE PID 0x2F, that frozen
+ * value shadowed a perfectly live one.
  */
 class VwOdoSchedule(
     private val engineOkMin: Int = 8,
@@ -20,8 +27,10 @@ class VwOdoSchedule(
     private var hopInFlight: Boolean = false
     /** Last known stopped state (for consuming stop on hop finish). */
     private var lastWasStopped: Boolean = false
-    /** True after first published cluster odometer — no more hops this session. */
+    /** True after the first published cluster odometer. */
     private var locked: Boolean = false
+
+    val isLocked: Boolean get() = locked
 
     fun reset() {
         initialDone = false
@@ -32,11 +41,15 @@ class VwOdoSchedule(
         locked = false
     }
 
-    /** Call when cluster odometer km was published; disables further hops until [reset]. */
+    /**
+     * Call when cluster odometer km was published. Ends the initial chase and frees
+     * the current stop slot so the next stop refreshes the cluster extras.
+     */
     fun markLocked() {
         locked = true
         hopInFlight = false
         initialDone = true
+        stopHopDone = false
     }
 
     fun onPollTick(
@@ -45,7 +58,7 @@ class VwOdoSchedule(
         engineOkCount: Int,
         udsNotBeforeMs: Long,
     ): TickResult {
-        if (hopInFlight || locked) return TickResult(false)
+        if (hopInFlight) return TickResult(false)
 
         updateMotion(nowMs, speedKmh)
 

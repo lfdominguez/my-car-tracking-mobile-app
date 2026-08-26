@@ -2,6 +2,7 @@ package com.domivega.gps_car.obd
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Elm327ParserTest {
@@ -125,6 +126,48 @@ class Elm327ParserTest {
         assertNull(parser.decodePid("44", "41 44 1A"))
         assertNull(parser.decodePid("10", "41 10 1A"))
         assertNull(parser.decodePid("5E", "41 5E 1A"))
+        assertNull(parser.decodePid("43", "41 43 1A"))
+    }
+
+    @Test
+    fun `decodes PID 43 absolute load as two bytes`() {
+        // SAE J1979: (A*256+B)*100/255, 0..25700 %.
+        assertEquals(30.196, parser.decodePid("43", "41 43 00 4D")!!, 0.001)
+        assertEquals(100.0, parser.decodePid("43", "41 43 00 FF")!!, 0.001)
+        // Boosted engines legitimately exceed 100 %.
+        assertEquals(200.0, parser.decodePid("43", "41 43 01 FE")!!, 0.001)
+    }
+
+    @Test
+    fun `PID 43 no longer reads zero for every normal load`() {
+        // Decoding byte A alone pinned every load at or below 100 % to 0.0 %,
+        // because raw = pct*255/100 never leaves the low byte until ~100.4 %.
+        val quarterLoad = parser.decodePid("43", "41 43 00 40")!!
+        assertTrue(quarterLoad > 24.0 && quarterLoad < 26.0)
+    }
+
+    @Test
+    fun `PID 9A is not decoded as a percentage`() {
+        // 0x9A is multi-field Hybrid/EV system data (mode flags, pack voltage,
+        // pack current) — never a charge percentage.
+        assertNull(parser.decodePid("9A", "41 9A 01 20 00 64 00 0A"))
+        assertNull(parser.decodePid("9a", "419A0120"))
+    }
+
+    @Test
+    fun `marker is matched on a byte boundary`() {
+        // Payload bytes 04 10 C0 spell "410C" starting at an odd nibble, ahead of
+        // the real frame. Taking that hit shifted every byte by half and decoded
+        // 260 RPM; the genuine frame at the even offset is the right one.
+        assertEquals(1726.0, parser.decodePid("0C", "0410C0410C1AF8")!!, 0.001)
+    }
+
+    @Test
+    fun `odd-offset marker still decodes when there is no byte-aligned match`() {
+        // Parity can be broken by an adapter artifact; falling back to the first
+        // match keeps such a frame decodable instead of regressing to null.
+        assertEquals(1726.0, parser.decodePid("0C", "4410C1AF8")!!, 0.001)
+        assertEquals(1726.0, parser.decodePid("0C", "SEARCHING...410C1AF8>")!!, 0.001)
     }
 
     @Test

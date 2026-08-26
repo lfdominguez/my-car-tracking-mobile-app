@@ -3,14 +3,22 @@ package com.domivega.gps_car.obd
 class Elm327Parser {
     fun decodePid(pidHex: String, rawResponse: String): Double? {
         if (rawResponse.isBlank()) return null
-        if (rawResponse.contains("NO DATA") || rawResponse.contains("ERROR")) return null
+        if (rawResponse.contains("NO DATA", ignoreCase = true) ||
+            rawResponse.contains("ERROR", ignoreCase = true)
+        ) {
+            return null
+        }
 
-        val cleanResponse = rawResponse.replace(" ", "").replace("\r", "").replace("\n", "")
+        val cleanResponse = rawResponse
+            .replace(" ", "")
+            .replace("\r", "")
+            .replace("\n", "")
+            .uppercase()
         val normalizedPid = pidHex.uppercase()
         val searchPattern = "41$normalizedPid"
 
-        val index = cleanResponse.indexOf(searchPattern, ignoreCase = true)
-        if (index == -1) return null
+        val index = markerIndex(cleanResponse, searchPattern)
+        if (index < 0) return null
 
         val dataPart = cleanResponse.substring(index + searchPattern.length)
 
@@ -22,15 +30,39 @@ class Elm327Parser {
     }
 
     /**
+     * Locate `41<pid>` on a byte boundary.
+     *
+     * [decodePid] used to take the first `indexOf` hit anywhere in the stripped
+     * stream, so payload bytes of a long frame (e.g. odometer `A6` under `ATAL`)
+     * could spoof the marker at an odd nibble offset and shift every following
+     * byte by half. With `ATH0` and 11-bit CAN the stream is whole bytes, so a
+     * genuine response header always sits at an even offset.
+     *
+     * Falls back to the first match at any offset when no even-offset match
+     * exists, so a stream with an odd-width artifact still decodes as before.
+     */
+    private fun markerIndex(clean: String, marker: String): Int {
+        var first = -1
+        var from = 0
+        while (from <= clean.length - marker.length) {
+            val hit = clean.indexOf(marker, from)
+            if (hit < 0) break
+            if (first < 0) first = hit
+            if (hit % 2 == 0) return hit
+            from = hit + 1
+        }
+        return first
+    }
+
+    /**
      * Data bytes each PID needs for a complete decode. A short payload means the
      * frame was truncated (partial BLE/SPP read, timeout drain) — decoding it would
      * silently pad the missing bytes with 0 and publish a plausible-looking wrong
      * value, e.g. `410C1A` -> 1664 RPM. Unknown PIDs fall through to `else -> null`.
      */
     private fun requiredDataBytes(pid: String): Int = when (pid) {
-        "0C", "42", "1F", "44", "31", "10", "5E" -> 2
+        "0C", "42", "1F", "44", "31", "10", "5E", "43" -> 2
         "A6" -> 4
-        // Single-byte PIDs; 9A accepts 1 or 2 bytes by design.
         else -> 1
     }
 
@@ -45,7 +77,11 @@ class Elm327Parser {
         return when (pid) {
             "0C" -> ((a * 256.0) + b) / 4.0 // RPM
             "0D" -> a.toDouble() // Speed
-            "04", "43", "2F", "45", "49" -> (a * 100.0) / 255.0 // Percent style
+            "04", "2F", "45", "49" -> (a * 100.0) / 255.0 // Percent style
+            // SAE J1979 PID 0x43: absolute load value — TWO bytes, 0..25700 %.
+            // Decoding only byte A published 0.0 % for every load at or below 100 %,
+            // because raw = pct*255/100 never leaves the low byte until ~100.4 %.
+            "43" -> ((a * 256.0) + b) * 100.0 / 255.0
             "05", "0F", "46" -> a.toDouble() - 40.0 // Temp A-40
             "0B", "33" -> a.toDouble() // MAP / Pressure A
             "42" -> ((a * 256.0) + b) / 1000.0 // Voltage
@@ -66,14 +102,13 @@ class Elm327Parser {
             "10" -> ((a * 256.0) + b) / 100.0 // MAF
             // SAE J1979 PID 0x5E: engine fuel rate (L/h)
             "5E" -> ((a * 256.0) + b) * 0.05
-            // Hybrid/EV battery pack remaining (SoC %)
+            // SAE J1979 PID 0x5B: hybrid battery pack REMAINING LIFE (%), not state
+            // of charge — on many vehicles it tracks pack health, not charge.
             "5B" -> (a * 100.0) / 255.0
-            // Hybrid/EV remaining charge (prefer 2-byte when present)
-            "9A" -> if (data.length >= 4) {
-                ((a * 256.0) + b) * 100.0 / 65535.0
-            } else {
-                (a * 100.0) / 255.0
-            }
+            // PID 0x9A is deliberately absent: it is "Hybrid/EV Vehicle System Data"
+            // (mode bit flags in A, pack voltage in C-D /64, pack current in E-F /10),
+            // NOT a percentage. Decoding it as one published a meaningless number as
+            // battery SoC. Restore only with a verified multi-field reading.
             else -> null
         }
     }

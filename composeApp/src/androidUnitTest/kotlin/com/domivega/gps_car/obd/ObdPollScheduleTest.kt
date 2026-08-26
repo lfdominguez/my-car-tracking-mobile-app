@@ -81,4 +81,35 @@ class ObdPollScheduleTest {
             ),
         )
     }
+
+    @Test
+    fun `session-disabled PIDs are dropped even without a support bitmap`() {
+        // Failed 0100 leaves supportedMode01 empty, so this is the only filter
+        // stopping dead PIDs from burning a timeout every rotation.
+        assertEquals(
+            listOf("0c", "0d"),
+            ObdPollSchedule.pidsForRound(
+                round = 1,
+                hot = listOf("0c", "0d", "0b"),
+                slow = listOf("a6"),
+                slowEvery = 5,
+                supportedMode01 = emptySet(),
+                sessionDisabled = setOf("0b", "a6"),
+            ),
+        )
+    }
+
+    @Test
+    fun `session-disabled matching is case insensitive`() {
+        assertEquals(
+            listOf("0c"),
+            ObdPollSchedule.pidsForRound(
+                round = 1,
+                hot = listOf("0c", "A6"),
+                slow = emptyList(),
+                slowEvery = 5,
+                sessionDisabled = setOf("a6"),
+            ),
+        )
+    }
 }

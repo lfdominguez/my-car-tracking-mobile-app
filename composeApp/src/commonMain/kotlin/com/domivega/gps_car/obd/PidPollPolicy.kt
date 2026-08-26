@@ -34,16 +34,34 @@ object PidPollPolicy {
     const val DROP_ON_MISS_THRESHOLD: Int = 3
 
     /**
-     * VW cluster UDS readings locked for the session. They are not Mode 01-polled
-     * every round, so a last-good expiry would drop odometer/oil from UI and
-     * uploads after the pre-Mode 01 hop.
+     * Genuinely session-scoped: the cluster odometer is locked once and then
+     * advanced by Mode 01 PID 0x31 deltas rather than re-read, so an age-based
+     * expiry would drop it from UI and uploads for no reason.
+     *
+     * Only the odometer belongs here. Fuel/oil/doors used to be held the same way,
+     * which froze them at their trip-start values for the entire drive; they now
+     * use the bounded [CLUSTER_MAX_AGE_MS] tier instead.
      */
     val SESSION_HOLD_KEYS: Set<String> = setOf(
         OdometerReading.UDS_KM_KEY.lowercase(),
+    )
+
+    /**
+     * VW cluster UDS extras. They ride the once-per-stop hop rather than the Mode 01
+     * rotation, so their refresh interval is however long it takes to next stop the
+     * car — far beyond [SLOW_MAX_AGE_MS], but not unbounded.
+     *
+     * When one does expire, [FuelLevelReading] falls back to SAE PID 0x2F, which is
+     * the right outcome: a live standard reading beats a stale vendor one.
+     */
+    val CLUSTER_KEYS: Set<String> = setOf(
         VwClusterDids.KEY_OIL_C.lowercase(),
         VwClusterDids.KEY_FUEL_PCT.lowercase(),
         VwClusterDids.KEY_DOORS.lowercase(),
     )
+
+    /** Staleness budget for [CLUSTER_KEYS]: survives normal city driving, not a whole trip. */
+    const val CLUSTER_MAX_AGE_MS: Long = 20 * 60 * 1000L
 
     fun afterSuccess(
         previous: Map<String, Double>,
@@ -77,7 +95,15 @@ object PidPollPolicy {
         slowPids: Set<String>,
         maxAgeMs: Long = MAX_AGE_MS,
         slowMaxAgeMs: Long = SLOW_MAX_AGE_MS,
-    ): Long = if (pid.lowercase() in slowPids) slowMaxAgeMs else maxAgeMs
+        clusterMaxAgeMs: Long = CLUSTER_MAX_AGE_MS,
+    ): Long {
+        val key = pid.lowercase()
+        return when {
+            key in CLUSTER_KEYS -> clusterMaxAgeMs
+            key in slowPids -> slowMaxAgeMs
+            else -> maxAgeMs
+        }
+    }
 
     fun expireOlderThan(
         values: Map<String, Double>,
@@ -86,6 +112,7 @@ object PidPollPolicy {
         slowPids: Set<String> = emptySet(),
         maxAgeMs: Long = MAX_AGE_MS,
         slowMaxAgeMs: Long = SLOW_MAX_AGE_MS,
+        clusterMaxAgeMs: Long = CLUSTER_MAX_AGE_MS,
     ): Map<String, Double> {
         if (values.isEmpty()) return values
         return values.filterKeys { pid ->
@@ -96,7 +123,13 @@ object PidPollPolicy {
                     .firstOrNull { it.key.equals(pid, ignoreCase = true) }
                     ?.value
             seen != null &&
-                nowMs - seen < maxAgeMsFor(pid, slowPids, maxAgeMs, slowMaxAgeMs)
+                nowMs - seen < maxAgeMsFor(
+                    pid,
+                    slowPids,
+                    maxAgeMs,
+                    slowMaxAgeMs,
+                    clusterMaxAgeMs,
+                )
         }
     }
 

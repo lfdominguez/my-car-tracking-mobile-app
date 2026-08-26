@@ -35,11 +35,33 @@ class SessionOdometerTrackerTest {
     }
 
     @Test
-    fun `pid31 decrease does not move odometer backwards`() {
+    fun `pid31 counter reset holds instead of moving backwards or stalling`() {
         val t = SessionOdometerTracker()
         t.lockBaseline(45_000.0, pid31Km = 1_000.0)
         assertEquals(45_010.0, t.currentKm(1_010.0)!!, 1e-9)
-        assertEquals(45_000.0, t.currentKm(900.0)!!, 1e-9)
+        // Codes cleared mid-session: hold the 10 km already travelled…
+        assertEquals(45_010.0, t.currentKm(900.0)!!, 1e-9)
+        // …and keep advancing from the new reference rather than stalling forever.
+        assertEquals(45_015.0, t.currentKm(905.0)!!, 1e-9)
+    }
+
+    @Test
+    fun `pid31 wrap at 65535 carries over instead of freezing`() {
+        val t = SessionOdometerTracker()
+        t.lockBaseline(45_000.0, pid31Km = 65_530.0)
+        assertEquals(45_005.0, t.currentKm(65_535.0)!!, 1e-9)
+        // 65535 -> 0 is one more km, then 0 -> 3 is three more.
+        assertEquals(45_006.0, t.currentKm(0.0)!!, 1e-9)
+        assertEquals(45_009.0, t.currentKm(3.0)!!, 1e-9)
+    }
+
+    @Test
+    fun `repeated identical pid31 readings do not accumulate`() {
+        val t = SessionOdometerTracker()
+        t.lockBaseline(45_000.0, pid31Km = 1_000.0)
+        assertEquals(45_005.0, t.currentKm(1_005.0)!!, 1e-9)
+        assertEquals(45_005.0, t.currentKm(1_005.0)!!, 1e-9)
+        assertEquals(45_005.0, t.currentKm(1_005.0)!!, 1e-9)
     }
 
     @Test

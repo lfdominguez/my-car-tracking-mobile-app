@@ -174,4 +174,51 @@ class PidPollPolicyTest {
         )
         assertEquals(PidPollPolicy.MAX_AGE_MS, PidPollPolicy.maxAgeMsFor("0c", slow))
     }
+
+    @Test
+    fun maxAgeMsFor_givesClusterExtrasTheirOwnBudget() {
+        val slow = setOf("04", "2f")
+        assertEquals(
+            PidPollPolicy.CLUSTER_MAX_AGE_MS,
+            PidPollPolicy.maxAgeMsFor(VwClusterDids.KEY_FUEL_PCT, slow),
+        )
+        assertEquals(
+            PidPollPolicy.CLUSTER_MAX_AGE_MS,
+            PidPollPolicy.maxAgeMsFor(VwClusterDids.KEY_OIL_C, slow),
+        )
+    }
+
+    @Test
+    fun sessionHold_coversOdometerOnly() {
+        // Holding fuel/oil/doors forever froze them at their trip-start values.
+        assertTrue(OdometerReading.UDS_KM_KEY in PidPollPolicy.SESSION_HOLD_KEYS)
+        assertTrue(VwClusterDids.KEY_FUEL_PCT !in PidPollPolicy.SESSION_HOLD_KEYS)
+        assertTrue(VwClusterDids.KEY_OIL_C !in PidPollPolicy.SESSION_HOLD_KEYS)
+        assertTrue(VwClusterDids.KEY_DOORS !in PidPollPolicy.SESSION_HOLD_KEYS)
+    }
+
+    @Test
+    fun expire_dropsClusterExtrasOnlyAfterTheClusterBudget() {
+        val now = 100_000_000L
+        val values = mapOf(
+            VwClusterDids.KEY_FUEL_PCT to 55.0,
+            OdometerReading.UDS_KM_KEY to 45_000.0,
+        )
+        val seenLongAgo = mapOf(
+            VwClusterDids.KEY_FUEL_PCT to now - PidPollPolicy.SLOW_MAX_AGE_MS * 4,
+            OdometerReading.UDS_KM_KEY to now - PidPollPolicy.CLUSTER_MAX_AGE_MS * 4,
+        )
+        // Well past the SLOW budget but inside the cluster budget: still published.
+        assertEquals(55.0, PidPollPolicy.expireOlderThan(values, seenLongAgo, now)[
+            VwClusterDids.KEY_FUEL_PCT
+        ])
+
+        val seenStale = seenLongAgo.toMutableMap().apply {
+            put(VwClusterDids.KEY_FUEL_PCT, now - PidPollPolicy.CLUSTER_MAX_AGE_MS - 1)
+        }
+        val fresh = PidPollPolicy.expireOlderThan(values, seenStale, now)
+        assertNull(fresh[VwClusterDids.KEY_FUEL_PCT])
+        // Odometer is genuinely session-scoped and survives any age.
+        assertEquals(45_000.0, fresh[OdometerReading.UDS_KM_KEY])
+    }
 }

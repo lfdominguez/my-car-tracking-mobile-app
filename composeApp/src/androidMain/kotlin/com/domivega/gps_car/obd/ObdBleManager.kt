@@ -111,8 +111,7 @@ object ObdBleManager {
         ESTIMATED_MAF_KEY to "Mass Air Flow (estimated)",
         "44" to "Fuel/Air Ratio",
         "5e" to "Engine Fuel Rate",
-        "5b" to "HV Battery SoC",
-        "9a" to "HV Remaining Charge",
+        "5b" to "HV Battery Remaining Life",
         "33" to "Barometric Pressure",
         "0f" to "Intake Air Temp",
     )
@@ -137,8 +136,9 @@ object ObdBleManager {
         "07", // LTFT
         "2f", // Fuel level
         "5e", // Engine fuel rate L/h (prefer over estimated ff125a when live)
-        "5b", // Hybrid/EV battery SoC
-        "9a", // Hybrid/EV remaining charge (fallback SoC)
+        "5b", // Hybrid battery pack remaining life (closest standard SoC proxy)
+        // 0x9A intentionally not polled: it is multi-field Hybrid/EV system data
+        // (mode flags + pack voltage + pack current), never a charge percentage.
         "a6", // Vehicle odometer (SAE PID A6)
         "31", // Distance since codes cleared (not dash odometer)
         "05", // Coolant
@@ -164,6 +164,13 @@ object ObdBleManager {
     private const val UI_HOT_STALE_MS = 3_000L
     private const val UI_SLOW_STALE_MS = 12_000L
 
+    /**
+     * Cluster extras refresh once per stop, so "old" starts much later for them.
+     * They are dimmed rather than exempted: a fuel level read 10 minutes ago should
+     * look like one, not like a live reading.
+     */
+    private const val UI_CLUSTER_STALE_MS = 5 * 60 * 1000L
+
     /** Poll throughput summary cadence. Was 10s, which flooded the debug ring. */
     private const val RATE_LOG_INTERVAL_MS = 60_000L
 
@@ -173,6 +180,21 @@ object ObdBleManager {
 
     /** First miss/NO DATA log per PID per session (does not disable or clear values). */
     private val noDataLogged = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Consecutive misses before a PID that has NEVER decoded this session stops
+     * being scheduled. Without this, a failed `0100` leaves [supportedMode01Pids]
+     * empty, [ObdPollSchedule] filters nothing, and every unsupported PID burns
+     * [COMMAND_TIMEOUT_MS] every rotation — a round can pass 30 s and blow every
+     * [PidPollPolicy] budget, so the trip reads as dead while the link is fine.
+     */
+    private const val SESSION_DISABLE_MISS_STREAK = 6
+
+    /** PIDs that decoded at least once this session (never auto-disabled). */
+    private val pidEverDecoded = ConcurrentHashMap.newKeySet<String>()
+
+    /** PIDs dropped from the schedule for this session (see [SESSION_DISABLE_MISS_STREAK]). */
+    private val pidSessionDisabled = ConcurrentHashMap.newKeySet<String>()
 
     /** First successful UDS odometer DID this session (prefer on later probes). */
     @Volatile
@@ -904,10 +926,18 @@ object ObdBleManager {
                 logI("Support discovery skipped (ECU proven via 010C)")
                 // Contact via 010C does not decode RPM here; poll loop will mark live.
             }
+
+            // Discovery is done (it needs every module to answer), so pin routine
+            // polling to the engine module only.
+            if (usesElevenBitCanHeaders(profile)) {
+                adoptPhysicalEngineHeaderIfLive()
+            }
+
             // Do not set ecuConnected from bus contact alone — wait for live PID decode.
             logI(
                 "ELM init OK — mode01 support=${supportedMode01Pids.size} " +
-                    "protocol=${protocol.name} hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size} " +
+                    "protocol=${protocol.name} header=$sessionEngineHeader " +
+                    "hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size} " +
                     "performance=$performance (tracking waits for live 0c/0d/42)",
             )
             true
@@ -918,6 +948,49 @@ object ObdBleManager {
             _ecuConnected.value = false
             false
         }
+    }
+
+    /**
+     * True when `ATSH7DF` / `ATSH7E0` are the right addresses for this session.
+     * They are 11-bit CAN ids: meaningless on K-line (Golf mk4 TDI) and wrong on
+     * 29-bit CAN, which uses 18DB33F1 / 18DA10F1 instead. `AUTO` is excluded
+     * because `ATSP0` may land on a 29-bit protocol.
+     */
+    private fun usesElevenBitCanHeaders(profile: VehicleObdProfile): Boolean {
+        if (!ElmInitPolicy.sendCanFunctionalHeader(profile)) return false
+        return protocol == ObdProtocol.ISO_15765_4_CAN_11_500 ||
+            protocol == ObdProtocol.ISO_15765_4_CAN_11_250
+    }
+
+    /**
+     * Move routine Mode 01 polling from functional 7DF to physical 7E0 (engine).
+     *
+     * On 7DF every OBD-capable module answers. With ATH0 the replies arrive glued
+     * together and [Elm327Parser] takes the first `41xx` it finds, so a second
+     * responder — a transmission module answering 010D or 0105 is the classic
+     * case — can silently supply a value attributed to the engine. Physical
+     * addressing removes the ambiguity, and it also makes performance mode's
+     * "expect 1 response" suffix correct by construction instead of by luck.
+     *
+     * Support discovery deliberately runs first, on 7DF, because the bitmap should
+     * reflect every module. Reverts to 7DF when 7E0 does not answer.
+     */
+    private suspend fun adoptPhysicalEngineHeaderIfLive(): Boolean {
+        val sh = sendCommandLogged("ATSH7E0", COMMAND_TIMEOUT_MS, isInit = true)
+        if (sh == null || !ElmHeaderRestore.isAcceptableAtResponse(sh)) {
+            logW("ATSH7E0 rejected — staying on functional 7DF")
+            return false
+        }
+        val raw = sendCommandLogged("010C", MODE01_HEALTH_TIMEOUT_MS, isInit = true)
+        if (isSuccessfulMode01Response(raw, expectPid = 0x0C)) {
+            sessionEngineHeader = "7E0"
+            logI("Engine polling pinned to physical header 7E0 (was functional 7DF)")
+            return true
+        }
+        logW("No 010C on physical 7E0 — reverting to functional 7DF")
+        sendCommandLogged("ATSH7DF", COMMAND_TIMEOUT_MS, isInit = true)
+        sessionEngineHeader = "7DF"
+        return false
     }
 
     /**
@@ -1060,6 +1133,8 @@ object ObdBleManager {
     private fun resetPidDiscoveryState() {
         supportedMode01Pids = emptySet()
         noDataLogged.clear()
+        pidEverDecoded.clear()
+        pidSessionDisabled.clear()
         sessionWinningDid = null
         vwOdoSchedule.reset()
         sessionOdometerTracker.reset()
@@ -1281,7 +1356,11 @@ object ObdBleManager {
             val key = pid.lowercase()
             if (key in PidPollPolicy.SESSION_HOLD_KEYS) return@filterTo false
             val seen = pidSeenAtMs[key] ?: return@filterTo true
-            val budget = if (key in SLOW_PID_KEYS) UI_SLOW_STALE_MS else UI_HOT_STALE_MS
+            val budget = when {
+                key in PidPollPolicy.CLUSTER_KEYS -> UI_CLUSTER_STALE_MS
+                key in SLOW_PID_KEYS -> UI_SLOW_STALE_MS
+                else -> UI_HOT_STALE_MS
+            }
             nowMs - seen > budget
         }
     }
@@ -1304,6 +1383,7 @@ object ObdBleManager {
     private fun commitPidMap(updated: Map<String, Double>, touchedPid: String) {
         val now = System.currentTimeMillis()
         pidMissStreak.remove(touchedPid.lowercase())
+        pidEverDecoded.add(touchedPid.lowercase())
         markPidSeen(touchedPid, now)
         _pidLastGood.value = updated
         if (updated.containsKey("ff125a")) markPidSeen("ff125a", now)
@@ -1322,9 +1402,30 @@ object ObdBleManager {
         if (dropping) {
             pidSeenAtMs.remove(key)
         }
+        maybeSessionDisable(key, streak)
         val next = PidPollPolicy.afterMiss(_pidLastGood.value, pid, streak)
         _pidLastGood.value = next
         publishPidValues(next)
+    }
+
+    /**
+     * Stop scheduling a PID that has never decoded once it has missed
+     * [SESSION_DISABLE_MISS_STREAK] times in a row.
+     *
+     * Live PIDs are exempt: [LiveObdConnectionPolicy] drives ecuConnected off them,
+     * and a session where none of them answer is already dead by other means.
+     * A PID that decoded even once is exempt too, so a passing dropout can never
+     * silence a working sensor for the rest of the drive.
+     */
+    private fun maybeSessionDisable(key: String, streak: Int) {
+        if (streak < SESSION_DISABLE_MISS_STREAK) return
+        if (LiveObdConnectionPolicy.isLivePid(key)) return
+        if (key in pidEverDecoded) return
+        if (!pidSessionDisabled.add(key)) return
+        logW(
+            "PID $key never decoded in $streak tries — dropped from this session's " +
+                "schedule (stops it burning a ${COMMAND_TIMEOUT_MS}ms timeout per rotation)",
+        )
     }
 
     /**
@@ -1471,6 +1572,7 @@ object ObdBleManager {
                     SLOW_PIDS,
                     SLOW_EVERY,
                     supportedMode01 = supportedMode01Pids,
+                    sessionDisabled = pidSessionDisabled,
                 )
                 var liveDecodedThisRound = false
                 var liveAttemptedThisRound = false
@@ -2105,22 +2207,37 @@ object ObdBleManager {
         transport = createTransport(bluetoothTransport)
     }
 
+    /**
+     * Sanity gate before a decode is published. Ranges follow SAE J1979 unless a
+     * tighter automotive bound is deliberate (noted inline) — a gate narrower than
+     * the spec silently discards legitimate readings, which is how PID 0x43 stayed
+     * pinned at 0 % even after a correct decode would have exceeded 100 %.
+     */
     private fun isValidPidValue(pid: String, value: Double): Boolean {
         if (value.isNaN() || value.isInfinite()) return false
         return when (pid) {
-            "0d" -> value in 0.0..400.0
-            "0c" -> value in 0.0..16383.0
+            "0d" -> value in 0.0..255.0 // 1 byte
+            "0c" -> value in 0.0..16383.75
             "2f", VwClusterDids.KEY_FUEL_PCT -> value in 0.0..100.0
-            "04", "43", "45", "49" -> value in 0.0..100.0
+            "04", "45", "49" -> value in 0.0..100.0
+            "43" -> value in 0.0..25_700.0 // absolute load, 2 bytes, >100 % on boost
             "10", ESTIMATED_MAF_KEY -> value in 0.0..655.35
-            "5e" -> value in 0.0..100.0
-            "5b", "9a" -> value in 0.0..100.0
+            // Spec max is 3276.75 L/h, which is a bus/genset figure — a road vehicle
+            // reporting that is garbage. 300 stays generous for a loaded truck while
+            // still rejecting nonsense; the 100 L/h car bound lives in the fuel calc.
+            "5e" -> value in 0.0..300.0
+            "5b" -> value in 0.0..100.0
             "ff125a" -> value in 0.0..200.0
-            "42" -> value in 0.0..20.0
+            "42" -> value in 0.0..36.0 // covers 24 V systems
             "a6", OdometerReading.UDS_KM_KEY -> value in 0.0..2_000_000.0
             VwClusterDids.KEY_OIL_C -> value in -40.0..200.0
             VwClusterDids.KEY_DOORS -> value in 0.0..4_294_967_295.0
             "31" -> value in 0.0..65535.0
+            "05", "0f", "46" -> value in -40.0..215.0 // A-40
+            "0b", "33" -> value in 0.0..255.0 // kPa, 1 byte
+            "1f" -> value in 0.0..65535.0
+            "44" -> value in 0.0..2.0 // commanded equivalence ratio
+            "06", "07" -> value in -100.0..99.3 // fuel trim
             else -> true
         }
     }

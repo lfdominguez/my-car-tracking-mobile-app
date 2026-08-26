@@ -109,20 +109,52 @@ class VwOdoScheduleTest {
     }
 
     @Test
-    fun `markLocked stops all further hops until reset`() {
+    fun `markLocked ends the initial chase but keeps once-per-stop hops`() {
+        val s = sched(engineOkMin = 1)
+        assertTrue(s.onPollTick(1_000, 10.0, 5, 0L).shouldHop)
+        s.onHopFinished(true)
+        s.markLocked()
+        assertTrue(s.isLocked)
+
+        // Still moving: no hop.
+        assertFalse(s.onPollTick(20_000, 25.0, 50, 0L).shouldHop)
+        // Stopped, but not yet through the dwell.
+        assertFalse(s.onPollTick(30_000, 0.0, 50, 0L).shouldHop)
+        // Dwell satisfied: hop, so cluster extras (fuel/oil/doors) refresh.
+        assertTrue(s.onPollTick(35_100, 0.0, 50, 0L).shouldHop)
+        s.onHopFinished(true)
+        // That stop is consumed — no second hop without moving again.
+        assertFalse(s.onPollTick(45_000, 0.0, 50, 0L).shouldHop)
+    }
+
+    @Test
+    fun `locked schedule hops again at the next stop`() {
         val s = sched(engineOkMin = 1)
         assertTrue(s.onPollTick(1_000, 10.0, 5, 0L).shouldHop)
         s.onHopFinished(true)
         s.markLocked()
 
-        assertFalse(s.onPollTick(20_000, 0.0, 50, 0L).shouldHop)
-        assertFalse(s.onPollTick(30_000, 0.0, 50, 0L).shouldHop)
-        assertFalse(s.onPollTick(40_000, 25.0, 50, 0L).shouldHop)
-        assertFalse(s.onPollTick(50_000, 0.0, 50, 0L).shouldHop)
-        assertFalse(s.onPollTick(55_100, 0.0, 50, 0L).shouldHop)
+        // Dwell has to start before it can elapse.
+        assertFalse(s.onPollTick(5_000, 0.0, 50, 0L).shouldHop)
+        assertTrue(s.onPollTick(10_100, 0.0, 50, 0L).shouldHop)
+        s.onHopFinished(true)
+        assertFalse(s.onPollTick(15_000, 0.0, 50, 0L).shouldHop)
 
-        s.reset()
-        assertTrue(s.onPollTick(60_000, 0.0, 5, 0L).shouldHop)
+        // Drive off, stop again: another refresh is allowed.
+        assertFalse(s.onPollTick(20_000, 30.0, 50, 0L).shouldHop)
+        assertFalse(s.onPollTick(25_000, 0.0, 50, 0L).shouldHop)
+        assertTrue(s.onPollTick(30_100, 0.0, 50, 0L).shouldHop)
+    }
+
+    @Test
+    fun `uds backoff still suppresses hops while locked`() {
+        val s = sched(engineOkMin = 1)
+        assertTrue(s.onPollTick(1_000, 10.0, 5, 0L).shouldHop)
+        s.onHopFinished(true)
+        s.markLocked()
+
+        assertFalse(s.onPollTick(10_100, 0.0, 50, udsNotBeforeMs = 60_000L).shouldHop)
+        assertTrue(s.onPollTick(70_000, 0.0, 50, udsNotBeforeMs = 60_000L).shouldHop)
     }
 
     @Test
