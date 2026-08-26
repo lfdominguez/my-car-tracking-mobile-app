@@ -112,4 +112,141 @@ class ObdPollScheduleTest {
             ),
         )
     }
+
+    // --- filter-before-slice -------------------------------------------------
+
+    @Test
+    fun unsupportedSlowPidsDoNotBurnRotationSlots() {
+        // 0100 bitmap advertises 04/05/06/07 but not 5e/5b/9a. Filtering after the
+        // slice spent 3 of every 17 slots on PIDs the ECU never answers.
+        val slow = listOf("1f", "04", "5e", "5b", "9a", "05", "06", "07")
+        val supported = setOf(0x0C, 0x1F, 0x04, 0x05, 0x06, 0x07)
+        val seen = mutableSetOf<String>()
+        repeat(20) { i ->
+            val pids = ObdPollSchedule.pidsForRound(
+                round = i + 1,
+                hot = listOf("0c"),
+                slow = slow,
+                slowEvery = 5,
+                supportedMode01 = supported,
+            )
+            val slowPart = pids.drop(1)
+            // Every slot carries a PID that can actually answer.
+            assertEquals(slowPart.size, slowPart.count { it in setOf("1f", "04", "05", "06", "07") })
+            seen += slowPart
+        }
+        assertEquals(setOf("1f", "04", "05", "06", "07"), seen)
+    }
+
+    // --- urgency promotion ---------------------------------------------------
+
+    @Test
+    fun withoutAgesTheRotationIsUnchanged() {
+        val slow = listOf("1f", "04", "43", "49", "44", "06", "07")
+        repeat(15) { i ->
+            val plain = ObdPollSchedule.pidsForRound(i + 1, listOf("0c"), slow)
+            val withEmptyAges = ObdPollSchedule.pidsForRound(
+                round = i + 1,
+                hot = listOf("0c"),
+                slow = slow,
+                lastSeenAtMs = emptyMap(),
+                nowMs = 1_000_000L,
+            )
+            assertEquals(plain, withEmptyAges)
+        }
+    }
+
+    @Test
+    fun pidPastHalfItsBudgetIsPromotedAheadOfTheRotation() {
+        val slow = listOf("1f", "04", "43", "49", "44", "06", "07")
+        val now = 1_000_000L
+        // 49 last decoded 20 s ago: past half of the 30 s budget, and round 1's
+        // rotation slice does not include it.
+        val ages = slow.associateWith { now - 1_000L } + mapOf("49" to now - 20_000L)
+        val pids = ObdPollSchedule.pidsForRound(
+            round = 1,
+            hot = listOf("0c"),
+            slow = slow,
+            lastSeenAtMs = ages,
+            nowMs = now,
+            slowBudgetMs = 30_000L,
+        )
+        assertEquals("0c", pids.first())
+        assertEquals("49", pids[1])
+    }
+
+    @Test
+    fun freshPidsAreNeverPromotedSoSteadyStateCostsNothing() {
+        val slow = listOf("1f", "04", "43", "49", "44", "06", "07")
+        val now = 1_000_000L
+        val ages = slow.associateWith { now - 5_000L }
+        val promoted = ObdPollSchedule.pidsForRound(
+            round = 3,
+            hot = listOf("0c"),
+            slow = slow,
+            lastSeenAtMs = ages,
+            nowMs = now,
+            slowBudgetMs = 30_000L,
+        )
+        assertEquals(ObdPollSchedule.pidsForRound(3, listOf("0c"), slow), promoted)
+    }
+
+    @Test
+    fun neverDecodedPidsAreNotPromoted() {
+        // A PID absent from lastSeenAtMs has no age to race; promoting it would
+        // starve the ones actually about to expire.
+        val slow = listOf("1f", "04", "43", "49", "44", "06", "07")
+        val now = 1_000_000L
+        val pids = ObdPollSchedule.pidsForRound(
+            round = 1,
+            hot = listOf("0c"),
+            slow = slow,
+            lastSeenAtMs = mapOf("1f" to now - 1_000L),
+            nowMs = now,
+            slowBudgetMs = 30_000L,
+        )
+        assertEquals(ObdPollSchedule.pidsForRound(1, listOf("0c"), slow), pids)
+    }
+
+    @Test
+    fun promotionIsCappedSoARoundCannotBurst() {
+        val slow = (0 until 14).map { "%02x".format(0x30 + it) }
+        val now = 1_000_000L
+        // Everything is stale at once — the worst case this cap exists for.
+        val ages = slow.associateWith { now - 29_000L }
+        val pids = ObdPollSchedule.pidsForRound(
+            round = 1,
+            hot = listOf("0c"),
+            slow = slow,
+            lastSeenAtMs = ages,
+            nowMs = now,
+            slowBudgetMs = 30_000L,
+            maxSlowPerRound = 6,
+        )
+        assertEquals(1 + 6, pids.size)
+    }
+
+    @Test
+    fun mostStalePidIsPromotedFirst() {
+        val slow = listOf("1f", "04", "43", "49", "44", "06", "07")
+        val now = 1_000_000L
+        val ages = mapOf(
+            "1f" to now - 1_000L,
+            "04" to now - 1_000L,
+            "43" to now - 1_000L,
+            "49" to now - 18_000L,
+            "44" to now - 1_000L,
+            "06" to now - 26_000L,
+            "07" to now - 1_000L,
+        )
+        val pids = ObdPollSchedule.pidsForRound(
+            round = 1,
+            hot = listOf("0c"),
+            slow = slow,
+            lastSeenAtMs = ages,
+            nowMs = now,
+            slowBudgetMs = 30_000L,
+        )
+        assertEquals(listOf("06", "49"), pids.drop(1).take(2))
+    }
 }

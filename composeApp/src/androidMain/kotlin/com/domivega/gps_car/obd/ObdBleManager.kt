@@ -1757,6 +1757,8 @@ object ObdBleManager {
                     SLOW_EVERY,
                     supportedMode01 = supportedMode01Pids,
                     sessionDisabled = pidSessionDisabled,
+                    lastSeenAtMs = pidSeenAtMs,
+                    nowMs = System.currentTimeMillis(),
                 )
                 var liveDecodedThisRound = false
                 var liveAttemptedThisRound = false
