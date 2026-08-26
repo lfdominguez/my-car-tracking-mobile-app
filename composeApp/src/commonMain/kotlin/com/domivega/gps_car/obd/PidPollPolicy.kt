@@ -1,18 +1,41 @@
 package com.domivega.gps_car.obd
 
 object PidPollPolicy {
-    /** Last-good PIDs older than this are not published to samples / UI. */
+    /**
+     * Last-good HOT PIDs older than this are not published to samples / UI.
+     * HOT PIDs are polled every round (~1.5 s), so 10 s is ~7 missed rounds — tight
+     * on purpose, because the parked/ghost-trip logic relies on live PIDs going
+     * stale quickly.
+     */
     const val MAX_AGE_MS: Long = 10_000L
 
     /**
-     * Trip-critical live PIDs: a miss must not keep the last decode.
+     * Same for SLOW PIDs, which rotate through [ObdPollSchedule]'s per-round slice
+     * and only refresh every ~4-5 rounds (~6 s measured on a cheap ELM327 clone).
+     * Against the HOT 10 s budget that leaves less than one missed refresh of
+     * margin, so a single timeout or NO DATA punched a 3-10 s hole in every
+     * analytical metric. 30 s absorbs four consecutive missed refreshes and still
+     * drops a genuinely dead sensor well inside the 90 s trip-end grace.
+     */
+    const val SLOW_MAX_AGE_MS: Long = 30_000L
+
+    /**
+     * Trip-critical live PIDs: a sustained miss must not keep the last decode.
      * Holding last-good RPM is what made parked ghost trips look like 704 RPM.
      */
     val DROP_ON_MISS: Set<String> = setOf("0c", "0d")
 
     /**
+     * Consecutive misses before a [DROP_ON_MISS] PID loses its last-good value.
+     * Dropping on the *first* miss meant one 4 s adapter timeout blanked the RPM
+     * gauge mid-drive; the parked case it guards against still resolves inside
+     * [MAX_AGE_MS] via [expireOlderThan].
+     */
+    const val DROP_ON_MISS_THRESHOLD: Int = 3
+
+    /**
      * VW cluster UDS readings locked for the session. They are not Mode 01-polled
-     * every round, so a 10s last-good expiry would drop odometer/oil from UI and
+     * every round, so a last-good expiry would drop odometer/oil from UI and
      * uploads after the pre-Mode 01 hop.
      */
     val SESSION_HOLD_KEYS: Set<String> = setOf(
@@ -33,23 +56,36 @@ object PidPollPolicy {
     }
 
     /**
-     * Miss/timeout/NO DATA: drop last-good RPM/speed; keep other PIDs until
-     * [expireOlderThan] (a single coolant miss should not punch a hole).
+     * Miss/timeout/NO DATA: drop last-good RPM/speed once [consecutiveMisses] has
+     * reached [DROP_ON_MISS_THRESHOLD]; keep other PIDs until [expireOlderThan]
+     * (a single coolant miss should not punch a hole).
      */
     fun afterMiss(
         previous: Map<String, Double>,
         pid: String,
+        consecutiveMisses: Int = DROP_ON_MISS_THRESHOLD,
     ): Map<String, Double> {
         if (pid.lowercase() !in DROP_ON_MISS) return previous
+        if (consecutiveMisses < DROP_ON_MISS_THRESHOLD) return previous
         if (previous.keys.none { it.equals(pid, ignoreCase = true) }) return previous
         return previous.filterKeys { !it.equals(pid, ignoreCase = true) }
     }
+
+    /** @return the staleness budget for [pid] given the caller's SLOW tier membership. */
+    fun maxAgeMsFor(
+        pid: String,
+        slowPids: Set<String>,
+        maxAgeMs: Long = MAX_AGE_MS,
+        slowMaxAgeMs: Long = SLOW_MAX_AGE_MS,
+    ): Long = if (pid.lowercase() in slowPids) slowMaxAgeMs else maxAgeMs
 
     fun expireOlderThan(
         values: Map<String, Double>,
         lastSeenAtMs: Map<String, Long>,
         nowMs: Long,
+        slowPids: Set<String> = emptySet(),
         maxAgeMs: Long = MAX_AGE_MS,
+        slowMaxAgeMs: Long = SLOW_MAX_AGE_MS,
     ): Map<String, Double> {
         if (values.isEmpty()) return values
         return values.filterKeys { pid ->
@@ -59,7 +95,8 @@ object PidPollPolicy {
                 ?: lastSeenAtMs.entries
                     .firstOrNull { it.key.equals(pid, ignoreCase = true) }
                     ?.value
-            seen != null && nowMs - seen < maxAgeMs
+            seen != null &&
+                nowMs - seen < maxAgeMsFor(pid, slowPids, maxAgeMs, slowMaxAgeMs)
         }
     }
 

@@ -73,6 +73,13 @@ object ObdBleManager {
     private const val WWH_HEALTH_TIMEOUT_MS = 4_000L
     /** Settle after cluster header restore before Mode 01 health. */
     private const val UDS_RESTORE_SETTLE_MS = 150L
+
+    /**
+     * Quiet window after a command timeout before the next write. Without it the
+     * timed-out command's late reply lands in the next command's buffer and, if it
+     * happens to carry a matching `41xx` marker, is decoded as that PID's value.
+     */
+    private const val POST_TIMEOUT_SETTLE_MS = 120L
     private const val CHARSET_NAME = "US-ASCII"
 
     /** MAP/RPM/IAT speed-density air mass when Mode 01 PID 0x10 is missing. */
@@ -141,6 +148,24 @@ object ObdBleManager {
     )
 
     private const val SLOW_EVERY = 5
+
+    /** Lowercase [SLOW_PIDS] membership — picks the SLOW staleness budget. */
+    private val SLOW_PID_KEYS: Set<String> = SLOW_PIDS.map { it.lowercase() }.toSet()
+
+    /** Minimum gap between two stale-drop warnings for the same PID. */
+    private const val EXPIRY_LOG_THROTTLE_MS = 30_000L
+
+    /**
+     * Reading age past which the dashboard dims a value. Roughly 2x each tier's
+     * nominal refresh: HOT polls every round (~1.5s), SLOW every ~4-5 rounds (~6s).
+     * Well below the [PidPollPolicy] expiry budgets — dimming warns long before a
+     * value stops being uploaded.
+     */
+    private const val UI_HOT_STALE_MS = 3_000L
+    private const val UI_SLOW_STALE_MS = 12_000L
+
+    /** Poll throughput summary cadence. Was 10s, which flooded the debug ring. */
+    private const val RATE_LOG_INTERVAL_MS = 60_000L
 
     /** Mode 01 PIDs reported supported by the ECU (empty = not discovered yet). */
     @Volatile
@@ -214,9 +239,56 @@ object ObdBleManager {
     @Volatile
     private var isInitialized = false
 
+    /**
+     * Staleness-filtered view of [_pidLastGood] — what telemetry samples upload.
+     * A PID past its [PidPollPolicy] budget is absent here, so `track_points`
+     * records an honest NULL rather than a stale number.
+     */
     private val _pidValues = MutableStateFlow<Map<String, Double>>(emptyMap())
     val pidValues: StateFlow<Map<String, Double>> = _pidValues.asStateFlow()
+
+    /**
+     * Last successful decode per PID with no time expiry, cleared only when the
+     * session ends. The dashboard reads this plus [pidSeenAt] so a momentary
+     * dropout dims the existing number instead of slamming the gauge to 0.
+     */
+    private val _pidLastGood = MutableStateFlow<Map<String, Double>>(emptyMap())
+    val pidLastGood: StateFlow<Map<String, Double>> = _pidLastGood.asStateFlow()
+
+    /** Wall-clock ms of the last successful decode per PID, for UI freshness. */
+    private val _pidSeenAt = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val pidSeenAt: StateFlow<Map<String, Long>> = _pidSeenAt.asStateFlow()
+
+    /**
+     * Keys of [pidLastGood] whose reading is older than its tier's UI budget. The
+     * dashboard dims these instead of blanking them, so a dropout never moves a
+     * gauge. Computed here because this is where the wall clock lives.
+     */
+    private val _pidStale = MutableStateFlow<Set<String>>(emptySet())
+    val pidStale: StateFlow<Set<String>> = _pidStale.asStateFlow()
+
     private val pidSeenAtMs = ConcurrentHashMap<String, Long>()
+
+    /** Consecutive miss streak per PID; gates [PidPollPolicy.DROP_ON_MISS]. */
+    private val pidMissStreak = ConcurrentHashMap<String, Int>()
+
+    /** Last expiry warning per PID, so the debug ring stays readable. */
+    private val pidExpiryLoggedAtMs = ConcurrentHashMap<String, Long>()
+
+    /**
+     * PIDs currently past their staleness budget. The sweep runs on every publish
+     * (~4/s), so without this the counters and warnings would fire continuously for
+     * one expiry instead of once per transition.
+     */
+    private val pidExpired = ConcurrentHashMap.newKeySet<String>()
+
+    /** Expiry drops since the last poll-rate line (racy by design — log only). */
+    @Volatile
+    private var expiredSinceRateLog: Int = 0
+
+    /** Poll misses since the last poll-rate line (racy by design — log only). */
+    @Volatile
+    private var missesSinceRateLog: Int = 0
 
     private val _ecuConnected = MutableStateFlow(false)
     val ecuConnected: StateFlow<Boolean> = _ecuConnected.asStateFlow()
@@ -873,7 +945,7 @@ object ObdBleManager {
                     val rpm = rpmRaw?.let { parser.decodePid("0c", it) }
                     if (rpm != null && isValidPidValue("0c", rpm)) {
                         val updated = LinkedHashMap(
-                            PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
+                            PidPollPolicy.afterSuccess(_pidLastGood.value, "0c", rpm),
                         )
                         recomputeFuelRate(updated)
                         commitPidMap(updated, touchedPid = "0c")
@@ -919,7 +991,7 @@ object ObdBleManager {
                     val rpm = shim?.let { parser.decodePid("0c", it) }
                     if (rpm != null && isValidPidValue("0c", rpm)) {
                         val updated = LinkedHashMap(
-                            PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
+                            PidPollPolicy.afterSuccess(_pidLastGood.value, "0c", rpm),
                         )
                         recomputeFuelRate(updated)
                         commitPidMap(updated, touchedPid = "0c")
@@ -1114,7 +1186,7 @@ object ObdBleManager {
 
     fun refreshVehicleOn(nowMs: Long = System.currentTimeMillis()) {
         if (!isInitialized) return
-        publishPidValues(_pidValues.value, nowMs)
+        publishPidValues(_pidLastGood.value, nowMs)
         val shouldRelease: Boolean
         synchronized(vehicleOnLock) {
             publishVehicleOn(nowMs)
@@ -1169,34 +1241,90 @@ object ObdBleManager {
 
     private fun clearPidCache() {
         pidSeenAtMs.clear()
+        pidMissStreak.clear()
+        pidExpiryLoggedAtMs.clear()
+        pidExpired.clear()
+        _pidLastGood.value = emptyMap()
         _pidValues.value = emptyMap()
+        _pidSeenAt.value = emptyMap()
+        _pidStale.value = emptySet()
     }
 
     private fun publishPidValues(
         values: Map<String, Double>,
         nowMs: Long = System.currentTimeMillis(),
     ) {
-        val fresh = PidPollPolicy.expireOlderThan(values, pidSeenAtMs, nowMs)
-        if (fresh.size < values.size) {
-            val keep = fresh.keys.map { it.lowercase() }.toSet()
-            pidSeenAtMs.keys.removeAll { it.lowercase() !in keep }
+        val fresh = PidPollPolicy.expireOlderThan(
+            values,
+            pidSeenAtMs,
+            nowMs,
+            slowPids = SLOW_PID_KEYS,
+        )
+        val keep = fresh.keys.mapTo(mutableSetOf()) { it.lowercase() }
+        values.keys.forEach { pid ->
+            val key = pid.lowercase()
+            if (key !in keep) {
+                if (pidExpired.add(key)) notePidExpiry(key, nowMs)
+            } else {
+                pidExpired.remove(key)
+            }
         }
         _pidValues.value = fresh
+        _pidSeenAt.value = pidSeenAtMs.toMap()
+        _pidStale.value = staleKeys(values, nowMs)
+    }
+
+    /** @return keys of [values] whose last decode is older than their UI budget. */
+    private fun staleKeys(values: Map<String, Double>, nowMs: Long): Set<String> {
+        if (values.isEmpty()) return emptySet()
+        return values.keys.filterTo(mutableSetOf()) { pid ->
+            val key = pid.lowercase()
+            if (key in PidPollPolicy.SESSION_HOLD_KEYS) return@filterTo false
+            val seen = pidSeenAtMs[key] ?: return@filterTo true
+            val budget = if (key in SLOW_PID_KEYS) UI_SLOW_STALE_MS else UI_HOT_STALE_MS
+            nowMs - seen > budget
+        }
+    }
+
+    /**
+     * The staleness sweep dropped a last-good value. Warn at most once per PID per
+     * [EXPIRY_LOG_THROTTLE_MS] — an unthrottled line here would refill the debug
+     * ring in seconds, which is exactly what made the shared logs unreadable.
+     */
+    private fun notePidExpiry(key: String, nowMs: Long) {
+        expiredSinceRateLog += 1
+        val last = pidExpiryLoggedAtMs[key]
+        if (last != null && nowMs - last < EXPIRY_LOG_THROTTLE_MS) return
+        pidExpiryLoggedAtMs[key] = nowMs
+        val ageMs = pidSeenAtMs[key]?.let { nowMs - it } ?: -1L
+        val budgetMs = PidPollPolicy.maxAgeMsFor(key, SLOW_PID_KEYS)
+        logW("PID $key stale ${ageMs}ms > ${budgetMs}ms — dropped from samples")
     }
 
     private fun commitPidMap(updated: Map<String, Double>, touchedPid: String) {
         val now = System.currentTimeMillis()
+        pidMissStreak.remove(touchedPid.lowercase())
         markPidSeen(touchedPid, now)
+        _pidLastGood.value = updated
         if (updated.containsKey("ff125a")) markPidSeen("ff125a", now)
         if (updated.containsKey(ESTIMATED_MAF_KEY)) markPidSeen(ESTIMATED_MAF_KEY, now)
         publishPidValues(updated, now)
     }
 
     private fun applyPidMiss(pid: String) {
-        if (pid.lowercase() in PidPollPolicy.DROP_ON_MISS) {
-            pidSeenAtMs.remove(pid.lowercase())
+        val key = pid.lowercase()
+        val streak = (pidMissStreak[key] ?: 0) + 1
+        pidMissStreak[key] = streak
+        missesSinceRateLog += 1
+        val dropping =
+            key in PidPollPolicy.DROP_ON_MISS &&
+                streak >= PidPollPolicy.DROP_ON_MISS_THRESHOLD
+        if (dropping) {
+            pidSeenAtMs.remove(key)
         }
-        publishPidValues(PidPollPolicy.afterMiss(_pidValues.value, pid))
+        val next = PidPollPolicy.afterMiss(_pidLastGood.value, pid, streak)
+        _pidLastGood.value = next
+        publishPidValues(next)
     }
 
     /**
@@ -1262,11 +1390,24 @@ object ObdBleManager {
 
                 val result = withTimeoutOrNull(timeoutMs) { deferred.await() }
                 if (result == null) {
-                    synchronized(responseLock) {
-                        val partial = responseFramer.drainPartial()
+                    // A frame with no '>' prompt is provably incomplete. Returning it
+                    // as a success fed truncated payloads to the decoder, which padded
+                    // the missing bytes with 0 (e.g. `410C1A` -> 1664 RPM). Drop it.
+                    val partial = synchronized(responseLock) {
+                        val drained = responseFramer.drainPartial()
                         responseDeferred = null
-                        if (partial.isNotBlank()) return@withContext partial
+                        drained
                     }
+                    if (partial.isNotBlank()) {
+                        logW(
+                            "Discarding unterminated frame for $cmd: " +
+                                partial.replace('\n', ' ').trim().take(60),
+                        )
+                    }
+                    // The adapter may still be transmitting the late reply. Settle,
+                    // then clear again so it is not attributed to the next command.
+                    delay(POST_TIMEOUT_SETTLE_MS)
+                    drainBuffer()
                     throw IllegalStateException("Timeout waiting for response to $cmd")
                 }
                 result
@@ -1320,6 +1461,7 @@ object ObdBleManager {
         pollJob = scope.launch {
             var round = 0
             var pidsOkWindow = 0
+            var windowStartRound = 0
             var windowStartMs = System.currentTimeMillis()
             while (isActive && sessionReady.get()) {
                 round++
@@ -1421,7 +1563,7 @@ object ObdBleManager {
                         }
 
                         val updated = LinkedHashMap(
-                            PidPollPolicy.afterSuccess(_pidValues.value, pid, value),
+                            PidPollPolicy.afterSuccess(_pidLastGood.value, pid, value),
                         )
                         val fuelInputs = setOf("10", "44", "0b", "0c", "0f", "06", "07", "5e")
                         if (pid in fuelInputs) {
@@ -1464,14 +1606,24 @@ object ObdBleManager {
                     Log.w(TAG, "Poll cycle error", t)
                 }
 
-                // Light rate log ~every 10s (not per PID)
+                // Throughput summary ~every 60s (not per PID). Carries the numbers
+                // needed to tell "adapter is slow" from "values are expiring".
                 val now = System.currentTimeMillis()
-                if (now - windowStartMs >= 10_000L) {
+                if (now - windowStartMs >= RATE_LOG_INTERVAL_MS) {
                     val secs = (now - windowStartMs).coerceAtLeast(1) / 1000.0
                     val rate = pidsOkWindow / secs
-                    logI("OBD poll ~${"%.1f".format(rate)} PID/s (round=$round)")
+                    val rounds = (round - windowStartRound).coerceAtLeast(1)
+                    val roundMs = ((now - windowStartMs) / rounds).toInt()
+                    logI(
+                        "OBD poll ~${"%.1f".format(rate)} PID/s round=$round " +
+                            "avgRound=${roundMs}ms misses=$missesSinceRateLog " +
+                            "expired=$expiredSinceRateLog",
+                    )
                     pidsOkWindow = 0
+                    missesSinceRateLog = 0
+                    expiredSinceRateLog = 0
                     windowStartMs = now
+                    windowStartRound = round
                 }
 
                 // No 1s pad — yield so cancellation can run between rounds
@@ -1671,7 +1823,7 @@ object ObdBleManager {
         val derived = sessionOdometerTracker.currentKm(pid31) ?: km
         val updated = LinkedHashMap(
             PidPollPolicy.afterSuccess(
-                _pidValues.value,
+                _pidLastGood.value,
                 OdometerReading.UDS_KM_KEY,
                 derived,
             ),
@@ -1722,7 +1874,7 @@ object ObdBleManager {
             if (!isValidPidValue(key, value)) continue
 
             val updated = LinkedHashMap(
-                PidPollPolicy.afterSuccess(_pidValues.value, key, value),
+                PidPollPolicy.afterSuccess(_pidLastGood.value, key, value),
             )
             commitPidMap(updated, touchedPid = key)
             if (loggedVwClusterExtraOk.add(key)) {
@@ -1907,7 +2059,7 @@ object ObdBleManager {
             val rpm = shim?.let { parser.decodePid("0c", it) }
             if (rpm != null && isValidPidValue("0c", rpm)) {
                 val updated = LinkedHashMap(
-                    PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
+                    PidPollPolicy.afterSuccess(_pidLastGood.value, "0c", rpm),
                 )
                 recomputeFuelRate(updated)
                 commitPidMap(updated, touchedPid = "0c")
@@ -1926,7 +2078,7 @@ object ObdBleManager {
             val rpm = live?.let { parser.decodePid("0c", it) }
             if (rpm != null && isValidPidValue("0c", rpm)) {
                 val updated = LinkedHashMap(
-                    PidPollPolicy.afterSuccess(_pidValues.value, "0c", rpm),
+                    PidPollPolicy.afterSuccess(_pidLastGood.value, "0c", rpm),
                 )
                 recomputeFuelRate(updated)
                 commitPidMap(updated, touchedPid = "0c")

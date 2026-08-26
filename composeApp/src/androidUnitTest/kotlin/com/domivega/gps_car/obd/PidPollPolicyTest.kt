@@ -103,4 +103,75 @@ class PidPollPolicyTest {
         assertEquals(55.0, next[VwClusterDids.KEY_FUEL_PCT])
         assertNull(next["0c"])
     }
+
+    @Test
+    fun miss_onRpm_keepsLastGoodBelowThreshold() {
+        val prev = mapOf("0c" to 704.0)
+        assertEquals(704.0, PidPollPolicy.afterMiss(prev, pid = "0c", consecutiveMisses = 1)["0c"])
+        assertEquals(704.0, PidPollPolicy.afterMiss(prev, pid = "0c", consecutiveMisses = 2)["0c"])
+    }
+
+    @Test
+    fun miss_onRpm_dropsAtThreshold() {
+        val prev = mapOf("0c" to 704.0)
+        val next = PidPollPolicy.afterMiss(
+            prev,
+            pid = "0c",
+            consecutiveMisses = PidPollPolicy.DROP_ON_MISS_THRESHOLD,
+        )
+        assertNull(next["0c"])
+    }
+
+    @Test
+    fun expireOlderThan_slowPidSurvivesOneMissedRefresh() {
+        // 17 slow PIDs at ~6s nominal: a single missed refresh lands near 13s.
+        // Under the old flat 10s budget that punched a hole in every sample.
+        val values = mapOf("04" to 34.9)
+        val seenAt = mapOf("04" to 1_000L)
+        val next = PidPollPolicy.expireOlderThan(
+            values,
+            lastSeenAtMs = seenAt,
+            nowMs = 1_000L + 15_000L,
+            slowPids = setOf("04"),
+        )
+        assertEquals(34.9, next["04"])
+    }
+
+    @Test
+    fun expireOlderThan_slowPidStillExpiresPastSlowBudget() {
+        val values = mapOf("04" to 34.9)
+        val seenAt = mapOf("04" to 1_000L)
+        val next = PidPollPolicy.expireOlderThan(
+            values,
+            lastSeenAtMs = seenAt,
+            nowMs = 1_000L + PidPollPolicy.SLOW_MAX_AGE_MS,
+            slowPids = setOf("04"),
+        )
+        assertNull(next["04"])
+    }
+
+    @Test
+    fun expireOlderThan_hotPidKeepsTightBudgetEvenWhenSlowTierIsGenerous() {
+        val values = mapOf("0c" to 704.0, "04" to 34.9)
+        val seenAt = mapOf("0c" to 1_000L, "04" to 1_000L)
+        val next = PidPollPolicy.expireOlderThan(
+            values,
+            lastSeenAtMs = seenAt,
+            nowMs = 1_000L + PidPollPolicy.MAX_AGE_MS,
+            slowPids = setOf("04"),
+        )
+        assertNull(next["0c"])
+        assertEquals(34.9, next["04"])
+    }
+
+    @Test
+    fun maxAgeMsFor_picksTierBudgetCaseInsensitively() {
+        val slow = setOf("04", "05")
+        assertEquals(PidPollPolicy.SLOW_MAX_AGE_MS, PidPollPolicy.maxAgeMsFor("04", slow))
+        assertEquals(
+            PidPollPolicy.SLOW_MAX_AGE_MS,
+            PidPollPolicy.maxAgeMsFor("04".uppercase(), slow),
+        )
+        assertEquals(PidPollPolicy.MAX_AGE_MS, PidPollPolicy.maxAgeMsFor("0c", slow))
+    }
 }

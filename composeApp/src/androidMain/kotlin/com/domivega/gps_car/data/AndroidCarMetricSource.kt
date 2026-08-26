@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.StateFlow
 
 class AndroidCarMetricSource : CarMetricSource {
     override val pidValues: StateFlow<Map<String, Double>> = ObdBleManager.pidValues
+    override val pidLastGood: StateFlow<Map<String, Double>> = ObdBleManager.pidLastGood
+    override val pidStale: StateFlow<Set<String>> = ObdBleManager.pidStale
     override val ecuConnected: StateFlow<Boolean> = ObdBleManager.ecuConnected
 
     // CarMetricSource expects StateFlow<String?>; connectionStatus is non-null String.

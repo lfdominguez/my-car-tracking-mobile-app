@@ -113,4 +113,29 @@ class Elm327ParserTest {
         assertEquals(mode01, fromWwh)
         assertEquals(1726.0, fromWwh!!, 0.001)
     }
+
+    @Test
+    fun `return null for truncated two-byte PIDs`() {
+        // A half-arrived frame used to pad the missing byte with 0, so `410C1A`
+        // decoded to a plausible 1664 RPM and was committed as a real reading.
+        assertNull(parser.decodePid("0C", "41 0C 1A"))
+        assertNull(parser.decodePid("42", "41 42 1A"))
+        assertNull(parser.decodePid("1F", "41 1F 1A"))
+        assertNull(parser.decodePid("31", "41 31 1A"))
+        assertNull(parser.decodePid("44", "41 44 1A"))
+        assertNull(parser.decodePid("10", "41 10 1A"))
+        assertNull(parser.decodePid("5E", "41 5E 1A"))
+    }
+
+    @Test
+    fun `still decode complete two-byte PIDs`() {
+        assertEquals(1664.0, parser.decodePid("0C", "41 0C 1A 00")!!, 0.001)
+        assertEquals(12.481, parser.decodePid("42", "41 42 30 C1")!!, 0.001)
+    }
+
+    @Test
+    fun `single byte PIDs are unaffected by the length guard`() {
+        assertEquals(34.9019, parser.decodePid("04", "41 04 59")!!, 0.001)
+        assertEquals(50.0, parser.decodePid("05", "41 05 5A")!!, 0.001)
+    }
 }

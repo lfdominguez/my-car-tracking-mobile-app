@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object ObdDebugLog {
     private const val TAG = "ObdBleMgr"
-    private const val CAPACITY = 300
+    private const val CAPACITY = 2000
     private const val MAX_MSG = 400
 
     private val buffer = ObdLogBuffer(CAPACITY)

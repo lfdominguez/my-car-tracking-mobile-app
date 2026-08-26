@@ -8,12 +8,12 @@ class Elm327Parser {
         val cleanResponse = rawResponse.replace(" ", "").replace("\r", "").replace("\n", "")
         val normalizedPid = pidHex.uppercase()
         val searchPattern = "41$normalizedPid"
-        
+
         val index = cleanResponse.indexOf(searchPattern, ignoreCase = true)
         if (index == -1) return null
 
         val dataPart = cleanResponse.substring(index + searchPattern.length)
-        
+
         return try {
             calculateValue(normalizedPid, dataPart)
         } catch (e: Exception) {
@@ -21,14 +21,27 @@ class Elm327Parser {
         }
     }
 
+    /**
+     * Data bytes each PID needs for a complete decode. A short payload means the
+     * frame was truncated (partial BLE/SPP read, timeout drain) — decoding it would
+     * silently pad the missing bytes with 0 and publish a plausible-looking wrong
+     * value, e.g. `410C1A` -> 1664 RPM. Unknown PIDs fall through to `else -> null`.
+     */
+    private fun requiredDataBytes(pid: String): Int = when (pid) {
+        "0C", "42", "1F", "44", "31", "10", "5E" -> 2
+        "A6" -> 4
+        // Single-byte PIDs; 9A accepts 1 or 2 bytes by design.
+        else -> 1
+    }
+
     private fun calculateValue(pid: String, data: String): Double? {
-        if (data.length < 2) return null
-        
+        if (data.length < requiredDataBytes(pid) * 2) return null
+
         val a = data.substring(0, 2).toInt(16)
         val b = if (data.length >= 4) data.substring(2, 4).toInt(16) else 0
         val c = if (data.length >= 6) data.substring(4, 6).toInt(16) else 0
         val d = if (data.length >= 8) data.substring(6, 8).toInt(16) else 0
-        
+
         return when (pid) {
             "0C" -> ((a * 256.0) + b) / 4.0 // RPM
             "0D" -> a.toDouble() // Speed
@@ -43,7 +56,6 @@ class Elm327Parser {
             "31" -> (a * 256.0) + b
             // SAE J1979 PID 0xA6: vehicle odometer reading (km), 4 bytes / 10.
             "A6" -> {
-                if (data.length < 8) return null
                 val raw =
                     (a.toLong() shl 24) or
                         (b.toLong() shl 16) or
