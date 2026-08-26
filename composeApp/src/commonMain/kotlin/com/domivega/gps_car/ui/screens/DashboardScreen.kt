@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import com.domivega.gps_car.ObdEnableGate
 import com.domivega.gps_car.ui.DashboardPresentation
 import com.domivega.gps_car.ui.state.DashboardState
+import com.domivega.gps_car.ui.state.Reading
+import com.domivega.gps_car.ui.theme.StatusOk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -122,7 +124,7 @@ private fun HealthStatusCard(
                 StatusChip(
                     label = "ECU",
                     active = state.ecuConnected,
-                    activeColor = MaterialTheme.colorScheme.secondary,
+                    activeColor = StatusOk,
                 )
                 StatusChip(
                     label = "GPS",
@@ -170,13 +172,15 @@ private fun StatusChip(
     active: Boolean,
     activeColor: Color,
 ) {
+    // Inactive must read as clearly unlit next to a lit chip in daylight, so it
+    // drops to a faint outline rather than sitting at half-alpha onSurface.
     val color = if (active) {
         activeColor
     } else {
-        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f)
     }
     Surface(
-        color = color.copy(alpha = 0.2f),
+        color = if (active) color.copy(alpha = 0.2f) else Color.Transparent,
         shape = MaterialTheme.shapes.small,
         border = BorderStroke(1.dp, color),
     ) {
@@ -243,13 +247,13 @@ private fun MetricGrid(state: DashboardState) {
         ) {
             MetricTile(
                 label = "Speed",
-                value = state.speed.toInt(),
+                reading = state.speed,
                 unit = "km/h",
                 modifier = Modifier.weight(1f),
             )
             MetricTile(
                 label = "RPM",
-                value = state.rpm.toInt(),
+                reading = state.rpm,
                 unit = "rpm",
                 modifier = Modifier.weight(1f),
             )
@@ -260,13 +264,13 @@ private fun MetricGrid(state: DashboardState) {
         ) {
             MetricTile(
                 label = "Fuel",
-                value = state.fuelLevel.toInt(),
+                reading = state.fuelLevel,
                 unit = "%",
                 modifier = Modifier.weight(1f),
             )
             MetricTile(
                 label = "Engine load",
-                value = state.engineLoad.toInt(),
+                reading = state.engineLoad,
                 unit = "%",
                 modifier = Modifier.weight(1f),
             )
@@ -274,13 +278,19 @@ private fun MetricGrid(state: DashboardState) {
     }
 }
 
+/** Dim level for a reading that is real but older than its freshness budget. */
+private const val STALE_ALPHA = 0.45f
+
 @Composable
 private fun MetricTile(
     label: String,
-    value: Int,
+    reading: Reading?,
     unit: String,
     modifier: Modifier = Modifier,
 ) {
+    // Stale keeps the number and dims it, so a dropout never moves the gauge.
+    // Null means the PID never decoded this session — an em dash, not a zero.
+    val valueAlpha = if (reading?.isStale == true) STALE_ALPHA else 1f
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -300,15 +310,15 @@ private fun MetricTile(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = value.toString(),
+                text = reading?.value?.toInt()?.toString() ?: "—",
                 style = MaterialTheme.typography.displayMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = valueAlpha),
                 fontWeight = FontWeight.Bold,
             )
             Text(
                 text = unit,
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = valueAlpha),
             )
         }
     }

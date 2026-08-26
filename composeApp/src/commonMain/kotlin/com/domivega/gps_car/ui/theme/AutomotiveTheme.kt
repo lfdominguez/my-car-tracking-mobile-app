@@ -22,6 +22,13 @@ val SurfaceContainer = Color(0xFF1C2328)
 val OnSurfaceLight = Color(0xFFE6EEF2)
 val ErrorRed = Color(0xFFFF8A80)
 
+/**
+ * Lit status colour for the ECU chip. It must not reuse `secondary`: that token
+ * is neutral chrome (#9BB0B8) and composites within ~30/44/48 per channel of the
+ * unlit chip, so a connected ECU was indistinguishable from a disconnected one.
+ */
+val StatusOk = Color(0xFF6BE39A)
+
 private val AutomotiveDarkColorScheme = darkColorScheme(
     primary = AccentCyan,
     onPrimary = Color(0xFF00363D),

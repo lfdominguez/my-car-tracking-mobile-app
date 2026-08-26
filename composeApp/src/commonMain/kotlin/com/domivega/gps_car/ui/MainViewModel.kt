@@ -10,6 +10,7 @@ import com.domivega.gps_car.obd.FuelLevelReading
 import com.domivega.gps_car.obd.OdometerReading
 import com.domivega.gps_car.obd.VwClusterDids
 import com.domivega.gps_car.ui.state.DashboardState
+import com.domivega.gps_car.ui.state.Reading
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,18 +26,38 @@ class MainViewModel(
     private val _uiState = MutableStateFlow(DashboardState())
     val uiState: StateFlow<DashboardState> = _uiState.asStateFlow()
 
+    /** Readings plus their freshness, collapsed so [combine] stays within 5 sources. */
+    private data class ObdSnapshot(
+        val values: Map<String, Double>,
+        val staleKeys: Set<String>,
+        val ecuConnected: Boolean,
+    )
+
     init {
-        combine(
-            carMetricSource.pidValues,
+        val obd = combine(
+            carMetricSource.pidLastGood,
+            carMetricSource.pidStale,
             carMetricSource.ecuConnected,
+            ::ObdSnapshot,
+        )
+
+        combine(
+            obd,
             carMetricSource.serviceVersion,
             gpsDataSource.locationFlow,
             UploadStatusDataSource.status,
-        ) { pidValues, ecuConnected, serviceVersion, location, uploadStatus ->
-            val speed = pidValues["0d"] ?: 0.0
-            val rpm = pidValues["0c"] ?: 0.0
-            val engineLoad = pidValues["04"] ?: 0.0
-            val fuelLevel = FuelLevelReading.fromPidValues(pidValues) ?: 0.0
+        ) { snapshot, serviceVersion, location, uploadStatus ->
+            val pidValues = snapshot.values
+
+            // A missing PID stays null. Coalescing to 0.0 is what made the RPM and
+            // engine-load gauges slam to zero every time a reading expired.
+            val speed = snapshot.reading("0d", pidValues["0d"])
+            val rpm = snapshot.reading("0c", pidValues["0c"])
+            val engineLoad = snapshot.reading("04", pidValues["04"])
+            val fuelLevel = snapshot.reading(
+                FuelLevelReading.sourceKey(pidValues),
+                FuelLevelReading.fromPidValues(pidValues),
+            )
             val odometerKm = OdometerReading.fromPidValues(pidValues)
             val oilTempC = pidValues[VwClusterDids.KEY_OIL_C]
             val doorsSummary = VwClusterDids.doorSummaryFromPidValues(pidValues)
@@ -61,7 +82,7 @@ class MainViewModel(
                 doorsSummary = doorsSummary,
                 isTracking = currentTracking,
                 isGpsLocked = isGpsLocked,
-                ecuConnected = ecuConnected,
+                ecuConnected = snapshot.ecuConnected,
                 uploadWarning = uploadWarning,
                 serviceVersion = serviceVersion,
                 pidValues = pidValues,
@@ -70,6 +91,12 @@ class MainViewModel(
         }.onEach { newState ->
             _uiState.value = newState
         }.launchIn(viewModelScope)
+    }
+
+    private fun ObdSnapshot.reading(pidKey: String?, value: Double?): Reading? {
+        if (value == null) return null
+        val stale = pidKey != null && staleKeys.any { it.equals(pidKey, ignoreCase = true) }
+        return Reading(value = value, isStale = stale)
     }
 
     fun updateTrackingState(isTracking: Boolean) {

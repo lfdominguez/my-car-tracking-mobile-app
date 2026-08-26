@@ -11,4 +11,15 @@ object FuelLevelReading {
         pidValues["2F"]?.let { return it }
         return null
     }
+
+    /**
+     * Which key [fromPidValues] resolved from, so callers can look up that PID's
+     * freshness. Null when no source is present.
+     */
+    fun sourceKey(pidValues: Map<String, Double>): String? = when {
+        pidValues.containsKey(VwClusterDids.KEY_FUEL_PCT) -> VwClusterDids.KEY_FUEL_PCT
+        pidValues.containsKey("2f") -> "2f"
+        pidValues.containsKey("2F") -> "2F"
+        else -> null
+    }
 }

@@ -1,10 +1,22 @@
 package com.domivega.gps_car.ui.state
 
+/**
+ * One dashboard metric. [isStale] means the reading is real but older than its
+ * tier's freshness budget — the tile dims it rather than blanking it, so a
+ * momentary OBD dropout never moves the number. `null` in [DashboardState] means
+ * the PID has not decoded at all this session and renders as an em dash.
+ */
+data class Reading(
+    val value: Double,
+    val isStale: Boolean = false,
+)
+
 data class DashboardState(
-    val rpm: Double = 0.0,
-    val speed: Double = 0.0,
-    val engineLoad: Double = 0.0,
-    val fuelLevel: Double = 0.0,
+    /** Null until the PID decodes; never coalesced to 0.0 — see [Reading]. */
+    val rpm: Reading? = null,
+    val speed: Reading? = null,
+    val engineLoad: Reading? = null,
+    val fuelLevel: Reading? = null,
     /** Vehicle odometer km from cluster UDS or SAE PID A6 when available. */
     val odometerKm: Double? = null,
     /** Oil temp °C from VW cluster UDS when available. */
