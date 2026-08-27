@@ -49,16 +49,16 @@ class SampleFieldFilterTest {
         assertNull(out.fuelConsumptionRate)
         assertEquals(800.0, out.vehicleEngineRpm)
         assertEquals(40.0, out.vehicleSpeedKph)
-        assertEquals(1.0, out.lat, 0.0)
+        assertEquals(1.0, out.lat!!, 0.0)
         assertNotNull(out.engineLoadPct)
     }
 
     @Test
     fun `always-on fields never cleared`() {
         val out = SampleFieldFilter.apply(baseSample(), SampleUploadFieldFlags.ALL_ENABLED)
-        assertEquals(1.0, out.lat, 0.0)
-        assertEquals(2.0, out.lon, 0.0)
-        assertEquals(3.0, out.acc, 0.0)
+        assertEquals(1.0, out.lat!!, 0.0)
+        assertEquals(2.0, out.lon!!, 0.0)
+        assertEquals(3.0, out.acc!!, 0.0)
         assertEquals(800.0, out.vehicleEngineRpm)
         assertEquals(40.0, out.vehicleSpeedKph)
     }

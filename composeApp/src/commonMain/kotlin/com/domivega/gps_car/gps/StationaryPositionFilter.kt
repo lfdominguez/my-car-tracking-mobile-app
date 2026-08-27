@@ -72,6 +72,20 @@ class StationaryPositionFilter(
         }
     }
 
+    /**
+     * Last accepted position, or `null` before the first fix of the trip.
+     *
+     * A sample recorded while parked past the [GpsRecordingGate] hold carries this
+     * anchor rather than an incoming fix, so idle telemetry keeps a location without
+     * letting GPS noise extend the track.
+     */
+    fun anchorOrNull(): FilteredPosition? {
+        val lat = lastLatitude ?: return null
+        val lon = lastLongitude ?: return null
+        val acc = lastAccuracy ?: return null
+        return FilteredPosition(latitude = lat, longitude = lon, accuracy = acc, frozen = true)
+    }
+
     fun accept(
         latitude: Double,
         longitude: Double,

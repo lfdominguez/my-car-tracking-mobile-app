@@ -202,9 +202,16 @@ data class Sample(
     @SerialName("recorded_at")
     val recordedAt: Long = System.currentTimeMillis(),
 
-    val lat: Double,
-    val lon: Double,
-    val acc: Double,
+    /**
+     * GPS is optional. Samples are produced by a fixed 1 Hz clock and carry
+     * coordinates only when a fresh, accurate fix is available, so engine telemetry
+     * survives tunnels, garages and cold starts. `explicitNulls = false` drops these
+     * three fields from the payload entirely when null; the platform stores such a
+     * point with no geography.
+     */
+    val lat: Double? = null,
+    val lon: Double? = null,
+    val acc: Double? = null,
 
     // Fuel & Engine Performance
     @SerialName("vehicle_engine_rpm")

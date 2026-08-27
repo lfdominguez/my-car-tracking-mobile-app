@@ -36,3 +36,6 @@ GoogleService-Info.plist
 
 .worktrees/
 .junie
+
+# graphify knowledge-graph output (generated)
+graphify-out/

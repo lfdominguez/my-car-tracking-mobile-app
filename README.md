@@ -13,7 +13,7 @@
 
 **Phone GPS and live ELM327 metrics → Room queue → batch upload to a server you control.**
 
-🛰️ ~1 Hz GPS snapshots · 🔌 BLE or Classic SPP OBD · 📦 durable offline queue · 🔓 MIT · no GMS
+🛰️ fixed 1 Hz sampling (GPS optional) · 🔌 BLE or Classic SPP OBD · 📦 durable offline queue · 🔓 MIT · no GMS
 
 <br/>
 
@@ -30,6 +30,7 @@
 | | |
 |:---|:---|
 | 🔔 **Foreground tracking** | Continuous platform location (system fused on Android 12+, else GPS) with notification controls |
+| ⏱️ **Fixed 1 Hz sampling** | Engine telemetry is recorded every second whether or not GPS has a fix — tunnels, garages and cold starts keep producing data. Coordinates ride along only when a fresh, accurate fix backs them |
 | 📶 **Native OBD** | ELM327 over **BLE GATT** (default) or **Classic Bluetooth SPP**; selectable protocol (default ISO 15765-4 CAN 11-bit 500 kbaud); auto-reconnect |
 | 🚦 **ECU-driven session** | Tracking starts when the ECU responds and stops when it drops |
 | ⚡ **Prioritized PID poll** | Hot PIDs (RPM, speed, load, MAF, …) every round; slow PIDs every 5th round at max adapter rate |
@@ -45,7 +46,8 @@
 
 ```mermaid
 flowchart TD
-    GPS[Platform GPS ~1Hz] -->|snapshot| Svc[ForegroundTrackingService]
+    Clock[Sample clock 1 Hz] -->|tick| Svc[ForegroundTrackingService]
+    GPS[Platform GPS] -->|cached fix, if fresh| Svc
     OBD[ELM327 BLE or SPP] -->|pidValues| Svc
     Svc -->|enqueue| Queue[(Room pending samples)]
     Queue -->|batch POST| API[ApiClient OkHttp]
@@ -57,13 +59,14 @@ flowchart TD
 ```
 
 ```text
-Phone GPS (~1 Hz)  ──►  sample + latest OBD snapshot  ──►  local queue  ──►  batch HTTP API
-OBD (BLE or SPP)  ──►  pidValues (hot/slow PIDs)  ──────┘
+Sample clock (1 Hz) ──►  sample + latest OBD snapshot  ──►  local queue  ──►  batch HTTP API
+OBD (BLE or SPP)   ──►  pidValues (hot/slow PIDs)  ─────┤
+Phone GPS          ──►  cached fix, attached when fresh ┘
 ```
 
 | Layer | Role |
 |:------|:-----|
-| `ForegroundTrackingService` | GPS fixes, build samples, enqueue, session start/stop |
+| `ForegroundTrackingService` | 1 Hz sample clock, GPS fix cache, build samples, enqueue, session start/stop |
 | `ObdBleManager` | ELM session (GATT or RFCOMM), PID poll, `pidValues` / `ecuConnected` / `vehicleOn` |
 | `SampleQueueRepository` + `SampleQueueUploader` | Persist unsent rows; batch POST |
 | `ApiClient` | OkHttp `start` / `stop` / `sample` / `samples` |
@@ -166,6 +169,11 @@ Companion platform: [my-car-tracking-platform](https://github.com/lfdominguez/my
 Header: `Authorization: Basic <device_token>` (plaintext device token from the web platform).
 
 OBD metric fields may be missing — backends should treat them as optional so GPS-only or partial OBD points are kept.
+
+**`lat` / `lon` / `acc` may also be absent.** Samples are produced by a fixed 1 Hz clock, so a
+point recorded in a tunnel or a garage carries engine telemetry with no coordinates at all
+(the fields are omitted from the JSON, not sent as null). A backend that requires them will
+reject the whole batch — see `migrations/015_optional_gps.sql` on the companion platform.
 
 <details>
 <summary>🦀 Rust platform notes</summary>

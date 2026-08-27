@@ -2,6 +2,8 @@ package com.domivega.gps_car.gps
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -260,6 +262,33 @@ class StationaryPositionFilterTest {
         // ~111.2 km per degree latitude
         val d = StationaryPositionFilter.distanceMeters(0.0, 0.0, 0.001, 0.0)
         assertEquals(111.2, d, 1.0)
+    }
+
+    @Test
+    fun `anchor is null before the first fix of a trip`() {
+        assertNull(StationaryPositionFilter().anchorOrNull())
+    }
+
+    /**
+     * A sample recorded while parked past the GpsRecordingGate hold carries this
+     * anchor, so idle telemetry keeps a location without GPS noise growing the track.
+     */
+    @Test
+    fun `anchor returns the last accepted position as frozen`() {
+        val filter = StationaryPositionFilter()
+        filter.accept(
+            latitude = 40.0,
+            longitude = -3.0,
+            accuracy = 5.0,
+            obdSpeedKph = 30.0,
+            gpsSpeedMps = null,
+        )
+        val anchor = filter.anchorOrNull()
+        assertNotNull(anchor)
+        assertEquals(40.0, anchor!!.latitude, 1e-9)
+        assertEquals(-3.0, anchor.longitude, 1e-9)
+        assertEquals(5.0, anchor.accuracy, 1e-9)
+        assertTrue(anchor.frozen)
     }
 
     private fun metersToLatDelta(meters: Double): Double =

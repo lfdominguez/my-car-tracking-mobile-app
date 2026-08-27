@@ -17,12 +17,16 @@ import android.location.Location
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,8 +53,12 @@ import com.domivega.gps_car.obd.OdometerReading
 import com.domivega.gps_car.obd.TripLogStore
 import com.domivega.gps_car.settings.AppSettings
 import androidx.core.net.toUri
+import com.domivega.gps_car.gps.FilteredPosition
+import com.domivega.gps_car.gps.GpsFixFreshness
 import com.domivega.gps_car.gps.GpsLocator
 import com.domivega.gps_car.gps.GpsRecordingGate
+import com.domivega.gps_car.gps.SampleRecordingGate
+import com.domivega.gps_car.gps.SampleTickDecision
 import com.domivega.gps_car.gps.StationaryPositionFilter
 import com.domivega.gps_car.models.data.LocationData
 import com.domivega.gps_car.objects.GpsDataSource
@@ -61,7 +69,12 @@ private enum class TrackingState {
 }
 
 /**
- * Foreground service that periodically (every ~2s) records GPS and acceleration and sends to HTTPS.
+ * Foreground service that records a telemetry sample every second and queues it for upload.
+ *
+ * Sampling is driven by its own fixed 1 Hz clock rather than by location callbacks:
+ * engine data is what a trip is really made of, so it keeps flowing through tunnels,
+ * garages, cold starts and disabled location providers. GPS is attached to a sample
+ * only when a fresh, accurate fix backs it up.
  */
 class ForegroundTrackingService : Service(), SensorEventListener {
     private val serviceScope = CoroutineScope(Dispatchers.Main)
@@ -76,6 +89,11 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     private lateinit var repo: TrackingRepository
     private lateinit var queueRepo: SampleQueueRepository
     private lateinit var uploader: SampleQueueUploader
+
+    /** Fixed 1 Hz sampling loop; independent of GPS callbacks and of the OBD poll rate. */
+    private var sampleClockJob: Job? = null
+    /** Held while TRACKING so the sample clock keeps ticking with the screen off. */
+    private var sampleClockWakeLock: PowerManager.WakeLock? = null
 
     private val accelMutex = Mutex()
     private val isStartingSession = AtomicBoolean(false)
@@ -269,6 +287,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
         updateNotification("Starting tracking…", TrackingState.TRACKING)
 
+        acquireSampleClockWakeLock()
+
         // Register acceleration sensor
         sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
@@ -282,178 +302,254 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             tryBindServerSession(epochAtStart = epoch)
         }
 
-        // Start location updates (platform fused on API 31+, else GPS)
-        gpsLocator.start { loc ->
-            lastLocation = loc
-            handleLocation(loc)
+        // GPS updates only refresh the cached fix; the sample clock does the recording.
+        gpsLocator.start { loc -> cacheLocation(loc) }
+
+        startSampleClock(epoch)
+    }
+
+    /**
+     * Caches the latest fix and feeds GPS speed to the OBD spike filter.
+     *
+     * The location provider no longer drives sampling: a missing, late or inaccurate
+     * fix cannot stop engine telemetry from being recorded, it only means the next
+     * sample goes out without coordinates.
+     */
+    private fun cacheLocation(loc: Location) {
+        if (currentState != TrackingState.TRACKING) return
+        lastLocation = loc
+        if (loc.hasSpeed()) {
+            ObdBleManager.noteGpsSpeed(loc.speed.toDouble() * 3.6)
         }
     }
 
-    private fun handleLocation(loc: Location) {
-        // Drop callbacks as soon as Stop/WAITING — do not schedule IO work.
-        if (currentState != TrackingState.TRACKING) return
-
-        val speedMps = loc.speed.toDouble()
-        if (loc.hasSpeed()) {
-            ObdBleManager.noteGpsSpeed(speedMps * 3.6)
+    /**
+     * Fixed 1 Hz sample clock, independent of GPS and of the OBD poll rate.
+     *
+     * Wall time is deliberately not used for pacing: the deadline advances on
+     * [SystemClock.elapsedRealtime] so a clock correction cannot stall or burst the
+     * loop, and a deadline already in the past is reset rather than caught up on.
+     */
+    private fun startSampleClock(epochAtStart: Long) {
+        sampleClockJob?.cancel()
+        sampleClockJob = serviceScope.launch(Dispatchers.IO) {
+            var nextAtMs = SystemClock.elapsedRealtime()
+            while (isActive) {
+                nextAtMs += SAMPLE_INTERVAL_MS
+                val sleepMs = nextAtMs - SystemClock.elapsedRealtime()
+                if (sleepMs > 0L) {
+                    delay(sleepMs)
+                } else {
+                    // Fell behind (doze, long IO). Resync instead of firing a burst.
+                    nextAtMs = SystemClock.elapsedRealtime()
+                }
+                if (!TrackingCollectionGate.shouldCollect(
+                        epochAtStart = epochAtStart,
+                        currentEpoch = collectionEpoch.get(),
+                        isTracking = currentState == TrackingState.TRACKING,
+                        sessionId = currentSessionIdOrNull(),
+                    )
+                ) {
+                    return@launch
+                }
+                runCatching { recordSampleTick(epochAtStart) }
+                    .onFailure { Log.e(TAG, "Sample tick failed", it) }
+            }
         }
-        val epochAtStart = collectionEpoch.get()
+    }
 
-        serviceScope.launch(Dispatchers.IO) {
-            val sessionId = currentSessionIdOrNull()
-            if (!TrackingCollectionGate.shouldCollect(
-                    epochAtStart = epochAtStart,
-                    currentEpoch = collectionEpoch.get(),
-                    isTracking = currentState == TrackingState.TRACKING,
-                    sessionId = sessionId,
-                )
-            ) {
-                return@launch
-            }
-            val id = sessionId!!
+    private fun stopSampleClock() {
+        sampleClockJob?.cancel()
+        sampleClockJob = null
+    }
 
-            val accMag = accelMutex.withLock {
-                accelValues?.let { v -> sqrt((v[0]*v[0] + v[1]*v[1] + v[2]*v[2]).toDouble()) }
-            } ?: 0.0
-
-            // Keep trying to bind server session in background (never mint a new local id here).
-            if (!LocalTrackingIds.isUploadable(id)) {
-                tryBindServerSession(epochAtStart = epochAtStart)
-            }
-
-            // Stop may have landed during bind attempt.
-            if (!TrackingCollectionGate.shouldCollect(
-                    epochAtStart = epochAtStart,
-                    currentEpoch = collectionEpoch.get(),
-                    isTracking = currentState == TrackingState.TRACKING,
-                    sessionId = currentSessionIdOrNull(),
-                )
-            ) {
-                return@launch
-            }
-
-            val accMeters = if (loc.hasAccuracy()) loc.accuracy.toDouble() else Double.POSITIVE_INFINITY
-
-            val hasGoodAccuracy = accMeters <= maxAccurancyMetters
-            if (!hasGoodAccuracy) {
-                updateLiveTrackingNotification(
-                    "Waiting for GPS accuracy… (${accMeters.toInt()} m)",
-                    epochAtStart,
-                )
-                return@launch
-            }
-
-            // Snapshot latest OBD metrics (updated independently at max BLE rate).
-            val pidValues = ObdBleManager.pidValues.value
-            val nowMs = System.currentTimeMillis()
-            val gpsSpeedMps = loc.takeIf { it.hasSpeed() }?.speed?.toDouble()
-            val gpsSpeedKph = gpsSpeedMps?.times(3.6)
-            val cleaned = spikeFilter.accept(
-                speedKph = pidValues["0d"],
-                rpm = pidValues["0c"],
-                nowMs = nowMs,
-                gpsSpeedKph = gpsSpeedKph,
+    /**
+     * Records one sample: the engine snapshot always, coordinates only when the car's
+     * position is actually known.
+     */
+    private suspend fun recordSampleTick(epochAtStart: Long) {
+        val sessionId = currentSessionIdOrNull()
+        if (!TrackingCollectionGate.shouldCollect(
+                epochAtStart = epochAtStart,
+                currentEpoch = collectionEpoch.get(),
+                isTracking = currentState == TrackingState.TRACKING,
+                sessionId = sessionId,
             )
-            speedZeroSinceMs = GpsRecordingGate.nextZeroSinceMs(
-                previousZeroSinceMs = speedZeroSinceMs,
-                lastValidObdSpeedKph = cleaned.speedKph,
-                nowMs = nowMs,
+        ) {
+            return
+        }
+        val id = sessionId!!
+
+        // Keep trying to bind server session in background (never mint a new local id here).
+        if (!LocalTrackingIds.isUploadable(id)) {
+            tryBindServerSession(epochAtStart = epochAtStart)
+        }
+
+        // Stop may have landed during bind attempt.
+        if (!TrackingCollectionGate.shouldCollect(
+                epochAtStart = epochAtStart,
+                currentEpoch = collectionEpoch.get(),
+                isTracking = currentState == TrackingState.TRACKING,
+                sessionId = currentSessionIdOrNull(),
             )
-            if (!GpsRecordingGate.shouldEnqueue(
-                    ecuConnected = ObdBleManager.ecuConnected.value,
-                    vehicleOn = ObdBleManager.vehicleOn.value,
-                    lastValidObdSpeedKph = cleaned.speedKph,
-                    speedZeroSinceMs = speedZeroSinceMs,
-                    nowMs = nowMs,
-                )
-            ) {
-                updateLiveTrackingNotification(
-                    when {
-                        !ObdBleManager.ecuConnected.value ->
-                            "Tracking paused (OBD disconnected)"
-                        !ObdBleManager.vehicleOn.value ->
-                            "Tracking paused (vehicle off)"
-                        else ->
-                            "Tracking paused (vehicle stopped)"
-                    },
-                    epochAtStart,
-                )
-                return@launch
+        ) {
+            return
+        }
+
+        val nowMs = System.currentTimeMillis()
+        val accMag = accelMutex.withLock {
+            accelValues?.let { v -> sqrt((v[0]*v[0] + v[1]*v[1] + v[2]*v[2]).toDouble()) }
+        } ?: 0.0
+
+        val fix = lastLocation
+        val fixUsable = GpsFixFreshness.isUsable(
+            fixAgeMs = fix?.let {
+                (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000L
+            },
+            accuracyMeters = fix?.takeIf { it.hasAccuracy() }?.accuracy?.toDouble(),
+            maxAccuracyMeters = maxAccurancyMetters,
+        )
+        // A fix too old or too coarse must not feed the spike filter either.
+        val gpsSpeedMps = fix?.takeIf { fixUsable && it.hasSpeed() }?.speed?.toDouble()
+
+        // Snapshot latest OBD metrics (updated independently at max BLE rate).
+        val pidValues = ObdBleManager.pidValues.value
+        val cleaned = spikeFilter.accept(
+            speedKph = pidValues["0d"],
+            rpm = pidValues["0c"],
+            nowMs = nowMs,
+            gpsSpeedKph = gpsSpeedMps?.times(3.6),
+        )
+        speedZeroSinceMs = GpsRecordingGate.nextZeroSinceMs(
+            previousZeroSinceMs = speedZeroSinceMs,
+            lastValidObdSpeedKph = cleaned.speedKph,
+            nowMs = nowMs,
+        )
+
+        when (SampleRecordingGate.decide(
+            ecuConnected = ObdBleManager.ecuConnected.value,
+            vehicleOn = ObdBleManager.vehicleOn.value,
+        )) {
+            SampleTickDecision.PAUSED_OBD_DISCONNECTED -> {
+                updateLiveTrackingNotification("Tracking paused (OBD disconnected)", epochAtStart)
+                return
             }
+            SampleTickDecision.PAUSED_VEHICLE_OFF -> {
+                updateLiveTrackingNotification("Tracking paused (vehicle off)", epochAtStart)
+                return
+            }
+            SampleTickDecision.RECORD -> Unit
+        }
 
-            updateLiveTrackingNotification("Tracking started", epochAtStart)
-            val filtered = stationaryFilter.accept(
-                latitude = loc.latitude,
-                longitude = loc.longitude,
-                accuracy = accMeters,
-                obdSpeedKph = cleaned.speedKph,
-                gpsSpeedMps = gpsSpeedMps,
-            )
-
+        val position = resolveSamplePosition(
+            fix = fix,
+            fixUsable = fixUsable,
+            obdSpeedKph = cleaned.speedKph,
+            gpsSpeedMps = gpsSpeedMps,
+            nowMs = nowMs,
+        )
+        if (position != null) {
             GpsDataSource.updateLocation(
                 LocationData(
-                    latitude = filtered.latitude,
-                    longitude = filtered.longitude,
-                    accuracy = filtered.accuracy,
+                    latitude = position.latitude,
+                    longitude = position.longitude,
+                    accuracy = position.accuracy,
                 )
-            )
-
-            // Final gate before enqueue — covers Stop during filtering above.
-            val enqueueId = currentSessionIdOrNull()
-            if (!TrackingCollectionGate.shouldCollect(
-                    epochAtStart = epochAtStart,
-                    currentEpoch = collectionEpoch.get(),
-                    isTracking = currentState == TrackingState.TRACKING,
-                    sessionId = enqueueId,
-                )
-            ) {
-                return@launch
-            }
-
-            val sample = Sample(
-                trackingId = enqueueId!!,
-                lat = filtered.latitude,
-                lon = filtered.longitude,
-                acc = filtered.accuracy,
-
-                vehicleEngineRpm = cleaned.rpm,
-                vehicleSpeedKph = cleaned.speedKph,
-                fuelConsumptionRate = pidValues["ff125a"],
-                engineLoadPct = pidValues["04"],
-                absoluteEngineLoadPct = pidValues["43"],
-                shortTermFuelTrimPct = pidValues["06"],
-                longTermFuelTrimPct = pidValues["07"],
-                fuelLevelPct = FuelLevelReading.fromPidValues(pidValues),
-
-                acceleratorPedalPct = pidValues["49"],
-                ambientAirTempC = pidValues["46"],
-
-                odometerValueKm = OdometerReading.fromPidValues(pidValues),
-                engineCoolantTempC = pidValues["05"],
-                manifoldAbsolutePressureKpa = pidValues["0b"],
-                controlModuleVoltage = pidValues["42"],
-                engineOnTime = pidValues["1f"],
-                // Prefer estimated when peak-air idle MAF was replaced (or no PID 0x10).
-                massAirFlow = pidValues[ObdBleManager.ESTIMATED_MAF_KEY]
-                    ?: pidValues["10"],
-                lambdaCmd = pidValues["44"],
-                atmosphericPressure = pidValues["33"],
-                intakeAirTemperature = pidValues["0f"],
-                // Pack remaining life (PID 0x5B). PID 0x9A is not a percentage and is
-                // no longer used here; it supplies battery_power_kw below instead.
-                batterySocPct = pidValues["5b"],
-                batteryPowerKw = pidValues[HvBatteryReading.KEY_PACK_KW],
-            )
-            // Local enqueue only — never block collection on network.
-            val toEnqueue = SampleFieldFilter.apply(sample, appSettings.sampleUploadFieldFlags())
-            runCatching { queueRepo.enqueue(enqueueId, toEnqueue) }
-                .onFailure { Log.e(TAG, "Failed to enqueue sample", it) }
-
-            updateLiveTrackingNotification(
-                "Running: v=${"%1$.1f".format(speedMps)} m/s a=${"%1$.2f".format(accMag)} m/s²",
-                epochAtStart,
             )
         }
+
+        // Final gate before enqueue — covers Stop during filtering above.
+        val enqueueId = currentSessionIdOrNull()
+        if (!TrackingCollectionGate.shouldCollect(
+                epochAtStart = epochAtStart,
+                currentEpoch = collectionEpoch.get(),
+                isTracking = currentState == TrackingState.TRACKING,
+                sessionId = enqueueId,
+            )
+        ) {
+            return
+        }
+
+        val sample = Sample(
+            trackingId = enqueueId!!,
+            recordedAt = nowMs,
+            lat = position?.latitude,
+            lon = position?.longitude,
+            acc = position?.accuracy,
+
+            vehicleEngineRpm = cleaned.rpm,
+            vehicleSpeedKph = cleaned.speedKph,
+            fuelConsumptionRate = pidValues["ff125a"],
+            engineLoadPct = pidValues["04"],
+            absoluteEngineLoadPct = pidValues["43"],
+            shortTermFuelTrimPct = pidValues["06"],
+            longTermFuelTrimPct = pidValues["07"],
+            fuelLevelPct = FuelLevelReading.fromPidValues(pidValues),
+
+            acceleratorPedalPct = pidValues["49"],
+            ambientAirTempC = pidValues["46"],
+
+            odometerValueKm = OdometerReading.fromPidValues(pidValues),
+            engineCoolantTempC = pidValues["05"],
+            manifoldAbsolutePressureKpa = pidValues["0b"],
+            controlModuleVoltage = pidValues["42"],
+            engineOnTime = pidValues["1f"],
+            // Prefer estimated when peak-air idle MAF was replaced (or no PID 0x10).
+            massAirFlow = pidValues[ObdBleManager.ESTIMATED_MAF_KEY]
+                ?: pidValues["10"],
+            lambdaCmd = pidValues["44"],
+            atmosphericPressure = pidValues["33"],
+            intakeAirTemperature = pidValues["0f"],
+            // Pack remaining life (PID 0x5B). PID 0x9A is not a percentage and is
+            // no longer used here; it supplies battery_power_kw below instead.
+            batterySocPct = pidValues["5b"],
+            batteryPowerKw = pidValues[HvBatteryReading.KEY_PACK_KW],
+        )
+        // Local enqueue only — never block collection on network.
+        val toEnqueue = SampleFieldFilter.apply(sample, appSettings.sampleUploadFieldFlags())
+        runCatching { queueRepo.enqueue(enqueueId, toEnqueue) }
+            .onFailure { Log.e(TAG, "Failed to enqueue sample", it) }
+
+        val speedText = cleaned.speedKph?.let { "${"%1$.0f".format(it)} km/h" } ?: "?"
+        updateLiveTrackingNotification(
+            buildString {
+                append("Running: v=").append(speedText)
+                append(" a=").append("%1$.2f".format(accMag)).append(" m/s²")
+                if (position == null) append(" · no GPS")
+            },
+            epochAtStart,
+        )
+    }
+
+    /**
+     * Coordinates for this sample, or `null` when the car's position is unknown.
+     *
+     * Never guesses: a stale fix is dropped rather than pinning the car to somewhere
+     * it has already left. The one exception is a car OBD reports as parked past the
+     * [GpsRecordingGate] hold, where the frozen anchor is the truth and an incoming
+     * fix would only be drift.
+     */
+    private fun resolveSamplePosition(
+        fix: Location?,
+        fixUsable: Boolean,
+        obdSpeedKph: Double?,
+        gpsSpeedMps: Double?,
+        nowMs: Long,
+    ): FilteredPosition? {
+        val attachFresh = GpsRecordingGate.shouldAttachFreshFix(
+            lastValidObdSpeedKph = obdSpeedKph,
+            speedZeroSinceMs = speedZeroSinceMs,
+            nowMs = nowMs,
+        )
+        if (!attachFresh) return stationaryFilter.anchorOrNull()
+        if (!fixUsable || fix == null) return null
+        return stationaryFilter.accept(
+            latitude = fix.latitude,
+            longitude = fix.longitude,
+            accuracy = fix.accuracy.toDouble(),
+            obdSpeedKph = obdSpeedKph,
+            gpsSpeedMps = gpsSpeedMps,
+        )
     }
 
     /**
@@ -477,10 +573,15 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         Log.d(TAG, "Stopping tracking resources.")
         currentState = TrackingState.WAITING
 
+        stopSampleClock()
         if (::gpsLocator.isInitialized) {
             gpsLocator.stop()
         }
         sensorManager.unregisterListener(this)
+        releaseSampleClockWakeLock()
+        // A new trip must not inherit the previous trip's fix or parked timer.
+        lastLocation = null
+        speedZeroSinceMs = null
 
         val idToStop = trackingId?.takeIf { LocalTrackingIds.isUploadable(it) }
         prefs.edit { remove(KEY_TRACKING_ID) }
@@ -586,6 +687,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopSampleClock()
+        releaseSampleClockWakeLock()
         if (::gpsLocator.isInitialized) {
             gpsLocator.stop()
         }
@@ -712,6 +815,32 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         nm.notify(NOTIF_ID, buildNotification(text, state))
     }
 
+    /**
+     * A foreground service keeps the process alive but does not keep the CPU awake.
+     * With GPS callbacks no longer driving collection, the sample clock needs its own
+     * hold, or the 1 Hz cadence would silently depend on OBD Bluetooth traffic
+     * happening to wake the device.
+     */
+    private fun acquireSampleClockWakeLock() {
+        if (sampleClockWakeLock?.isHeld == true) return
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        sampleClockWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
+            .apply {
+                setReferenceCounted(false)
+                runCatching { acquire() }
+                    .onFailure { Log.e(TAG, "Failed to acquire sample clock wake lock", it) }
+            }
+    }
+
+    private fun releaseSampleClockWakeLock() {
+        val lock = sampleClockWakeLock ?: return
+        sampleClockWakeLock = null
+        if (lock.isHeld) {
+            runCatching { lock.release() }
+                .onFailure { Log.e(TAG, "Failed to release sample clock wake lock", it) }
+        }
+    }
+
     private fun maybeSuggestDisableBatteryOptimization() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         val pkg = packageName
@@ -727,6 +856,10 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     companion object {
         const val TAG = "TrackingService"
+
+        /** Sample cadence. Engine telemetry is recorded at this rate with or without GPS. */
+        const val SAMPLE_INTERVAL_MS = 1_000L
+        private const val WAKE_LOCK_TAG = "gps_car:sample_clock"
         const val CHANNEL_ID = "gps_tracking_channel"
         const val ALERTS_CHANNEL_ID = "gps_alerts_channel"
         const val NOTIF_ID = 42
