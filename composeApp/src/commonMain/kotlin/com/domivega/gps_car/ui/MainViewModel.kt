@@ -26,15 +26,23 @@ class MainViewModel(
     private val _uiState = MutableStateFlow(DashboardState())
     val uiState: StateFlow<DashboardState> = _uiState.asStateFlow()
 
-    /** Readings plus their freshness, collapsed so [combine] stays within 5 sources. */
+    /**
+     * Readings plus their freshness, collapsed so [combine] stays within 5 sources.
+     *
+     * [values] is the staleness-swept map — the same one telemetry uploads — so a
+     * gauge can never outlive its PID's expiry budget. [lastGood] keeps the unswept
+     * map for the Debug Console's raw PID list, where "last seen" is the point.
+     */
     private data class ObdSnapshot(
         val values: Map<String, Double>,
+        val lastGood: Map<String, Double>,
         val staleKeys: Set<String>,
         val ecuConnected: Boolean,
     )
 
     init {
         val obd = combine(
+            carMetricSource.pidValues,
             carMetricSource.pidLastGood,
             carMetricSource.pidStale,
             carMetricSource.ecuConnected,
@@ -84,7 +92,7 @@ class MainViewModel(
                 ecuConnected = snapshot.ecuConnected,
                 uploadWarning = uploadWarning,
                 serviceVersion = serviceVersion,
-                pidValues = pidValues,
+                pidValues = snapshot.lastGood,
                 pidNames = carMetricSource.pidNames,
             )
         }.onEach { newState ->
