@@ -171,6 +171,25 @@ object VehicleOnPolicy {
             nowMs - since >= confirmMs
     }
 
+    /**
+     * Whether a trip end may put the adapter into [PARKED_CONFIRM_MS]-style sleep.
+     *
+     * EndTrip is not proof of parking. The [EcuTrackingGate] grace also fires when
+     * the adapter simply stops answering mid-drive, and a hybrid in EV mode offers
+     * no RPM to contradict it. Sleeping then costs a fixed blind window: measured on
+     * an MG3 Hybrid+, 10 s proof staleness + 90 s grace + a 300 s parked backoff cut
+     * single drives into separate trips exactly 400 s apart, twice, while the car was
+     * still doing 20-25 km/h on a 13.6 V bus.
+     *
+     * So refuse the sleep while the last picture still looks like a running vehicle.
+     * A genuinely parked car reaches the same sleep a few seconds later through
+     * [shouldReleaseAdapter], which the 5 s tracking reconcile keeps evaluating.
+     */
+    fun mayParkAdapterAfterTripEnd(state: State): Boolean {
+        if ((state.lastSpeedKph ?: 0.0) > 0.0) return false
+        return !isChargingVoltage(state.lastVoltage)
+    }
+
     /** Clear proof clock after a hard OBD session reset (not after EndTrip). */
     fun onSessionReset(sawPositiveRpm: Boolean): State =
         State(sawPositiveRpm = sawPositiveRpm, lastProofAtMs = null)

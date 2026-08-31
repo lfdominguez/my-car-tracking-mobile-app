@@ -731,6 +731,18 @@ object ObdBleManager {
      */
     fun releaseAdapterForParkedSleep() {
         if (!isInitialized) return
+        val state = synchronized(vehicleOnLock) { vehicleOnState }
+        if (!VehicleOnPolicy.mayParkAdapterAfterTripEnd(state)) {
+            // Trip ended on the grace alone while the car still looked alive — most
+            // likely a mid-drive adapter dropout. Keep the 60s idle reconnect so the
+            // drive is rejoined, instead of going blind for the parked backoff.
+            logW(
+                "Trip ended but last picture is still moving/charging " +
+                    "(speed=${state.lastSpeedKph} volts=${state.lastVoltage}) — " +
+                    "skip parked sleep, keep ${IdleReconnectPolicy.INTERVAL_MS / 1000}s reconnect",
+            )
+            return
+        }
         if (!parkedReleaseRequested.compareAndSet(false, true)) return
         parkedSleepUntilMs = IdleReconnectPolicy.parkedSleepUntilMs(System.currentTimeMillis())
         logI(

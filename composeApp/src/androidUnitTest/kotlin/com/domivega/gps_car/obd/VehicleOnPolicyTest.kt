@@ -9,6 +9,35 @@ import org.junit.Test
 class VehicleOnPolicyTest {
 
     @Test
+    fun `trip end while still moving does not park the adapter`() {
+        // Measured on an MG3 Hybrid+: two trips ended mid-drive at 20-25 km/h on a
+        // 13.6 V bus. Parking the adapter there cost a 300 s blind window and split
+        // one drive into separate trips exactly 400 s apart.
+        val moving = VehicleOnPolicy.State(lastSpeedKph = 21.0, lastVoltage = 13.628)
+        assertFalse(VehicleOnPolicy.mayParkAdapterAfterTripEnd(moving))
+    }
+
+    @Test
+    fun `trip end on a charging bus does not park the adapter`() {
+        val charging = VehicleOnPolicy.State(lastSpeedKph = 0.0, lastVoltage = 13.9)
+        assertFalse(VehicleOnPolicy.mayParkAdapterAfterTripEnd(charging))
+    }
+
+    @Test
+    fun `trip end stopped on a non-charging bus parks the adapter`() {
+        // The same car's genuine parking ends: speed 0, bus fallen off charge.
+        val parked = VehicleOnPolicy.State(lastSpeedKph = 0.0, lastVoltage = 12.928)
+        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(parked))
+    }
+
+    @Test
+    fun `trip end with nothing known parks the adapter`() {
+        // Link lost before any decode — no evidence of motion, so the battery-saving
+        // sleep stays the default.
+        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(VehicleOnPolicy.State()))
+    }
+
+    @Test
     fun `no proof is not vehicle on`() {
         assertFalse(VehicleOnPolicy.isVehicleOn(VehicleOnPolicy.State(), nowMs = 1_000L))
     }
