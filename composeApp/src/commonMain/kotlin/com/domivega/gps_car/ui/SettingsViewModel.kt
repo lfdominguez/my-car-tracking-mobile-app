@@ -9,6 +9,7 @@ import com.domivega.gps_car.fuel.FuelClass
 import com.domivega.gps_car.fuel.FuelTypePreset
 import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.GolfMk4TdiDefaults
+import com.domivega.gps_car.obd.Mg3HybridDefaults
 import com.domivega.gps_car.obd.VehicleObdProfile
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import com.domivega.gps_car.ui.state.SettingsUiState
@@ -124,6 +125,16 @@ class SettingsViewModel(
             updateFuelClass(FuelClass.DIESEL.name)
             updateEngineDisplacementL(GolfMk4TdiDefaults.DISPLACEMENT_L)
             updateTankCapacityL(GolfMk4TdiDefaults.TANK_CAPACITY_L)
+            updateWwhObdOnly(false)
+        }
+        if (profile == VehicleObdProfile.Mg3HybridPlus) {
+            updateObdProtocol(Mg3HybridDefaults.PROTOCOL)
+            updateFuelClass(FuelClass.HYBRID.name)
+            // Must follow updateFuelClass: that call resets the grade to the class
+            // default (E10), so overriding it first would be silently undone.
+            updateFuelType(Mg3HybridDefaults.FUEL_GRADE)
+            updateEngineDisplacementL(Mg3HybridDefaults.DISPLACEMENT_L)
+            updateTankCapacityL(Mg3HybridDefaults.TANK_CAPACITY_L)
             updateWwhObdOnly(false)
         }
     }

@@ -255,6 +255,27 @@ class SettingsQrParseTest {
     }
 
     @Test
+    fun updateVehicleObdProfile_mg3HybridWritesHybridPack() {
+        val repo = FakeSettingsRepository()
+        val vm = SettingsViewModel(repo)
+        vm.updateVehicleObdProfile("Mg3HybridPlus")
+        assertEquals("Mg3HybridPlus", repo.vehicleObdProfile)
+        assertEquals("ISO_15765_4_CAN_11_500", repo.obdProtocol)
+        // HYBRID is the point of the profile: on ICE rules an engine-off standstill
+        // has no vehicle-on proof and the trip is cut ~100 s later.
+        assertEquals("HYBRID", repo.fuelClass)
+        // E0, not the E10 that HYBRID defaults to: Mexican pump petrol is
+        // effectively ethanol-free, and the AFR feeds the consumption calculator.
+        assertEquals("E0", repo.fuelType)
+        assertEquals(14.7, repo.fuelStoichAfr, 0.0001)
+        assertEquals(745.0, repo.fuelDensityGl, 0.0001)
+        assertEquals(1.5, repo.engineDisplacementL, 0.0001)
+        // The hybrid carries 36 L; the petrol MG3's 45 L would misprice fuel checks.
+        assertEquals(36.0, repo.tankCapacityL, 0.0001)
+        assertFalse(repo.wwhObdOnly)
+    }
+
+    @Test
     fun updateVehicleObdProfile_mqbDoesNotWriteAszPack() {
         val repo = FakeSettingsRepository()
         val vm = SettingsViewModel(repo)

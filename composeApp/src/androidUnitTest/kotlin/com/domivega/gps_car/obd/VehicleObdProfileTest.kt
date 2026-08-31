@@ -9,6 +9,7 @@ class VehicleObdProfileTest {
         assertEquals("Generic OBD", VehicleObdProfile.Generic.displayName)
         assertEquals("VW MQB (Nivus)", VehicleObdProfile.VwMqb.displayName)
         assertEquals("VW Golf mk4 TDI (ASZ)", VehicleObdProfile.VwGolfMk4Tdi.displayName)
+        assertEquals("MG3 Hybrid+ (1.5 HEV)", VehicleObdProfile.Mg3HybridPlus.displayName)
     }
 
     @Test
@@ -18,6 +19,8 @@ class VehicleObdProfileTest {
         assertEquals(VehicleObdProfile.VwMqb, VehicleObdProfile.fromName("vwmqb"))
         assertEquals(VehicleObdProfile.VwGolfMk4Tdi, VehicleObdProfile.fromName("VwGolfMk4Tdi"))
         assertEquals(VehicleObdProfile.VwGolfMk4Tdi, VehicleObdProfile.fromName("vwgolfmk4tdi"))
+        assertEquals(VehicleObdProfile.Mg3HybridPlus, VehicleObdProfile.fromName("Mg3HybridPlus"))
+        assertEquals(VehicleObdProfile.Mg3HybridPlus, VehicleObdProfile.fromName("mg3hybridplus"))
         assertEquals(VehicleObdProfile.Generic, VehicleObdProfile.fromName("NOPE"))
         assertEquals(VehicleObdProfile.Generic, VehicleObdProfile.fromName(""))
     }

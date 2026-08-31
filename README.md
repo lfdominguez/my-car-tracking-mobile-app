@@ -133,7 +133,7 @@ Install the debug APK, open **Settings**, then:
    Classic: pair in system Bluetooth first (PIN often `1234` / `0000`), fully quit Torque/other OBD apps, then Scan
 5. **Adapter** — scan, select, save (auto-reconnect next time)
 6. **OBD protocol** — leave default CAN 11/500 unless your car needs another
-7. **Vehicle & fuel** — Gasoline/Diesel class and grade (E10 or B7 defaults); set displacement. **VW Golf mk4 TDI (ASZ)** profile applies ISO 9141-2, Diesel B7, 1.9 L, and 55 L tank; it does not invent SAE odometer (`A6`) or tank PID (`2F`), and does not use the VW MQB cluster hop.
+7. **Vehicle & fuel** — Gasoline/Diesel class and grade (E10 or B7 defaults); set displacement. **VW Golf mk4 TDI (ASZ)** profile applies ISO 9141-2, Diesel B7, 1.9 L, and 55 L tank; it does not invent SAE odometer (`A6`) or tank PID (`2F`), and does not use the VW MQB cluster hop. **MG3 Hybrid+ (1.5 HEV)** applies CAN 11/500, Hybrid class with the **E0** grade (Mexican pump petrol is effectively ethanol-free), 1.5 L, and a 36 L tank (the petrol MG3's 45 L would misprice fuel checks), and widens the ELM `ST` ceiling only on the physical-header tier, where the response-count suffix keeps it free. Hybrid class matters for more than fuel maths: on ICE rules an engine-off standstill leaves no vehicle-on proof and the trip is cut after ~100 s. This car's PID `2F` uses a compressed scale — about 71 % (raw 181/255) for a tank the dash shows as full — so the profile rescales it, mapping raw 181 to 100 %; the correction is applied once at decode, so gauge, upload and platform always agree.
 
 Grant **location (always)** and **Bluetooth** permissions when prompted.
 

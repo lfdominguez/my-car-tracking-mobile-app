@@ -38,6 +38,7 @@ import kotlinx.coroutines.yield
 import java.nio.charset.Charset
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.roundToInt
 
 data class BleDeviceInfo(
     val name: String?,
@@ -214,6 +215,8 @@ object ObdBleManager {
 
     /** First successful PID 0x9A decode log per session. */
     private val loggedHvBattery = AtomicBoolean(false)
+    /** Last raw 0x2F decode written to the debug log, so calibration is traceable. */
+    private var lastFuelRescaleLoggedPct: Double? = null
 
     /** First successful UDS odometer DID this session (prefer on later probes). */
     @Volatile
@@ -1099,7 +1102,7 @@ object ObdBleManager {
                 physicalHeaderProbePending = false
                 // Safe to widen now: the count suffix returns on the first frame, so
                 // the longer ceiling is only ever paid by a PID with no answer.
-                applySessionStHex(ElmPerformanceMode.ST_SINGLE_RESPONDER_HEX)
+                applySessionStHex(ElmInitPolicy.singleResponderStHex(profile))
                 val filterNote = if (engineReceiveFilterSet) " +ATCRA7E8" else ""
                 logI(
                     "Engine polling pinned to physical header 7E0 (was functional 7DF) " +
@@ -1308,6 +1311,7 @@ object ObdBleManager {
         pidEverDecoded.clear()
         pidSessionDisabled.clear()
         loggedHvBattery.set(false)
+        lastFuelRescaleLoggedPct = null
         if (powertrainKind() == PowertrainKind.ICE) {
             pidSessionDisabled.addAll(HV_ONLY_PIDS)
         }
@@ -1381,12 +1385,42 @@ object ObdBleManager {
         _vehicleOn.value = VehicleOnPolicy.isVehicleOn(vehicleOnState, nowMs)
     }
 
+    private fun vehicleProfile(): VehicleObdProfile =
+        VehicleObdProfile.fromName(settings.vehicleObdProfile)
+
     private fun powertrainKind(): PowertrainKind =
         when (FuelClass.fromName(settings.fuelClass)) {
             FuelClass.HYBRID -> PowertrainKind.HYBRID
             FuelClass.FULL_ELECTRIC -> PowertrainKind.ELECTRIC
             else -> PowertrainKind.ICE
         }
+
+    /**
+     * Rescale a raw 0x2F decode for profiles whose sender never reaches raw 255.
+     *
+     * Both numbers are logged whenever the raw decode changes, not once per session.
+     * Everything downstream — gauge, sample, platform — carries only the corrected
+     * value, so without this line the raw byte the ECU actually sent would be
+     * unrecoverable, and that byte is exactly what a second calibration anchor needs.
+     * 0x2F moves a handful of times per trip at most, so this cannot flood the ring.
+     */
+    private fun applyFuelLevelScale(value: Double): Double {
+        val profile = vehicleProfile()
+        val corrected = FuelLevelScale.correctedPct(value, profile)
+        // isFinite guards the ring: NaN != NaN, so a non-finite value would defeat
+        // both the changed- and already-logged checks and write a line every poll.
+        // isValidPidValue rejects NaN before this today; do not depend on that order.
+        if (value.isFinite() && corrected != value && lastFuelRescaleLoggedPct != value) {
+            lastFuelRescaleLoggedPct = value
+            val rawByte = (value * 255.0 / 100.0).roundToInt()
+            logI(
+                "Fuel level ${profile.displayName}: raw ${"%.2f".format(value)}% " +
+                    "(byte $rawByte) -> ${"%.2f".format(corrected)}% " +
+                    "(full tank = raw ${FuelLevelScale.fullTankRawFor(profile)})",
+            )
+        }
+        return corrected
+    }
 
     private fun applyVehicleOnPid(pid: String, value: Double) {
         val now = System.currentTimeMillis()
@@ -1940,8 +1974,17 @@ object ObdBleManager {
                             continue
                         }
 
+                        // A profile whose 0x2F sender tops out below raw 255 is
+                        // corrected here, at the one place the PID is decoded, so the
+                        // gauge, the uploaded sample and the platform cannot disagree.
+                        val storedValue = if (pid.equals("2f", ignoreCase = true)) {
+                            applyFuelLevelScale(value)
+                        } else {
+                            value
+                        }
+
                         val updated = LinkedHashMap(
-                            PidPollPolicy.afterSuccess(_pidLastGood.value, pid, value),
+                            PidPollPolicy.afterSuccess(_pidLastGood.value, pid, storedValue),
                         )
                         val fuelInputs = setOf("10", "44", "0b", "0c", "0f", "06", "07", "5e")
                         if (pid in fuelInputs) {
