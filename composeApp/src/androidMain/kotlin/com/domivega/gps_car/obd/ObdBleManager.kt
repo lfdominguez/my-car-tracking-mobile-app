@@ -1028,7 +1028,9 @@ object ObdBleManager {
                 "ELM init OK — mode01 support=${supportedMode01Pids.size} " +
                     "protocol=${protocol.name} header=$sessionEngineHeader " +
                     "hot=${HOT_PIDS.size} slow=${SLOW_PIDS.size} " +
-                    "performance=$performance (tracking waits for live 0c/0d/42)",
+                    "performance=$performance (tracking waits for live " +
+                    LiveObdConnectionPolicy.trackedLivePids(supportedMode01Pids)
+                        .joinToString("/") + ")",
             )
             true
         } catch (t: Throwable) {
@@ -1880,20 +1882,26 @@ object ObdBleManager {
                                 break
                             }
                             consecutiveEngineTimeouts += 1
-                            if (
-                                UdsRestorePolicy.shouldHardRecoverSession(
-                                    udsRestoreUnhealthy = udsHeaderRestoreFailed,
-                                    consecutiveEngineTimeouts = consecutiveEngineTimeouts,
-                                )
-                            ) {
+                            val udsRecover = UdsRestorePolicy.shouldHardRecoverSession(
+                                udsRestoreUnhealthy = udsHeaderRestoreFailed,
+                                consecutiveEngineTimeouts = consecutiveEngineTimeouts,
+                            )
+                            // A hung adapter keeps the link up and accepts writes, so
+                            // only the streak can end it. Ungated by the VW UDS flag:
+                            // K-line clones stall the same way with no UDS involved.
+                            val stallRecover = ElmSessionStallPolicy.shouldRecoverSession(
+                                consecutiveEngineTimeouts = consecutiveEngineTimeouts,
+                            )
+                            if (udsRecover || stallRecover) {
+                                val why = if (udsRecover) "after UDS restore" else "engine stack mute"
                                 logE(
-                                    "Engine timeouts after UDS restore " +
+                                    "Engine timeouts $why " +
                                         "(streak=$consecutiveEngineTimeouts) — session re-init",
                                 )
                                 sessionReady.set(false)
                                 consecutiveLiveMisses = 0
                                 _ecuConnected.value = false
-                                setStatus("OBD headers unhealthy — reconnecting")
+                                setStatus("OBD stalled — reconnecting")
                                 closeLinkInternal()
                                 break
                             }
