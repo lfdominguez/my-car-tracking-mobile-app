@@ -113,4 +113,25 @@ class LiveObdConnectionPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun `tracked live pids omit ones the ECU never advertised`() {
+        // Golf mk4 TDI (ASZ) advertises 13 Mode 01 PIDs and no control-module voltage.
+        val golfMk4Tdi = setOf(
+            0x01, 0x04, 0x05, 0x0B, 0x0C, 0x0D,
+            0x0E, 0x0F, 0x10, 0x11, 0x1C, 0x20, 0x21,
+        )
+        assertEquals(
+            listOf("0c", "0d"),
+            LiveObdConnectionPolicy.trackedLivePids(golfMk4Tdi),
+        )
+    }
+
+    @Test
+    fun `tracked live pids keep the full set before discovery`() {
+        assertEquals(
+            listOf("0c", "0d", "42"),
+            LiveObdConnectionPolicy.trackedLivePids(emptySet()),
+        )
+    }
 }

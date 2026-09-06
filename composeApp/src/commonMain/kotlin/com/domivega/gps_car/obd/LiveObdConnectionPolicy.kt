@@ -57,6 +57,16 @@ object LiveObdConnectionPolicy {
         }
     }
 
+    /**
+     * The live PIDs this ECU actually advertises, for logs and status text.
+     *
+     * A mk4 TDI advertises 13 Mode 01 PIDs and no `42`, so printing the full
+     * [LIVE_PIDS] set made its logs read as if tracking were waiting on a PID
+     * that is never polled.
+     */
+    fun trackedLivePids(supportedMode01: Set<Int>): List<String> =
+        LIVE_PIDS.filter { PidSupport.isMode01Supported(supportedMode01, it) }.sorted()
+
     /** Skip miss accounting for live PIDs the ECU never advertised. */
     fun shouldCountLiveMiss(
         pid: String,
