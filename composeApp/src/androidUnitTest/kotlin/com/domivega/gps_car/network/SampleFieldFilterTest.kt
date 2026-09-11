@@ -33,6 +33,9 @@ class SampleFieldFilterTest {
         lambdaCmd = 1.0,
         atmosphericPressure = 101.0,
         intakeAirTemperature = 30.0,
+        accelPeakMps2 = 3.4,
+        accelRmsMps2 = 2.8,
+        deviceTiltDeltaDeg = 1.5,
     )
 
     @Test
@@ -51,6 +54,26 @@ class SampleFieldFilterTest {
         assertEquals(40.0, out.vehicleSpeedKph)
         assertEquals(1.0, out.lat!!, 0.0)
         assertNotNull(out.engineLoadPct)
+    }
+
+    @Test
+    fun `motion flag clears all three motion fields together`() {
+        // They are useless apart: a peak with no RMS cannot be told from a pothole.
+        val flags = SampleUploadFieldFlags.ALL_ENABLED.copy(motion = false)
+        val out = SampleFieldFilter.apply(baseSample(), flags)
+        assertNull(out.accelPeakMps2)
+        assertNull(out.accelRmsMps2)
+        assertNull(out.deviceTiltDeltaDeg)
+        // Car telemetry is untouched — motion is opt-out on its own.
+        assertEquals(1.5, out.fuelConsumptionRate!!, 0.0)
+    }
+
+    @Test
+    fun `motion fields survive when the flag is on`() {
+        val out = SampleFieldFilter.apply(baseSample(), SampleUploadFieldFlags.ALL_ENABLED)
+        assertEquals(3.4, out.accelPeakMps2!!, 0.0)
+        assertEquals(2.8, out.accelRmsMps2!!, 0.0)
+        assertEquals(1.5, out.deviceTiltDeltaDeg!!, 0.0)
     }
 
     @Test

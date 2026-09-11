@@ -28,13 +28,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.sqrt
 import androidx.core.content.edit
 import com.domivega.gps_car.data.queue.LocalTrackingIds
 import com.domivega.gps_car.data.queue.SampleQueueRepository
@@ -43,6 +41,8 @@ import com.domivega.gps_car.data.queue.SampleUploadScheduler
 import com.domivega.gps_car.network.ApiClient
 import com.domivega.gps_car.network.Sample
 import com.domivega.gps_car.network.SampleFieldFilter
+import com.domivega.gps_car.motion.MotionMath
+import com.domivega.gps_car.motion.MotionWindow
 import com.domivega.gps_car.obd.EcuTrackingGate
 import com.domivega.gps_car.obd.FuelLevelReading
 import com.domivega.gps_car.obd.HvBatteryReading
@@ -80,7 +80,13 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     private val serviceScope = CoroutineScope(Dispatchers.Main)
     private lateinit var gpsLocator: GpsLocator
     private lateinit var sensorManager: SensorManager
-    private var accelValues: FloatArray? = null
+    /** Latest device→world rotation, used to make acceleration orientation-independent. */
+    private var rotationMatrix: FloatArray? = null
+    /** Folds the ~50 Hz sensor stream into one aggregate per 1 Hz sample. */
+    private val motionWindow = MotionWindow()
+    /** Guards [motionWindow] and [rotationMatrix]: the sensor callback runs on its own
+     *  thread while the sample clock drains from the IO dispatcher. */
+    private val motionLock = Any()
     // Keep most recent GPS location to pair with acceleration-triggered events
     private var lastLocation: Location? = null
     private var trackingId: String? = null
@@ -95,7 +101,6 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     /** Held while TRACKING so the sample clock keeps ticking with the screen off. */
     private var sampleClockWakeLock: PowerManager.WakeLock? = null
 
-    private val accelMutex = Mutex()
     private val isStartingSession = AtomicBoolean(false)
     private var lastSessionStartAttempt = 0L
     /** Bumped on Stop (and Start) so late GPS/bind coroutines cannot recreate a session. */
@@ -289,8 +294,17 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
         acquireSampleClockWakeLock()
 
-        // Register acceleration sensor
+        // Register acceleration sensor. TYPE_LINEAR_ACCELERATION is gravity-compensated
+        // but still in device axes, so TYPE_ROTATION_VECTOR comes along to rotate it into
+        // the world frame and to expose the phone's tilt for the handling check.
+        synchronized(motionLock) {
+            motionWindow.reset()
+            rotationMatrix = null
+        }
         sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        }
+        sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
 
@@ -397,9 +411,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         }
 
         val nowMs = System.currentTimeMillis()
-        val accMag = accelMutex.withLock {
-            accelValues?.let { v -> sqrt((v[0]*v[0] + v[1]*v[1] + v[2]*v[2]).toDouble()) }
-        } ?: 0.0
+        val motion = synchronized(motionLock) { motionWindow.drain() }
+        val accMag = motion?.peakMps2 ?: 0.0
 
         val fix = lastLocation
         val fixUsable = GpsFixFreshness.isUsable(
@@ -504,6 +517,10 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             // no longer used here; it supplies battery_power_kw below instead.
             batterySocPct = pidValues["5b"],
             batteryPowerKw = pidValues[HvBatteryReading.KEY_PACK_KW],
+
+            accelPeakMps2 = motion?.peakMps2,
+            accelRmsMps2 = motion?.rmsMps2,
+            deviceTiltDeltaDeg = motion?.tiltDeltaDeg,
         )
         // Local enqueue only — never block collection on network.
         val toEnqueue = SampleFieldFilter.apply(sample, appSettings.sampleUploadFieldFlags())
@@ -701,7 +718,31 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onSensorChanged(event: SensorEvent?) {}
+    override fun onSensorChanged(event: SensorEvent?) {
+        val values = event?.values ?: return
+        when (event.sensor?.type) {
+            Sensor.TYPE_ROTATION_VECTOR -> {
+                val m = FloatArray(9)
+                SensorManager.getRotationMatrixFromVector(m, values)
+                synchronized(motionLock) { rotationMatrix = m }
+            }
+
+            Sensor.TYPE_LINEAR_ACCELERATION -> {
+                if (values.size < 3) return
+                val x = values[0].toDouble()
+                val y = values[1].toDouble()
+                val z = values[2].toDouble()
+                synchronized(motionLock) {
+                    val horizontal = MotionMath.horizontalMagnitude(rotationMatrix, x, y, z)
+                    // No orientation yet means no comparable number; skip the reading
+                    // rather than record a device-frame value that means nothing.
+                    if (horizontal != null) {
+                        motionWindow.add(horizontal, MotionMath.tiltVector(rotationMatrix))
+                    }
+                }
+            }
+        }
+    }
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     // Notification helpers

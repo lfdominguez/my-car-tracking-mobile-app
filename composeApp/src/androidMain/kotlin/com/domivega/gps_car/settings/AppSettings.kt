@@ -49,6 +49,7 @@ class AppSettings(context: Context) {
         private const val KEY_UPLOAD_LAMBDA_CMD = "upload_lambda_cmd"
         private const val KEY_UPLOAD_ATMOSPHERIC_PRESSURE = "upload_atmospheric_pressure"
         private const val KEY_UPLOAD_INTAKE_AIR_TEMPERATURE = "upload_intake_air_temperature"
+        private const val KEY_UPLOAD_MOTION = "upload_motion"
 
         // Empty/placeholder defaults — configure real values in Settings (do not commit secrets).
         const val DEFAULT_API_TOKEN = ""
@@ -251,6 +252,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_UPLOAD_INTAKE_AIR_TEMPERATURE, true)
         set(value) = prefs.edit().putBoolean(KEY_UPLOAD_INTAKE_AIR_TEMPERATURE, value).apply()
 
+    /** Phone accelerometer aggregates: phone data rather than car data, so it is opt-out. */
+    var uploadMotion: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_MOTION, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_MOTION, value).apply()
+
     fun sampleUploadFieldFlags(): SampleUploadFieldFlags = SampleUploadFieldFlags(
         fuelConsumptionRate = uploadFuelConsumptionRate,
         engineLoadPct = uploadEngineLoadPct,
@@ -269,6 +275,7 @@ class AppSettings(context: Context) {
         lambdaCmd = uploadLambdaCmd,
         atmosphericPressure = uploadAtmosphericPressure,
         intakeAirTemperature = uploadIntakeAirTemperature,
+        motion = uploadMotion,
     )
 
     fun applySampleUploadFieldFlags(flags: SampleUploadFieldFlags) {
@@ -289,6 +296,7 @@ class AppSettings(context: Context) {
         uploadLambdaCmd = flags.lambdaCmd
         uploadAtmosphericPressure = flags.atmosphericPressure
         uploadIntakeAirTemperature = flags.intakeAirTemperature
+        uploadMotion = flags.motion
     }
 
     private fun getDouble(key: String, default: Double): Double =
