@@ -262,4 +262,18 @@ data class Sample(
     val batterySocPct: Double? = null,
     @SerialName("battery_power_kw")
     val batteryPowerKw: Double? = null,
+
+    /**
+     * Phone motion aggregated over this sample's second. Horizontal magnitudes are in
+     * the world frame with gravity removed, so they do not depend on how the phone is
+     * oriented. The backend uses them to size harsh accel/brake events that the OBD
+     * speed series can only detect at 1 km/h resolution.
+     */
+    @SerialName("accel_peak_mps2")
+    val accelPeakMps2: Double? = null,
+    @SerialName("accel_rms_mps2")
+    val accelRmsMps2: Double? = null,
+    /** Largest tilt swing during the second; the backend rejects handled-phone windows. */
+    @SerialName("device_tilt_delta_deg")
+    val deviceTiltDeltaDeg: Double? = null,
 )

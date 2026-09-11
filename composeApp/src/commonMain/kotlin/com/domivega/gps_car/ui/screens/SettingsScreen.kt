@@ -383,6 +383,11 @@ fun SettingsScreen(
             checked = flags.intakeAirTemperature,
             onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(intakeAirTemperature = it)) },
         )
+        UploadFieldSwitch(
+            label = "Phone motion (harsh braking detection)",
+            checked = flags.motion,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(motion = it)) },
+        )
         }
     }
 }

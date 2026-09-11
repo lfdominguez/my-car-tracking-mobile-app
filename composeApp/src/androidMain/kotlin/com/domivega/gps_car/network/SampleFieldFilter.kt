@@ -25,5 +25,8 @@ object SampleFieldFilter {
             intakeAirTemperature = sample.intakeAirTemperature.takeIf { flags.intakeAirTemperature },
             batterySocPct = sample.batterySocPct,
             batteryPowerKw = sample.batteryPowerKw,
+            accelPeakMps2 = sample.accelPeakMps2.takeIf { flags.motion },
+            accelRmsMps2 = sample.accelRmsMps2.takeIf { flags.motion },
+            deviceTiltDeltaDeg = sample.deviceTiltDeltaDeg.takeIf { flags.motion },
         )
 }
