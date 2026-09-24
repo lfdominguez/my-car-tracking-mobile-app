@@ -37,7 +37,8 @@ data class DashboardState(
      * cannot help, a new QR / token can.
      */
     val uploadPausedMessage: String? = null,
-    val serviceVersion: String? = null,
+    /** OBD adapter / ECU connection status line (was misnamed `serviceVersion`). */
+    val obdConnectionStatus: String? = null,
     val pidValues: Map<String, Double> = emptyMap(),
     val pidNames: Map<String, String> = emptyMap()
 )

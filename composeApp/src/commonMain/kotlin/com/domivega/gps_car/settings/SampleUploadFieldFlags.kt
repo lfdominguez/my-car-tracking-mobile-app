@@ -4,7 +4,8 @@ import kotlinx.serialization.Serializable
 
 /**
  * Which optional sample metrics may be uploaded.
- * Always-on: tracking_id, recorded_at, lat, lon, acc, RPM, velocity.
+ * Always-on: tracking_id, recorded_at, RPM, velocity. lat/lon/acc are never filtered
+ * here; they are sent whenever the sample has a usable GPS fix.
  */
 @Serializable
 data class SampleUploadFieldFlags(

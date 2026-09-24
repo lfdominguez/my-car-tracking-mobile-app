@@ -13,7 +13,9 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun AboutScreen(
-    logoPainter: Painter?
+    logoPainter: Painter?,
+    /** e.g. `1.2 (3)`, from the Android BuildConfig; blank hides the line. */
+    appVersion: String = "",
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -45,10 +47,12 @@ fun AboutScreen(
         
         Spacer(modifier = Modifier.height(32.dp))
         
-        Text(
-            text = "Version 1.0",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.outline
-        )
+        if (appVersion.isNotBlank()) {
+            Text(
+                text = "Version $appVersion",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
     }
 }

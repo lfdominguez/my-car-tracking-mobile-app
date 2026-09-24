@@ -8,11 +8,7 @@ class AndroidCarMetricSource : CarMetricSource {
     override val pidLastGood: StateFlow<Map<String, Double>> = ObdBleManager.pidLastGood
     override val pidStale: StateFlow<Set<String>> = ObdBleManager.pidStale
     override val ecuConnected: StateFlow<Boolean> = ObdBleManager.ecuConnected
-
-    // CarMetricSource expects StateFlow<String?>; connectionStatus is non-null String.
-    @Suppress("UNCHECKED_CAST")
-    override val serviceVersion: StateFlow<String?> =
-        ObdBleManager.connectionStatus as StateFlow<String?>
+    override val obdConnectionStatus: StateFlow<String> = ObdBleManager.connectionStatus
 
     override val pidNames: Map<String, String> = ObdBleManager.pidsMap
 }

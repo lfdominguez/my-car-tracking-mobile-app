@@ -47,7 +47,6 @@ fun SettingsScreen(
     onScanQrCode: () -> Unit,
     onTestConnection: () -> Unit = {},
     onClearQrError: () -> Unit = {},
-    fuelTypeOptions: List<Pair<String, String>> = emptyList(),
     onFuelClassSelected: (String) -> Unit = {},
     onFuelTypeSelected: (String) -> Unit = {},
     onFuelStoichAfrChange: (Double) -> Unit = {},
@@ -66,7 +65,6 @@ fun SettingsScreen(
     val fuelClassOptions = FuelClass.entries.map { it.name to it.displayName }
     val gradeOptions = FuelTypePreset.gradesFor(selectedFuelClass)
         .map { it.name to it.displayName }
-        .ifEmpty { fuelTypeOptions }
 
     val selectedFuelClassLabel = fuelClassOptions
         .firstOrNull { it.first == selectedFuelClass.name }
@@ -295,7 +293,7 @@ fun SettingsScreen(
 
         SettingsSection(
             title = "Upload fields",
-            supporting = "Always sent: GPS lat/lon, velocity, RPM (plus tracking id and accuracy).",
+            supporting = "Always sent: velocity and RPM (plus tracking id). GPS lat/lon and accuracy are sent whenever there is a usable fix.",
         ) {
         val flags = state.sampleUploadFieldFlags
         UploadFieldSwitch(

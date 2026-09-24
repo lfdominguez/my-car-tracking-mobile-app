@@ -238,9 +238,6 @@ fun App() {
                     ).show()
                 }
             },
-            onOpenSettings = {
-                // Placeholder for settings navigation
-            },
             onScanQrCode = {
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                     scanLauncher.launch(provisioningQrScanOptions())
@@ -249,6 +246,7 @@ fun App() {
                 }
             },
             logoPainter = painterResource(R.drawable.ic_app_logo),
+            appVersion = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             bleDeviceLabel = bleDeviceLabel,
             connectionStatus = connectionStatus,
             protocolOptions = protocolOptions,
