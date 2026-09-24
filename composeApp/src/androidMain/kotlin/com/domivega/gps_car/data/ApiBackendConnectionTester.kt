@@ -33,7 +33,11 @@ class ApiBackendConnectionTester(
             UploadPauseStore.clearAndResume(ctx)
         } else if (UploadPauseStore.get(ctx) == UploadPauseReason.DeviceUnauthorized) {
             // The token is fine again; what still blocks uploads is the car's vault.
-            UploadPauseStore.pause(ctx, UploadPauseReason.VaultRequired)
+            UploadPauseStore.pause(
+                ctx,
+                UploadPauseReason.VaultRequired,
+                com.domivega.gps_car.settings.AppSettings(ctx).apiToken,
+            )
         }
     }
 }

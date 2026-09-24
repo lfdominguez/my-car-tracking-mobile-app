@@ -10,15 +10,16 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
     private val appSettings = AppSettings(context)
 
     /**
-     * A new token (QR scan or manual edit) lifts an upload pause left by a revoked
-     * token or a vault car, and resumes the drain with the queue intact.
+     * The field saves per keystroke, so a change must not resume uploads right
+     * away: [UploadPauseStore.onTokenChanged] lifts a pause bound to the refused
+     * token and schedules a single drain once typing settles.
      */
     override var apiToken: String
         get() = appSettings.apiToken
         set(value) {
             val changed = value != appSettings.apiToken
             appSettings.apiToken = value
-            if (changed) UploadPauseStore.clearAndResume(appContext)
+            if (changed) UploadPauseStore.onTokenChanged(appContext)
         }
 
     override var startUrl: String

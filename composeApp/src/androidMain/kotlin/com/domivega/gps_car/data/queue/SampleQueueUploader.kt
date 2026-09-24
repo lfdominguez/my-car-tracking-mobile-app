@@ -140,6 +140,7 @@ class SampleQueueUploader(
             return@withLock
         }
 
+        val tokenUsed = api.currentToken
         val result = api.sendSamples(samples)
         result.fold(
             onSuccess = { response ->
@@ -210,7 +211,12 @@ class SampleQueueUploader(
                 }
                 val pauseReason = kind.pauseReason()
                 if (pauseReason != null) {
-                    UploadPauseStore.pause(appContext, pauseReason)
+                    val paused = UploadPauseStore.pause(appContext, pauseReason, tokenUsed)
+                    if (!paused && !UploadPauseStore.isPaused(appContext)) {
+                        // The refused token was replaced while this batch was in flight:
+                        // the rows are pending again, so retry them with the new token.
+                        SampleUploadScheduler.enqueue(appContext)
+                    }
                     // Not a network fault: no backoff growth, no WorkManager retry loop.
                     refreshHealth(lastFlushOk = null, lastError = null)
                     return@withLock

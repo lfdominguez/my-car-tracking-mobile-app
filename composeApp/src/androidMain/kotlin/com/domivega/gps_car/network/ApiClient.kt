@@ -26,6 +26,10 @@ class ApiClient(private val settings: AppSettings) {
         .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
+    /** The token the next request will carry; callers bind a refusal to it. */
+    val currentToken: String
+        get() = settings.apiToken
+
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
     suspend fun postJson(url: String, body: String): Result<String> {

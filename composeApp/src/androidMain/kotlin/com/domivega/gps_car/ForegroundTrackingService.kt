@@ -218,12 +218,13 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             lastSessionStartAttempt = System.currentTimeMillis()
             val localId = trackingId ?: prefs.getString(KEY_TRACKING_ID, null) ?: return
             Log.d(TAG, "Binding server session for localId=$localId")
+            val startToken = appSettings.apiToken
             val startResult = repo.notifyStart()
             startResult.exceptionOrNull()?.let { error ->
                 val kind = UploadFailureClassifier.classify(error.message ?: error.toString())
                 kind.pauseReason()?.let { reason ->
                     Log.w(TAG, "/start refused ($kind) — pausing uploads")
-                    UploadPauseStore.pause(this, reason)
+                    UploadPauseStore.pause(this, reason, startToken)
                 }
             }
             val serverId = startResult.getOrNull()
@@ -737,6 +738,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         }
         // Revoked token: keep the durable stop for after a new token is saved.
         if (UploadPauseStore.get(this) == UploadPauseReason.DeviceUnauthorized) return
+        val stopToken = appSettings.apiToken
         val result = runCatching { repo.notifyStop(pending) }.getOrElse { Result.failure(it) }
         result
             .onSuccess {
@@ -745,15 +747,15 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             }
             .onFailure {
                 Log.w(TAG, "Pending stop failed for trackingId=$pending — will retry", it)
-                pauseIfDeviceUnauthorized(it)
+                pauseIfDeviceUnauthorized(it, stopToken)
             }
     }
 
     /** 401/403 on /stop means the token was revoked: pause instead of retrying blindly. */
-    private fun pauseIfDeviceUnauthorized(error: Throwable) {
+    private fun pauseIfDeviceUnauthorized(error: Throwable, tokenUsed: String) {
         val kind = UploadFailureClassifier.classify(error.message ?: error.toString())
         if (kind == UploadFailureKind.DeviceUnauthorized) {
-            UploadPauseStore.pause(this, UploadPauseReason.DeviceUnauthorized)
+            UploadPauseStore.pause(this, UploadPauseReason.DeviceUnauthorized, tokenUsed)
         }
     }
 
