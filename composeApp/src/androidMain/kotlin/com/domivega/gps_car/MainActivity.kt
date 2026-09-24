@@ -1,7 +1,6 @@
 package com.domivega.gps_car
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -12,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.domivega.gps_car.obd.ObdPresenceController
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,15 +24,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             App()
-        }
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        @Suppress("DEPRECATION")
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == ObdPresenceController.REQUEST_CODE_ASSOCIATE) {
-            ObdPresenceController.onAssociationActivityResult(this, resultCode)
         }
     }
 
