@@ -42,7 +42,6 @@ fun SettingsScreen(
     onApiTokenChange: (String) -> Unit,
     onStartUrlChange: (String) -> Unit,
     onStopUrlChange: (String) -> Unit,
-    onSampleUrlChange: (String) -> Unit,
     onSamplesUrlChange: (String) -> Unit,
     onPingUrlChange: (String) -> Unit = {},
     onScanQrCode: () -> Unit,
@@ -146,12 +145,6 @@ fun SettingsScreen(
             value = state.stopUrl,
             onValueChange = onStopUrlChange,
             label = "Stop URL"
-        )
-
-        SettingsTextField(
-            value = state.sampleUrl,
-            onValueChange = onSampleUrlChange,
-            label = "Sample URL"
         )
 
         SettingsTextField(

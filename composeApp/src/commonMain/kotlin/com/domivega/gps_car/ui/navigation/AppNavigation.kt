@@ -182,7 +182,6 @@ fun AppNavigation(
                         onApiTokenChange = settingsViewModel::updateApiToken,
                         onStartUrlChange = settingsViewModel::updateStartUrl,
                         onStopUrlChange = settingsViewModel::updateStopUrl,
-                        onSampleUrlChange = settingsViewModel::updateSampleUrl,
                         onSamplesUrlChange = settingsViewModel::updateSamplesUrl,
                         onPingUrlChange = settingsViewModel::updatePingUrl,
                         onScanQrCode = onScanQrCode,

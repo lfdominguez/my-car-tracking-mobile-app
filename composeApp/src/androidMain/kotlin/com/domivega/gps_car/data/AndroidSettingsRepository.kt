@@ -29,10 +29,6 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
         get() = appSettings.stopUrl
         set(value) { appSettings.stopUrl = value }
 
-    override var sampleUrl: String
-        get() = appSettings.sampleUrl
-        set(value) { appSettings.sampleUrl = value }
-
     override var samplesUrl: String
         get() = appSettings.samplesUrl
         set(value) { appSettings.samplesUrl = value }

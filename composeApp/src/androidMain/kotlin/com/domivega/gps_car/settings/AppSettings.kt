@@ -10,7 +10,6 @@ class AppSettings(context: Context) {
         private const val KEY_API_TOKEN = "track_api_token"
         private const val KEY_START_URL = "track_start_url"
         private const val KEY_STOP_URL = "track_stop_url"
-        private const val KEY_SAMPLE_URL = "track_sample_url"
         private const val KEY_SAMPLES_URL = "track_samples_url"
         private const val KEY_PING_URL = "track_ping_url"
         private const val KEY_BLE_DEVICE_ADDRESS = "ble_device_address"
@@ -58,7 +57,6 @@ class AppSettings(context: Context) {
         const val DEFAULT_API_TOKEN = ""
         const val DEFAULT_START_URL = "https://YOUR_SERVER.example/api/track/start"
         const val DEFAULT_STOP_URL = "https://YOUR_SERVER.example/api/track/stop"
-        const val DEFAULT_SAMPLE_URL = "https://YOUR_SERVER.example/api/track/sample"
         const val DEFAULT_SAMPLES_URL = "https://YOUR_SERVER.example/api/track/samples"
         /** Blank = derive from the start URL's origin + `/api/track/ping`. */
         const val DEFAULT_PING_URL = ""
@@ -94,10 +92,6 @@ class AppSettings(context: Context) {
     var stopUrl: String
         get() = prefs.getString(KEY_STOP_URL, DEFAULT_STOP_URL) ?: DEFAULT_STOP_URL
         set(value) = prefs.edit().putString(KEY_STOP_URL, value).apply()
-
-    var sampleUrl: String
-        get() = prefs.getString(KEY_SAMPLE_URL, DEFAULT_SAMPLE_URL) ?: DEFAULT_SAMPLE_URL
-        set(value) = prefs.edit().putString(KEY_SAMPLE_URL, value).apply()
 
     var samplesUrl: String
         get() = prefs.getString(KEY_SAMPLES_URL, DEFAULT_SAMPLES_URL) ?: DEFAULT_SAMPLES_URL

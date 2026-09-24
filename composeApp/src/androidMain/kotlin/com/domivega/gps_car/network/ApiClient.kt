@@ -143,11 +143,6 @@ class ApiClient(private val settings: AppSettings) {
         return postJson(settings.stopUrl, body).map { }
     }
 
-    suspend fun sendSample(sample: Sample): Result<Unit> {
-        val body = json.encodeToString(Sample.serializer(), sample)
-        return postJson(settings.sampleUrl, body).map { }
-    }
-
     suspend fun sendSamples(samples: List<Sample>): Result<SampleBatchResponse> {
         val request = SampleBatchRequest(samples)
         val body = json.encodeToString(SampleBatchRequest.serializer(), request)

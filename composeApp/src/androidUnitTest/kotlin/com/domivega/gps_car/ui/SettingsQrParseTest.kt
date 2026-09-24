@@ -17,7 +17,6 @@ private class FakeSettingsRepository : SettingsRepository {
     override var apiToken: String = ""
     override var startUrl: String = ""
     override var stopUrl: String = ""
-    override var sampleUrl: String = ""
     override var samplesUrl: String = ""
     override var pingUrl: String = ""
     override var carId: String = ""
@@ -44,6 +43,9 @@ private class FakeSettingsRepository : SettingsRepository {
 }
 
 class SettingsQrParseTest {
+
+    // Payloads below still carry the legacy `sampleUrl` key: it must be accepted and
+    // ignored (single-sample upload was removed; unknown keys are skipped).
 
     private val platformQr = """
         {

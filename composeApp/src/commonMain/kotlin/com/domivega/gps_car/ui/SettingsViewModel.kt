@@ -45,7 +45,6 @@ class SettingsViewModel(
                 apiToken = repository.apiToken,
                 startUrl = repository.startUrl,
                 stopUrl = repository.stopUrl,
-                sampleUrl = repository.sampleUrl,
                 samplesUrl = repository.samplesUrl,
                 pingUrl = repository.pingUrl,
                 carId = repository.carId,
@@ -86,11 +85,6 @@ class SettingsViewModel(
     fun updateStopUrl(newValue: String) {
         repository.stopUrl = newValue
         _uiState.update { it.copy(stopUrl = newValue) }
-    }
-
-    fun updateSampleUrl(newValue: String) {
-        repository.sampleUrl = newValue
-        _uiState.update { it.copy(sampleUrl = newValue) }
     }
 
     fun updateSamplesUrl(newValue: String) {
@@ -316,7 +310,6 @@ class SettingsViewModel(
             if (newState.apiToken.isNotEmpty()) repository.apiToken = newState.apiToken
             if (newState.startUrl.isNotEmpty()) repository.startUrl = newState.startUrl
             if (newState.stopUrl.isNotEmpty()) repository.stopUrl = newState.stopUrl
-            if (newState.sampleUrl.isNotEmpty()) repository.sampleUrl = newState.sampleUrl
             if (newState.samplesUrl.isNotEmpty()) repository.samplesUrl = newState.samplesUrl
             if (newState.pingUrl.isNotEmpty()) repository.pingUrl = newState.pingUrl
             if (newState.carId.isNotEmpty()) repository.carId = newState.carId

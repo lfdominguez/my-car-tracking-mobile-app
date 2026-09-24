@@ -6,7 +6,6 @@ interface SettingsRepository {
     var apiToken: String
     var startUrl: String
     var stopUrl: String
-    var sampleUrl: String
     var samplesUrl: String
     /** Blank = derived from the start URL's origin + `/api/track/ping`. */
     var pingUrl: String

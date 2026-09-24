@@ -8,7 +8,6 @@ data class SettingsUiState(
     val apiToken: String = "",
     val startUrl: String = "",
     val stopUrl: String = "",
-    val sampleUrl: String = "",
     val samplesUrl: String = "",
     /** Full `GET /api/track/ping` URL; blank = derived from [startUrl]'s origin. */
     val pingUrl: String = "",
