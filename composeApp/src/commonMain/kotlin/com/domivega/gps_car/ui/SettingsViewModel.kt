@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.jsonObject
 
 class SettingsViewModel(
     private val repository: SettingsRepository,
@@ -307,6 +309,10 @@ class SettingsViewModel(
     fun updateSettingsFromQr(qrContent: String) {
         try {
             val newState = json.decodeFromString(SettingsUiState.serializer(), qrContent)
+            // Numeric keys have non-empty defaults, so only the raw object can tell
+            // "absent" from "sent the default"; absent keys must keep local values.
+            val qrObject = json.parseToJsonElement(qrContent).jsonObject
+            fun present(key: String): Boolean = qrObject[key].let { it != null && it !is JsonNull }
             if (newState.apiToken.isNotEmpty()) repository.apiToken = newState.apiToken
             if (newState.startUrl.isNotEmpty()) repository.startUrl = newState.startUrl
             if (newState.stopUrl.isNotEmpty()) repository.stopUrl = newState.stopUrl
@@ -330,10 +336,10 @@ class SettingsViewModel(
                 repository.fuelClass = FuelClass.fromName(newState.fuelClass).name
             }
             if (newState.fuelType.isNotEmpty()) repository.fuelType = newState.fuelType
-            repository.fuelStoichAfr = newState.fuelStoichAfr
-            repository.fuelDensityGl = newState.fuelDensityGl
-            repository.engineDisplacementL = newState.engineDisplacementL
-            repository.engineVe = newState.engineVe
+            if (present("fuelStoichAfr")) repository.fuelStoichAfr = newState.fuelStoichAfr
+            if (present("fuelDensityGl")) repository.fuelDensityGl = newState.fuelDensityGl
+            if (present("engineDisplacementL")) repository.engineDisplacementL = newState.engineDisplacementL
+            if (present("engineVe")) repository.engineVe = newState.engineVe
             if (newState.tankCapacityL > 0.0) {
                 repository.tankCapacityL = newState.tankCapacityL
             }

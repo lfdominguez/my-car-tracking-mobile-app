@@ -327,4 +327,63 @@ class SettingsQrParseTest {
         assertTrue(old.contains("not verified"))
         assertTrue(oldIsError)
     }
+
+    @Test
+    fun qrWithoutEngineKeys_keepsLocalFuelAndEngineValues() {
+        val repo = FakeSettingsRepository()
+        repo.fuelClass = "DIESEL"
+        repo.fuelType = "B7"
+        repo.fuelStoichAfr = 14.5
+        repo.fuelDensityGl = 835.0
+        repo.engineDisplacementL = 1.9
+        repo.engineVe = 0.9
+        repo.tankCapacityL = 55.0
+        val vm = SettingsViewModel(repo)
+
+        vm.updateSettingsFromQr(
+            """
+            {
+              "apiToken": "tok",
+              "startUrl": "https://track.example.com/api/track/start",
+              "carName": "Demo Car"
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("", vm.uiState.value.qrError)
+        assertEquals(14.5, repo.fuelStoichAfr, 0.0001)
+        assertEquals(835.0, repo.fuelDensityGl, 0.0001)
+        assertEquals(1.9, repo.engineDisplacementL, 0.0001)
+        assertEquals(0.9, repo.engineVe, 0.0001)
+        assertEquals(55.0, repo.tankCapacityL, 0.0001)
+        assertEquals(1.9, vm.uiState.value.engineDisplacementL, 0.0001)
+    }
+
+    @Test
+    fun qrWithEngineKeysAndTank_appliesOnlyThoseKeys() {
+        val repo = FakeSettingsRepository()
+        repo.fuelStoichAfr = 14.5
+        repo.engineVe = 0.9
+        val vm = SettingsViewModel(repo)
+
+        vm.updateSettingsFromQr(
+            """
+            {
+              "apiToken": "tok",
+              "engineDisplacementL": 1.5,
+              "fuelDensityGl": 750.0,
+              "tankCapacityL": 36.0,
+              "sampleUrl": "https://track.example.com/api/track/sample"
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("", vm.uiState.value.qrError)
+        assertEquals(1.5, repo.engineDisplacementL, 0.0001)
+        assertEquals(750.0, repo.fuelDensityGl, 0.0001)
+        assertEquals(36.0, repo.tankCapacityL, 0.0001)
+        // Absent keys keep their local values.
+        assertEquals(14.5, repo.fuelStoichAfr, 0.0001)
+        assertEquals(0.9, repo.engineVe, 0.0001)
+    }
 }
