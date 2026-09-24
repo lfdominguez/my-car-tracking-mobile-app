@@ -54,7 +54,8 @@ class MainViewModel(
             carMetricSource.serviceVersion,
             gpsDataSource.locationFlow,
             UploadStatusDataSource.status,
-        ) { snapshot, serviceVersion, location, uploadStatus ->
+            UploadStatusDataSource.pauseReason,
+        ) { snapshot, serviceVersion, location, uploadStatus, pauseReason ->
             val pidValues = snapshot.values
 
             // A missing PID stays null. Coalescing to 0.0 is what made the RPM and
@@ -91,6 +92,7 @@ class MainViewModel(
                 isGpsLocked = isGpsLocked,
                 ecuConnected = snapshot.ecuConnected,
                 uploadWarning = uploadWarning,
+                uploadPausedMessage = QueueHealthMessages.pauseMessage(pauseReason),
                 serviceVersion = serviceVersion,
                 pidValues = snapshot.lastGood,
                 pidNames = carMetricSource.pidNames,

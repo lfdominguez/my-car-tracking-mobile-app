@@ -2,6 +2,7 @@ package com.domivega.gps_car
 
 import android.app.Application
 import com.domivega.gps_car.data.queue.SampleUploadScheduler
+import com.domivega.gps_car.data.queue.UploadPauseStore
 import com.domivega.gps_car.obd.ObdBleManager
 import com.domivega.gps_car.obd.ObdPresenceController
 import com.domivega.gps_car.obd.TripLogStore
@@ -31,6 +32,9 @@ class GpsCarApp : Application() {
         if (WaitingFgsGate.shouldEnsureWaiting(AppSettings(this).bleDeviceAddress)) {
             startForegroundServiceCompat(ForegroundTrackingService.ACTION_START_WAITING)
         }
+
+        // Dashboard banner for a persisted upload pause (revoked token / vault car).
+        UploadPauseStore.publish(this)
 
         // Drain leftover samples even if FGS is not running.
         SampleUploadScheduler.enqueue(this)

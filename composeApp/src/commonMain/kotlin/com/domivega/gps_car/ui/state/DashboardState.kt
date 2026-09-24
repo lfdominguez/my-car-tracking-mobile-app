@@ -31,6 +31,12 @@ data class DashboardState(
     val ecuConnected: Boolean = false,
     /** Non-null when sample upload has FAILED/DEAD rows or last flush failed. */
     val uploadWarning: String? = null,
+    /**
+     * Non-null while uploading is paused because the server refused this phone
+     * (unlinked) or the car (vault). Shown instead of [uploadWarning]; Retry
+     * cannot help, a new QR / token can.
+     */
+    val uploadPausedMessage: String? = null,
     val serviceVersion: String? = null,
     val pidValues: Map<String, Double> = emptyMap(),
     val pidNames: Map<String, String> = emptyMap()

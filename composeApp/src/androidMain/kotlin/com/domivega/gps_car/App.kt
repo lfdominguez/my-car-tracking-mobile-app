@@ -91,7 +91,7 @@ fun App() {
             val appSettings = AppSettings(context)
             SettingsViewModel(
                 repository = AndroidSettingsRepository(context),
-                connectionTester = ApiBackendConnectionTester(ApiClient(appSettings)),
+                connectionTester = ApiBackendConnectionTester(ApiClient(appSettings), context),
             )
         }
         

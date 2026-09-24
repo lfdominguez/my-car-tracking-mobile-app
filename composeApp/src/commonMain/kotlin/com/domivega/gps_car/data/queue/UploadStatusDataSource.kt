@@ -22,4 +22,17 @@ object UploadStatusDataSource {
     fun update(status: UploadStatus) {
         _status.value = status
     }
+
+    private val _pauseReason = MutableStateFlow<UploadPauseReason?>(null)
+
+    /**
+     * Non-null while uploading is paused because the server refused this device
+     * (token revoked) or the car (vault). Kept apart from [status] so queue-count
+     * refreshes can never clear it; the persisted copy lives in Android prefs.
+     */
+    val pauseReason: StateFlow<UploadPauseReason?> = _pauseReason.asStateFlow()
+
+    fun setPauseReason(reason: UploadPauseReason?) {
+        _pauseReason.value = reason
+    }
 }

@@ -8,8 +8,9 @@ import com.domivega.gps_car.network.ApiClient
  */
 class TrackingRepository(private val api: ApiClient) {
 
-    suspend fun notifyStart(): String? {
-        return api.startSession().getOrNull()?.id
+    /** Server tracking id, or the failure (so callers can spot a revoked token). */
+    suspend fun notifyStart(): Result<String> {
+        return api.startSession().map { it.id }
     }
 
     /** Returns Result so callers can persist pending stop on failure. */

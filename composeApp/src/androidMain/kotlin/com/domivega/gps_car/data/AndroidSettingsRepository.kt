@@ -1,15 +1,25 @@
 package com.domivega.gps_car.data
 
 import android.content.Context
+import com.domivega.gps_car.data.queue.UploadPauseStore
 import com.domivega.gps_car.settings.AppSettings
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
 
 class AndroidSettingsRepository(context: Context) : SettingsRepository {
+    private val appContext = context.applicationContext
     private val appSettings = AppSettings(context)
 
+    /**
+     * A new token (QR scan or manual edit) lifts an upload pause left by a revoked
+     * token or a vault car, and resumes the drain with the queue intact.
+     */
     override var apiToken: String
         get() = appSettings.apiToken
-        set(value) { appSettings.apiToken = value }
+        set(value) {
+            val changed = value != appSettings.apiToken
+            appSettings.apiToken = value
+            if (changed) UploadPauseStore.clearAndResume(appContext)
+        }
 
     override var startUrl: String
         get() = appSettings.startUrl
