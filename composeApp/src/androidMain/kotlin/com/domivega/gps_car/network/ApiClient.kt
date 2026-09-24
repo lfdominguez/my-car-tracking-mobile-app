@@ -276,6 +276,15 @@ data class Sample(
     val batterySocPct: Double? = null,
     @SerialName("battery_power_kw")
     val batteryPowerKw: Double? = null,
+    /** HV pack voltage (V) from PID 0x9A, as on the dashboard's HV line. */
+    @SerialName("hv_battery_voltage_v")
+    val hvBatteryVoltageV: Double? = null,
+    /** HV pack current (A) from PID 0x9A; positive = discharge, negative = charging. */
+    @SerialName("hv_battery_current_a")
+    val hvBatteryCurrentA: Double? = null,
+    /** OBD PID 0x31: distance since diagnostic codes were cleared (km), not the odometer. */
+    @SerialName("distance_since_dtc_clear_km")
+    val distanceSinceDtcClearKm: Double? = null,
 
     /**
      * Phone motion aggregated over this sample's second. Horizontal magnitudes are in

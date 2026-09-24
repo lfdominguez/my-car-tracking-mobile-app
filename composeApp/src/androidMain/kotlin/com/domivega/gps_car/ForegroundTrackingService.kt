@@ -549,6 +549,11 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             // no longer used here; it supplies battery_power_kw below instead.
             batterySocPct = pidValues["5b"],
             batteryPowerKw = pidValues[HvBatteryReading.KEY_PACK_KW],
+            // Same PID 0x9A decode the dashboard's HV line shows.
+            hvBatteryVoltageV = pidValues[HvBatteryReading.KEY_PACK_VOLT],
+            hvBatteryCurrentA = pidValues[HvBatteryReading.KEY_PACK_AMP],
+            // PID 0x31 (km since codes cleared), polled for the VW odometer delta.
+            distanceSinceDtcClearKm = pidValues["31"],
 
             accelPeakMps2 = motion?.peakMps2,
             accelRmsMps2 = motion?.rmsMps2,

@@ -25,6 +25,8 @@ data class SampleUploadFieldFlags(
     val lambdaCmd: Boolean = true,
     val atmosphericPressure: Boolean = true,
     val intakeAirTemperature: Boolean = true,
+    /** OBD PID 0x31, distance since codes were cleared (km). */
+    val distanceSinceDtcClearKm: Boolean = true,
     /**
      * Phone accelerometer aggregates. Grouped under one flag because the three fields
      * are useless apart, and offered at all because motion is phone data rather than

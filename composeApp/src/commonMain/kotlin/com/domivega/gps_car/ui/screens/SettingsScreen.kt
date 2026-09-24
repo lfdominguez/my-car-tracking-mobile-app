@@ -391,6 +391,11 @@ fun SettingsScreen(
             onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(intakeAirTemperature = it)) },
         )
         UploadFieldSwitch(
+            label = "Distance since codes cleared (km)",
+            checked = flags.distanceSinceDtcClearKm,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(distanceSinceDtcClearKm = it)) },
+        )
+        UploadFieldSwitch(
             label = "Phone motion (harsh braking detection)",
             checked = flags.motion,
             onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(motion = it)) },
