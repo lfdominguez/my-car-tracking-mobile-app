@@ -290,4 +290,13 @@ data class Sample(
     /** Largest tilt swing during the second; the backend rejects handled-phone windows. */
     @SerialName("device_tilt_delta_deg")
     val deviceTiltDeltaDeg: Double? = null,
+
+    /**
+     * Fault codes read once at trip start (opt-in), carried by one sample only.
+     * Absent = not read; `[]` = read, no codes. Mode 03 stored / Mode 07 pending.
+     */
+    @SerialName("dtc_codes")
+    val dtcCodes: List<String>? = null,
+    @SerialName("pending_dtc_codes")
+    val pendingDtcCodes: List<String>? = null,
 )

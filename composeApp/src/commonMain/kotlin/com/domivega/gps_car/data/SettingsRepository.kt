@@ -21,6 +21,8 @@ interface SettingsRepository {
     var wwhObdOnly: Boolean
     var obdPerformanceMode: Boolean
     var obdEnabled: Boolean
+    /** Mode 03/07 once at trip start (default off; not applied from QR). */
+    var readFaultCodesAtTripStart: Boolean
     var fuelClass: String
     var fuelType: String
     var fuelStoichAfr: Double

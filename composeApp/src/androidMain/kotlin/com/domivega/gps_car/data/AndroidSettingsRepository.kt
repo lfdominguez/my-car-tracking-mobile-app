@@ -85,6 +85,10 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
         get() = appSettings.obdEnabled
         set(value) { appSettings.obdEnabled = value }
 
+    override var readFaultCodesAtTripStart: Boolean
+        get() = appSettings.readFaultCodesAtTripStart
+        set(value) { appSettings.readFaultCodesAtTripStart = value }
+
     override var fuelClass: String
         get() = appSettings.fuelClass
         set(value) { appSettings.fuelClass = value }

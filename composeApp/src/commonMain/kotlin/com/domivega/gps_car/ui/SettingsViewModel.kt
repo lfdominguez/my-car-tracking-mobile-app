@@ -57,6 +57,7 @@ class SettingsViewModel(
                 wwhObdOnly = repository.wwhObdOnly,
                 obdPerformanceMode = repository.obdPerformanceMode,
                 obdEnabled = repository.obdEnabled,
+                readFaultCodesAtTripStart = repository.readFaultCodesAtTripStart,
                 fuelClass = repository.fuelClass,
                 fuelType = repository.fuelType,
                 fuelStoichAfr = repository.fuelStoichAfr,
@@ -164,6 +165,11 @@ class SettingsViewModel(
     fun updateObdEnabled(enabled: Boolean) {
         repository.obdEnabled = enabled
         _uiState.update { it.copy(obdEnabled = enabled) }
+    }
+
+    fun updateReadFaultCodesAtTripStart(enabled: Boolean) {
+        repository.readFaultCodesAtTripStart = enabled
+        _uiState.update { it.copy(readFaultCodesAtTripStart = enabled) }
     }
 
     fun updateFuelClass(name: String) {

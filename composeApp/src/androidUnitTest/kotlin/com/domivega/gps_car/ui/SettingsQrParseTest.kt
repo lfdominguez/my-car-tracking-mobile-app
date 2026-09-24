@@ -31,6 +31,7 @@ private class FakeSettingsRepository : SettingsRepository {
     override var wwhObdOnly: Boolean = false
     override var obdPerformanceMode: Boolean = false
     override var obdEnabled: Boolean = true
+    override var readFaultCodesAtTripStart: Boolean = false
     override var fuelClass: String = "GASOLINE"
     override var fuelType: String = "E10"
     override var fuelStoichAfr: Double = 14.08

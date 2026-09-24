@@ -2,6 +2,8 @@ package com.domivega.gps_car.network
 
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -84,5 +86,51 @@ class SampleFieldFilterTest {
         assertEquals(3.0, out.acc!!, 0.0)
         assertEquals(800.0, out.vehicleEngineRpm)
         assertEquals(40.0, out.vehicleSpeedKph)
+    }
+
+    @Test
+    fun `fault codes pass through whatever the flags`() {
+        val withCodes = baseSample().copy(dtcCodes = listOf("P0133"), pendingDtcCodes = emptyList())
+        val allOff = SampleUploadFieldFlags(
+            fuelConsumptionRate = false,
+            engineLoadPct = false,
+            absoluteEngineLoadPct = false,
+            shortTermFuelTrimPct = false,
+            longTermFuelTrimPct = false,
+            fuelLevelPct = false,
+            acceleratorPedalPct = false,
+            ambientAirTempC = false,
+            odometerValueKm = false,
+            engineCoolantTempC = false,
+            manifoldAbsolutePressureKpa = false,
+            controlModuleVoltage = false,
+            engineOnTime = false,
+            massAirFlow = false,
+            lambdaCmd = false,
+            atmosphericPressure = false,
+            intakeAirTemperature = false,
+            motion = false,
+        )
+        val out = SampleFieldFilter.apply(withCodes, allOff)
+        assertEquals(listOf("P0133"), out.dtcCodes)
+        assertEquals(emptyList<String>(), out.pendingDtcCodes)
+    }
+
+    @Test
+    fun `fault code fields are omitted when not read and kept when empty`() {
+        val json = kotlinx.serialization.json.Json {
+            explicitNulls = false
+            encodeDefaults = true
+        }
+        val notRead = json.encodeToString(Sample.serializer(), baseSample())
+        assertFalse(notRead.contains("dtc_codes"))
+        assertFalse(notRead.contains("pending_dtc_codes"))
+
+        val readNone = json.encodeToString(
+            Sample.serializer(),
+            baseSample().copy(dtcCodes = listOf("P0420"), pendingDtcCodes = emptyList()),
+        )
+        assertTrue(readNone.contains("\"dtc_codes\":[\"P0420\"]"))
+        assertTrue(readNone.contains("\"pending_dtc_codes\":[]"))
     }
 }

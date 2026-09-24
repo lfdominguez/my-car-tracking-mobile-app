@@ -22,6 +22,7 @@ class AppSettings(context: Context) {
         private const val KEY_WWH_OBD_ONLY = "wwh_obd_only"
         private const val KEY_OBD_PERFORMANCE_MODE = "obd_performance_mode"
         private const val KEY_OBD_ENABLED = "obd_enabled"
+        private const val KEY_READ_FAULT_CODES_AT_TRIP_START = "read_fault_codes_at_trip_start"
         private const val KEY_FUEL_CLASS = "fuel_class"
         private const val KEY_FUEL_TYPE = "fuel_type"
         private const val KEY_FUEL_STOICH_AFR = "fuel_stoich_afr"
@@ -67,6 +68,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_WWH_OBD_ONLY = false
         const val DEFAULT_OBD_PERFORMANCE_MODE = false
         const val DEFAULT_OBD_ENABLED = true
+        const val DEFAULT_READ_FAULT_CODES_AT_TRIP_START = false
 
         // Example vehicle defaults: compact 1.0L turbo on E10 (edit in Settings)
         const val DEFAULT_FUEL_CLASS = "GASOLINE"
@@ -147,6 +149,14 @@ class AppSettings(context: Context) {
     var obdEnabled: Boolean
         get() = prefs.getBoolean(KEY_OBD_ENABLED, DEFAULT_OBD_ENABLED)
         set(value) = prefs.edit().putBoolean(KEY_OBD_ENABLED, value).apply()
+
+    /**
+     * Read Mode 03/07 fault codes once when a trip starts and attach them to the
+     * first sample. Off by default: the read costs a few seconds of OBD polling.
+     */
+    var readFaultCodesAtTripStart: Boolean
+        get() = prefs.getBoolean(KEY_READ_FAULT_CODES_AT_TRIP_START, DEFAULT_READ_FAULT_CODES_AT_TRIP_START)
+        set(value) = prefs.edit().putBoolean(KEY_READ_FAULT_CODES_AT_TRIP_START, value).apply()
 
     /** Stored as [com.domivega.gps_car.fuel.FuelClass] enum name. */
     var fuelClass: String

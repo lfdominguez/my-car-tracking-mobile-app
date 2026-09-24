@@ -171,6 +171,11 @@ Header: `Authorization: Basic <device_token>` (plaintext device token from the w
 
 OBD metric fields may be missing — backends should treat them as optional so GPS-only or partial OBD points are kept.
 
+**Fault codes (opt-in, off by default).** With *Read fault codes at trip start* enabled (OBD Device screen), the app
+reads Mode 03 (stored) and Mode 07 (pending) once when a trip starts and attaches them to the first sample
+recorded after the read as `dtc_codes` / `pending_dtc_codes` (JSON string arrays such as `["P0420"]`). An absent
+field means "not read" (disabled, failed or timed out); `[]` means "read, no codes".
+
 **`lat` / `lon` / `acc` may also be absent.** Samples are produced by a fixed 1 Hz clock, so a
 point recorded in a tunnel or a garage carries engine telemetry with no coordinates at all
 (the fields are omitted from the JSON, not sent as null). A backend that requires them will

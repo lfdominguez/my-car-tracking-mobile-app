@@ -28,5 +28,8 @@ object SampleFieldFilter {
             accelPeakMps2 = sample.accelPeakMps2.takeIf { flags.motion },
             accelRmsMps2 = sample.accelRmsMps2.takeIf { flags.motion },
             deviceTiltDeltaDeg = sample.deviceTiltDeltaDeg.takeIf { flags.motion },
+            // Opt-in via its own setting (default off), so never filtered here.
+            dtcCodes = sample.dtcCodes,
+            pendingDtcCodes = sample.pendingDtcCodes,
         )
 }

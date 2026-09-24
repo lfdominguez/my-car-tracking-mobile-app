@@ -30,6 +30,8 @@ data class SettingsUiState(
     /** Faster ELM polling (ATAT2 + Mode 01 line suffix). Default off. */
     val obdPerformanceMode: Boolean = false,
     val obdEnabled: Boolean = true,
+    /** Read fault codes (Mode 03/07) once at trip start. Never applied from the QR. */
+    val readFaultCodesAtTripStart: Boolean = false,
     /** [FuelClass] enum name; default GASOLINE. */
     val fuelClass: String = "GASOLINE",
     /** FuelTypePreset name; default E10. */

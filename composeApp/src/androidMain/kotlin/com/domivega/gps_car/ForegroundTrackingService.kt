@@ -125,6 +125,13 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     /** Wall clock when OBD speed first became exactly 0.0; cleared when moving or unknown. */
     private var speedZeroSinceMs: Long? = null
 
+    /**
+     * Token of this trip's opt-in fault-code read ([ObdBleManager.requestTripStartFaultCodes]).
+     * Cleared once the result rides on a sample, or when the trip ends.
+     */
+    @Volatile
+    private var tripFaultCodeToken: Long? = null
+
 
     override fun onCreate() {
         super.onCreate()
@@ -324,8 +331,13 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         }
 
         // Always have a session id (local until /start succeeds). Only Start may create it.
+        val isNewTrip = currentSessionIdOrNull() == null
         ensureLocalSessionId()
         Log.d(TAG, "Tracking ID: $trackingId")
+
+        // Fault codes once per trip, at its start only: a sticky restart resuming the
+        // same session id is not a new trip. The OBD loop does the (slow) read.
+        tripFaultCodeToken = if (isNewTrip) ObdBleManager.requestTripStartFaultCodes() else null
 
         serviceScope.launch(Dispatchers.IO) {
             tryBindServerSession(epochAtStart = epoch)
@@ -498,6 +510,11 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             return
         }
 
+        // Only the first sample after the trip-start read carries its result.
+        val faultCodes = tripFaultCodeToken?.let { token ->
+            ObdBleManager.takeTripStartFaultCodes(token)?.also { tripFaultCodeToken = null }
+        }
+
         val sample = Sample(
             trackingId = enqueueId!!,
             recordedAt = nowMs,
@@ -536,6 +553,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             accelPeakMps2 = motion?.peakMps2,
             accelRmsMps2 = motion?.rmsMps2,
             deviceTiltDeltaDeg = motion?.tiltDeltaDeg,
+
+            dtcCodes = faultCodes?.stored,
+            pendingDtcCodes = faultCodes?.pending,
         )
         // Local enqueue only — never block collection on network.
         val toEnqueue = SampleFieldFilter.apply(sample, appSettings.sampleUploadFieldFlags())
@@ -614,6 +634,10 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         // A new trip must not inherit the previous trip's fix or parked timer.
         lastLocation = null
         speedZeroSinceMs = null
+        if (tripFaultCodeToken != null) {
+            tripFaultCodeToken = null
+            ObdBleManager.cancelTripStartFaultCodes()
+        }
 
         val idToStop = trackingId?.takeIf { LocalTrackingIds.isUploadable(it) }
         prefs.edit { remove(KEY_TRACKING_ID) }
