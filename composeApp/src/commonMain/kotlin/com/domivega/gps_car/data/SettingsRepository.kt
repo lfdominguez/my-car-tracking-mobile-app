@@ -8,6 +8,8 @@ interface SettingsRepository {
     var stopUrl: String
     var sampleUrl: String
     var samplesUrl: String
+    /** Blank = derived from the start URL's origin + `/api/track/ping`. */
+    var pingUrl: String
     var carId: String
     var carName: String
     var bleDeviceAddress: String

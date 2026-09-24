@@ -93,9 +93,26 @@ class ApiClient(private val settings: AppSettings) {
         }
     }
 
+    /** GET returning the HTTP status and body instead of failing on non-2xx. */
+    private suspend fun getReply(url: String, authorized: Boolean): Result<HttpReply> {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val builder = Request.Builder().url(url).get()
+                if (authorized) {
+                    builder.addHeader("Authorization", "Basic ${settings.apiToken}")
+                }
+                client.newCall(builder.build()).execute().use { resp ->
+                    HttpReply(code = resp.code, body = resp.body.string())
+                }
+            }
+        }
+    }
+
     /**
-     * Health check on the API origin, then start/stop smoke with the device token.
-     * Creates a short finished track when the token is valid.
+     * Health check on the API origin, then `GET /api/track/ping` with the device token.
+     *
+     * Read-only on purpose: the old start/stop smoke left a tiny finished trip on the
+     * server every time. Never calls start/stop.
      */
     suspend fun testConnection(): ConnectionTestResult {
         val healthUrl = healthUrlFromTrackUrl(settings.startUrl)
@@ -112,21 +129,13 @@ class ApiClient(private val settings: AppSettings) {
             return ConnectionTestResult.Failed("API token is empty")
         }
 
-        val start = startSession()
-        if (start.isFailure) {
-            val msg = start.exceptionOrNull()?.message.orEmpty()
-            return if (msg.contains("HTTP 401") || msg.contains("HTTP 403")) {
-                ConnectionTestResult.Unauthorized(msg)
-            } else {
-                ConnectionTestResult.Failed(msg.ifBlank { "start failed" })
-            }
-        }
+        val pingUrl = TrackPing.resolveUrl(settings.pingUrl, settings.startUrl)
+            ?: return ConnectionTestResult.Failed("Ping URL is missing or invalid")
 
-        val id = start.getOrNull()?.id
-        if (!id.isNullOrBlank()) {
-            stopSession(id)
-        }
-        return ConnectionTestResult.Ok
+        return getReply(pingUrl, authorized = true).fold(
+            onSuccess = { reply -> TrackPing.classify(reply.code, reply.body) },
+            onFailure = { e -> ConnectionTestResult.Unreachable(e.message ?: "ping failed") },
+        )
     }
 
     suspend fun stopSession(id: String): Result<Unit> {
@@ -148,10 +157,15 @@ class ApiClient(private val settings: AppSettings) {
     }
 }
 
+internal data class HttpReply(val code: Int, val body: String)
+
 sealed class ConnectionTestResult {
-    data object Ok : ConnectionTestResult()
+    /** Token accepted. [vaultRequired]: the car's owner has an E2E vault, so plaintext uploads are rejected. */
+    data class Ok(val carName: String?, val vaultRequired: Boolean) : ConnectionTestResult()
     data class Unreachable(val detail: String) : ConnectionTestResult()
     data class Unauthorized(val detail: String) : ConnectionTestResult()
+    /** Server reachable but too old for `/api/track/ping` (404): token not checked. */
+    data class TokenNotVerified(val detail: String) : ConnectionTestResult()
     data class Failed(val detail: String) : ConnectionTestResult()
 }
 

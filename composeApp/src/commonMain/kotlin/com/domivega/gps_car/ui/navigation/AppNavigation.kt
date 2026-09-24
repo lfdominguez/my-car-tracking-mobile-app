@@ -183,6 +183,7 @@ fun AppNavigation(
                         onStopUrlChange = settingsViewModel::updateStopUrl,
                         onSampleUrlChange = settingsViewModel::updateSampleUrl,
                         onSamplesUrlChange = settingsViewModel::updateSamplesUrl,
+                        onPingUrlChange = settingsViewModel::updatePingUrl,
                         onScanQrCode = onScanQrCode,
                         onTestConnection = settingsViewModel::testConnection,
                         onClearQrError = settingsViewModel::clearQrError,

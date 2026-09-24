@@ -1,5 +1,6 @@
 package com.domivega.gps_car.ui
 
+import com.domivega.gps_car.data.ConnectionTestOutcome
 import com.domivega.gps_car.data.SettingsRepository
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import com.domivega.gps_car.ui.state.SettingsUiState
@@ -18,6 +19,7 @@ private class FakeSettingsRepository : SettingsRepository {
     override var stopUrl: String = ""
     override var sampleUrl: String = ""
     override var samplesUrl: String = ""
+    override var pingUrl: String = ""
     override var carId: String = ""
     override var carName: String = ""
     override var bleDeviceAddress: String = ""
@@ -285,5 +287,43 @@ class SettingsQrParseTest {
         assertEquals("GASOLINE", repo.fuelClass)
         assertEquals(1.0, repo.engineDisplacementL, 0.0001)
         assertEquals(0.0, repo.tankCapacityL, 0.0001)
+    }
+
+    @Test
+    fun qrWithPingUrl_appliesIt_andMissingKeyKeepsExisting() {
+        val repo = FakeSettingsRepository()
+        repo.pingUrl = "https://old.example.com/api/track/ping"
+        val vm = SettingsViewModel(repo)
+
+        vm.updateSettingsFromQr("""{"apiToken":"tok"}""")
+        assertEquals("https://old.example.com/api/track/ping", repo.pingUrl)
+
+        vm.updateSettingsFromQr(
+            """{"apiToken":"tok","pingUrl":"https://track.example.com/api/track/ping"}""",
+        )
+        assertEquals("", vm.uiState.value.qrError)
+        assertEquals("https://track.example.com/api/track/ping", repo.pingUrl)
+        assertEquals("https://track.example.com/api/track/ping", vm.uiState.value.pingUrl)
+    }
+
+    @Test
+    fun connectionTestMessage_okShowsCar_andVaultIsAnError() {
+        val (ok, okIsError) = SettingsViewModel.connectionTestMessage(
+            ConnectionTestOutcome.Ok(carName = "Demo Car", vaultRequired = false),
+        )
+        assertTrue(ok.contains("Demo Car"))
+        assertFalse(okIsError)
+
+        val (vault, vaultIsError) = SettingsViewModel.connectionTestMessage(
+            ConnectionTestOutcome.Ok(carName = "Demo Car", vaultRequired = true),
+        )
+        assertTrue(vault.contains("vault"))
+        assertTrue(vaultIsError)
+
+        val (old, oldIsError) = SettingsViewModel.connectionTestMessage(
+            ConnectionTestOutcome.TokenNotVerified(""),
+        )
+        assertTrue(old.contains("not verified"))
+        assertTrue(oldIsError)
     }
 }

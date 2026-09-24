@@ -45,6 +45,7 @@ class SettingsViewModel(
                 stopUrl = repository.stopUrl,
                 sampleUrl = repository.sampleUrl,
                 samplesUrl = repository.samplesUrl,
+                pingUrl = repository.pingUrl,
                 carId = repository.carId,
                 carName = repository.carName,
                 bleDeviceAddress = repository.bleDeviceAddress,
@@ -92,6 +93,11 @@ class SettingsViewModel(
     fun updateSamplesUrl(newValue: String) {
         repository.samplesUrl = newValue
         _uiState.update { it.copy(samplesUrl = newValue) }
+    }
+
+    fun updatePingUrl(newValue: String) {
+        repository.pingUrl = newValue
+        _uiState.update { it.copy(pingUrl = newValue) }
     }
 
     fun updateBleDevice(address: String, name: String) {
@@ -281,18 +287,7 @@ class SettingsViewModel(
             val outcome = runCatching { tester.test() }.getOrElse {
                 ConnectionTestOutcome.Failed(it.message ?: "test failed")
             }
-            val (message, isError) = when (outcome) {
-                ConnectionTestOutcome.Ok ->
-                    "Connected — device token OK" to false
-                is ConnectionTestOutcome.Unreachable -> {
-                    val suffix = outcome.detail.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
-                    "Can't reach server$suffix" to true
-                }
-                is ConnectionTestOutcome.Unauthorized ->
-                    "Server reachable, token rejected" to true
-                is ConnectionTestOutcome.Failed ->
-                    outcome.detail.ifBlank { "Connection test failed" } to true
-            }
+            val (message, isError) = connectionTestMessage(outcome)
             _uiState.update {
                 it.copy(
                     connectionTestInProgress = false,
@@ -311,6 +306,7 @@ class SettingsViewModel(
             if (newState.stopUrl.isNotEmpty()) repository.stopUrl = newState.stopUrl
             if (newState.sampleUrl.isNotEmpty()) repository.sampleUrl = newState.sampleUrl
             if (newState.samplesUrl.isNotEmpty()) repository.samplesUrl = newState.samplesUrl
+            if (newState.pingUrl.isNotEmpty()) repository.pingUrl = newState.pingUrl
             if (newState.carId.isNotEmpty()) repository.carId = newState.carId
             if (newState.carName.isNotEmpty()) repository.carName = newState.carName
             if (newState.bleDeviceAddress.isNotEmpty()) repository.bleDeviceAddress = newState.bleDeviceAddress
@@ -352,5 +348,33 @@ class SettingsViewModel(
                 it.copy(qrError = "Couldn't read QR settings: ${e.message ?: "invalid payload"}")
             }
         }
+    }
+
+    companion object {
+        /** User-facing Test connection text and whether it reads as an error. */
+        fun connectionTestMessage(outcome: ConnectionTestOutcome): Pair<String, Boolean> =
+            when (outcome) {
+                is ConnectionTestOutcome.Ok -> {
+                    val car = outcome.carName?.let { " for $it" }.orEmpty()
+                    if (outcome.vaultRequired) {
+                        "Token OK$car, but this car has an end-to-end vault enabled. " +
+                            "The server rejects plaintext samples, so this app can't record this car." to true
+                    } else {
+                        "Connected — device token OK$car" to false
+                    }
+                }
+                is ConnectionTestOutcome.Unreachable -> {
+                    val suffix = outcome.detail.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
+                    "Can't reach server$suffix" to true
+                }
+                is ConnectionTestOutcome.Unauthorized ->
+                    "Server reachable, token rejected (unlinked or revoked) — scan a new QR" to true
+                is ConnectionTestOutcome.TokenNotVerified ->
+                    outcome.detail.ifBlank {
+                        "Server reachable, token not verified (server too old for /api/track/ping)"
+                    } to true
+                is ConnectionTestOutcome.Failed ->
+                    outcome.detail.ifBlank { "Connection test failed" } to true
+            }
     }
 }

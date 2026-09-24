@@ -27,6 +27,10 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
         get() = appSettings.samplesUrl
         set(value) { appSettings.samplesUrl = value }
 
+    override var pingUrl: String
+        get() = appSettings.pingUrl
+        set(value) { appSettings.pingUrl = value }
+
     override var carId: String
         get() = appSettings.carId
         set(value) { appSettings.carId = value }

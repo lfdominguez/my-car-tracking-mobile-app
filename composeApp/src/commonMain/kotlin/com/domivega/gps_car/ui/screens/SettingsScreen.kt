@@ -44,6 +44,7 @@ fun SettingsScreen(
     onStopUrlChange: (String) -> Unit,
     onSampleUrlChange: (String) -> Unit,
     onSamplesUrlChange: (String) -> Unit,
+    onPingUrlChange: (String) -> Unit = {},
     onScanQrCode: () -> Unit,
     onTestConnection: () -> Unit = {},
     onClearQrError: () -> Unit = {},
@@ -157,6 +158,12 @@ fun SettingsScreen(
             value = state.samplesUrl,
             onValueChange = onSamplesUrlChange,
             label = "Samples URL (Batch)"
+        )
+
+        SettingsTextField(
+            value = state.pingUrl,
+            onValueChange = onPingUrlChange,
+            label = "Ping URL (blank = from Start URL)"
         )
 
         OutlinedButton(

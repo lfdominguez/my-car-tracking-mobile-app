@@ -12,6 +12,7 @@ class AppSettings(context: Context) {
         private const val KEY_STOP_URL = "track_stop_url"
         private const val KEY_SAMPLE_URL = "track_sample_url"
         private const val KEY_SAMPLES_URL = "track_samples_url"
+        private const val KEY_PING_URL = "track_ping_url"
         private const val KEY_BLE_DEVICE_ADDRESS = "ble_device_address"
         private const val KEY_BLE_DEVICE_NAME = "ble_device_name"
         private const val KEY_BLUETOOTH_TRANSPORT = "bluetooth_transport"
@@ -57,6 +58,8 @@ class AppSettings(context: Context) {
         const val DEFAULT_STOP_URL = "https://YOUR_SERVER.example/api/track/stop"
         const val DEFAULT_SAMPLE_URL = "https://YOUR_SERVER.example/api/track/sample"
         const val DEFAULT_SAMPLES_URL = "https://YOUR_SERVER.example/api/track/samples"
+        /** Blank = derive from the start URL's origin + `/api/track/ping`. */
+        const val DEFAULT_PING_URL = ""
         const val DEFAULT_BLUETOOTH_TRANSPORT = "Ble"
         const val DEFAULT_OBD_PROTOCOL = "ISO_15765_4_CAN_11_500"
         const val DEFAULT_VEHICLE_OBD_PROFILE = "Generic"
@@ -96,6 +99,11 @@ class AppSettings(context: Context) {
     var samplesUrl: String
         get() = prefs.getString(KEY_SAMPLES_URL, DEFAULT_SAMPLES_URL) ?: DEFAULT_SAMPLES_URL
         set(value) = prefs.edit().putString(KEY_SAMPLES_URL, value).apply()
+
+    /** `GET /api/track/ping` for Test connection; blank = derived from [startUrl]. */
+    var pingUrl: String
+        get() = prefs.getString(KEY_PING_URL, DEFAULT_PING_URL) ?: DEFAULT_PING_URL
+        set(value) = prefs.edit().putString(KEY_PING_URL, value).apply()
 
     var bleDeviceAddress: String
         get() = prefs.getString(KEY_BLE_DEVICE_ADDRESS, "") ?: ""

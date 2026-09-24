@@ -10,6 +10,8 @@ data class SettingsUiState(
     val stopUrl: String = "",
     val sampleUrl: String = "",
     val samplesUrl: String = "",
+    /** Full `GET /api/track/ping` URL; blank = derived from [startUrl]'s origin. */
+    val pingUrl: String = "",
     /** Optional car identity from platform QR provisioning (not required for ingest). */
     val carId: String = "",
     val carName: String = "",
