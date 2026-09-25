@@ -63,6 +63,11 @@ class ElmSessionStallPolicyTest {
     }
 
     @Test
+    fun `default streak re-inits a hung adapter within 30 seconds`() {
+        assertTrue(ElmSessionStallPolicy.DEFAULT_TIMEOUT_STREAK * 4_000L <= 30_000L)
+    }
+
+    @Test
     fun `max streak within grace shrinks as re-init gets slower`() {
         assertEquals(20, ElmSessionStallPolicy.maxStreakWithinGrace(4_000L, 10_000L))
         assertEquals(15, ElmSessionStallPolicy.maxStreakWithinGrace(4_000L, 30_000L))

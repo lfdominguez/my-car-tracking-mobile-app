@@ -18,6 +18,7 @@ import com.domivega.gps_car.fuel.FuelClass
 import com.domivega.gps_car.fuel.FuelConsumptionCalculator
 import com.domivega.gps_car.settings.AppSettings
 import com.domivega.gps_car.startForegroundServiceCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -128,6 +129,9 @@ object ObdBleManager {
         "10", // MAF (fuel rate primary input)
         "0b", // MAP (fuel rate fallback when MAF absent)
     )
+
+    /** Universally supported hot PIDs whose miss rate judges adaptive timing. */
+    private val TIMING_PIDS = listOf("0c", "0d")
 
     /** Slow-changing PIDs polled every [SLOW_EVERY]th round. */
     private val SLOW_PIDS = listOf(
@@ -268,6 +272,9 @@ object ObdBleManager {
     @Volatile
     private var sessionStHex: String = ElmPerformanceMode.ST_BASELINE_HEX
 
+    /** True once this session fell back to ATAT0 after a high hot-PID miss rate. */
+    private var sessionFixedTiming = false
+
     /** True while polling is still on 7DF and a mid-session 7E0 re-probe is worth trying. */
     @Volatile
     private var physicalHeaderProbePending: Boolean = false
@@ -295,9 +302,9 @@ object ObdBleManager {
     @Volatile
     private var udsHeaderRestoreFailed = false
 
-    /** Wall clock: do not run cluster UDS before this (0 = no extra backoff). */
+    /** Wall clock of the last decoded engine PID; decides whether an odometer lock survives a re-init. */
     @Volatile
-    private var vwUdsNotBeforeMs: Long = 0L
+    private var lastLiveDecodeAtMs: Long = 0L
 
     /** Consecutive engine command timeouts (null raw) in the poll loop. */
     @Volatile
@@ -451,6 +458,8 @@ object ObdBleManager {
     private data class DtcRequest(
         val token: Long,
         val requestedAtMs: Long,
+        val statusAttempted: Boolean = false,
+        val status: DtcParser.MonitorStatus? = null,
         val storedAttempted: Boolean = false,
         val stored: List<String>? = null,
     )
@@ -980,7 +989,7 @@ object ObdBleManager {
 
     private suspend fun runInitSequence(): Boolean {
         return try {
-            resetPidDiscoveryState()
+            resetPidDiscoveryState(keepRecentOdometer = true)
             // Clear noise after link-up; adapters often need a beat after GATT notify.
             delay(500)
             drainBuffer()
@@ -1189,6 +1198,32 @@ object ObdBleManager {
         return false
     }
 
+    /** Once per session: swap ATAT1 for ATAT0 when RPM/speed miss too often (see [ElmPerformanceMode.shouldUseFixedTiming]). */
+    private suspend fun maybeUseFixedTiming() {
+        if (sessionFixedTiming || wwhEngineOnly) return
+        val ok = TIMING_PIDS.sumOf { pidOkWindow[it] ?: 0 }
+        val miss = TIMING_PIDS.sumOf { pidMissWindow[it] ?: 0 }
+        if (
+            !ElmPerformanceMode.shouldUseFixedTiming(
+                hotOk = ok,
+                hotMiss = miss,
+                performance = settings.obdPerformanceMode,
+                singleResponder = sessionEngineHeader == "7E0",
+            )
+        ) {
+            return
+        }
+        sessionFixedTiming = true
+        val resp = sendCommandLogged(ElmPerformanceMode.FIXED_TIMING_COMMAND, COMMAND_TIMEOUT_MS, isInit = false)
+        if (!ElmHeaderRestore.isAcceptableAtResponse(resp)) {
+            logW("RPM/speed missed $miss/${ok + miss} — ATAT0 not accepted, keeping adaptive timing")
+            return
+        }
+        // Re-pin ST: changing AT resets the adapter's working timer.
+        sendCommandLogged(ElmPerformanceMode.responseTimeoutCommand(sessionStHex), COMMAND_TIMEOUT_MS, isInit = false)
+        logW("RPM/speed missed $miss/${ok + miss} with adaptive timing — switched to ATAT0 (fixed ST=$sessionStHex)")
+    }
+
     /** Pin the ELM response timer and remember it for the throughput log line. */
     private suspend fun applySessionStHex(stHex: String) {
         if (sessionStHex == stHex) return
@@ -1368,7 +1403,13 @@ object ObdBleManager {
         logI("Discovered Mode 01 PIDs (${all.size}): $sample${if (all.size > 24) "…" else ""}")
     }
 
-    private fun resetPidDiscoveryState() {
+    /**
+     * @param keepRecentOdometer true on a re-init: keep the VW cluster odometer lock
+     * if the engine answered within [VwOdoFirstGate.LOCK_CARRY_MS], so a mid-trip
+     * reconnect does not block Mode 01 on another cluster read. PID 0x31 keeps
+     * advancing the kept lock across the gap.
+     */
+    private fun resetPidDiscoveryState(keepRecentOdometer: Boolean = false) {
         supportedMode01Pids = emptySet()
         noDataLogged.clear()
         pidEverDecoded.clear()
@@ -1380,11 +1421,22 @@ object ObdBleManager {
         }
         sessionWinningDid = null
         vwOdoSchedule.reset()
-        sessionOdometerTracker.reset()
+        val keepOdometer = keepRecentOdometer &&
+            VwOdoFirstGate.keepLockAcrossReinit(
+                locked = sessionOdometerTracker.isLocked,
+                lastLiveAtMs = lastLiveDecodeAtMs,
+                nowMs = System.currentTimeMillis(),
+            )
+        if (keepOdometer) {
+            logI("VW odometer lock kept across re-init")
+        } else {
+            sessionOdometerTracker.reset()
+        }
         engineOkCount = 0
         wwhEngineOnly = false
         sessionEngineHeader = "7DF"
         sessionStHex = ElmPerformanceMode.ST_BASELINE_HEX
+        sessionFixedTiming = false
         synchronized(responseLock) { pendingStaleFrames = 0 }
         loggedStaleFrame.set(false)
         loggedFrameDesync.set(false)
@@ -1398,7 +1450,6 @@ object ObdBleManager {
         loggedVwUdsSuccess.set(false)
         loggedVwUdsFail.set(false)
         udsHeaderRestoreFailed = false
-        vwUdsNotBeforeMs = 0L
         consecutiveEngineTimeouts = 0
         consecutiveLiveMisses = 0
         // Drop stale metrics (e.g. prior-trip engine run time PID 1F) before a new session.
@@ -1609,14 +1660,16 @@ object ObdBleManager {
     }
 
     private fun clearPidCache() {
+        // Values before timestamps: the 1 Hz refresh would otherwise publish old
+        // values against an empty seen map and report every PID as expired.
+        _pidLastGood.value = emptyMap()
+        _pidValues.value = emptyMap()
         pidOkWindow.clear()
         pidMissWindow.clear()
         pidSeenAtMs.clear()
         pidMissStreak.clear()
         pidExpiryLoggedAtMs.clear()
         pidExpired.clear()
-        _pidLastGood.value = emptyMap()
-        _pidValues.value = emptyMap()
         _pidSeenAt.value = emptyMap()
         _pidStale.value = emptySet()
     }
@@ -1663,11 +1716,14 @@ object ObdBleManager {
      * ring in seconds, which is exactly what made the shared logs unreadable.
      */
     private fun notePidExpiry(key: String, nowMs: Long) {
+        // No timestamp = cleared (link lost, or RPM/speed dropped on a miss, which
+        // notePidMiss already logs), not aged out.
+        val seen = pidSeenAtMs[key] ?: return
         expiredSinceRateLog += 1
         val last = pidExpiryLoggedAtMs[key]
         if (last != null && nowMs - last < EXPIRY_LOG_THROTTLE_MS) return
         pidExpiryLoggedAtMs[key] = nowMs
-        val ageMs = pidSeenAtMs[key]?.let { nowMs - it } ?: -1L
+        val ageMs = nowMs - seen
         val budgetMs = PidPollPolicy.maxAgeMsFor(key, SLOW_PID_KEYS)
         logW("PID $key stale ${ageMs}ms > ${budgetMs}ms — dropped from samples")
     }
@@ -1678,6 +1734,7 @@ object ObdBleManager {
         pidEverDecoded.add(touchedPid.lowercase())
         pidOkWindow.merge(touchedPid.lowercase(), 1, Int::plus)
         markPidSeen(touchedPid, now)
+        lastLiveDecodeAtMs = now
         _pidLastGood.value = updated
         if (updated.containsKey("ff125a")) markPidSeen("ff125a", now)
         if (updated.containsKey(ESTIMATED_MAF_KEY)) markPidSeen(ESTIMATED_MAF_KEY, now)
@@ -2116,6 +2173,14 @@ object ObdBleManager {
                             "st=$sessionStHex count=${sessionEngineHeader == "7E0"}" +
                             "$desyncNote$tallyNote",
                     )
+                    try {
+                        maybeUseFixedTiming()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (t: Throwable) {
+                        // A dead link here is caught by the next round's write.
+                        logW("Fixed-timing switch failed: ${t.message}")
+                    }
                     pidsOkWindow = 0
                     missesSinceRateLog = 0
                     expiredSinceRateLog = 0
@@ -2134,8 +2199,9 @@ object ObdBleManager {
 
     /**
      * One step of the trip-start fault-code read, run between poll rounds like the
-     * 7E0 re-probe: `03` on one round, `07` on the next, so HOT PIDs keep flowing in
-     * between. Each command is sent at most once per trip — no retries mid-trip —
+     * 7E0 re-probe: `0101`, then `03`, then `07` on successive rounds, so HOT PIDs
+     * keep flowing in between. `0101`'s confirmed-code count cross-checks `03`,
+     * whose `NO DATA` would otherwise read as "no codes" even when the reply was lost. Each command is sent at most once per trip — no retries mid-trip —
      * and a failed or timed-out read just leaves its field absent. The 1 Hz sample
      * clock never waits on any of this; it only snapshots [pidValues].
      */
@@ -2152,24 +2218,53 @@ object ObdBleManager {
             logW("Trip-start fault codes skipped (OBD not polling within ${DTC_REQUEST_TTL_MS / 1000}s)")
             return
         }
+        if (!request.statusAttempted) {
+            val attempt = request.copy(statusAttempted = true)
+            if (!dtcRequest.compareAndSet(request, attempt)) return
+            val cmd = ElmPerformanceMode.mode01PollCommand(
+                "01",
+                settings.obdPerformanceMode,
+                singleResponder = sessionEngineHeader == "7E0",
+            )
+            val raw = sendDtcCommand(cmd)
+            dtcRequest.compareAndSet(attempt, attempt.copy(status = DtcParser.parseMonitorStatus(raw)))
+            return
+        }
         if (!request.storedAttempted) {
             val attempt = request.copy(storedAttempted = true)
             if (!dtcRequest.compareAndSet(request, attempt)) return
-            val raw = sendCommandLogged("03", DTC_COMMAND_TIMEOUT_MS, isInit = false)
+            val raw = sendDtcCommand("03")
             dtcRequest.compareAndSet(attempt, attempt.copy(stored = DtcParser.parseStored(raw)))
             return
         }
         // Clear first: whatever happens to `07`, this trip's read is over.
         if (!dtcRequest.compareAndSet(request, null)) return
-        val raw = sendCommandLogged("07", DTC_COMMAND_TIMEOUT_MS, isInit = false)
-        val result = TripStartFaultCodes(stored = request.stored, pending = DtcParser.parsePending(raw))
+        val raw = sendDtcCommand("07")
+        val status = request.status
+        val stored = DtcParser.reconcileStored(request.stored, status)
+        if (stored == null && request.stored != null) {
+            logW(
+                "Mode 03 read no codes but the ECU counts ${status?.confirmedCount} stored — " +
+                    "reply lost, stored codes left unread",
+            )
+        }
+        val result = TripStartFaultCodes(stored = stored, pending = DtcParser.parsePending(raw))
+        val lamp = status?.let { if (it.milOn) "ON" else "off" } ?: "unread"
         logI(
-            "Trip-start fault codes: stored=${result.stored?.joinToString(",", "[", "]") ?: "unread"} " +
+            "Trip-start fault codes: MIL=$lamp count=${status?.confirmedCount ?: "unread"} " +
+                "stored=${result.stored?.joinToString(",", "[", "]") ?: "unread"} " +
                 "pending=${result.pending?.joinToString(",", "[", "]") ?: "unread"}",
         )
         if (result.stored != null || result.pending != null) {
             dtcResult.set(request.token to result)
         }
+    }
+
+    /** Sends one fault-code step and logs its raw reply, so an empty result can be audited. */
+    private suspend fun sendDtcCommand(cmd: String): String? {
+        val raw = sendCommandLogged(cmd, DTC_COMMAND_TIMEOUT_MS, isInit = false)
+        logI("DTC $cmd << ${raw?.replace('\n', ' ')?.trim()?.take(200) ?: "timeout"}")
+        return raw
     }
 
     /**
@@ -2538,23 +2633,13 @@ object ObdBleManager {
         udsHeaderRestoreFailed = false
         udsReceiveFilterWasSet = false
         consecutiveEngineTimeouts = 0
-        vwUdsNotBeforeMs = UdsRestorePolicy.nextUdsAllowedAtMs(
-            nowMs = System.currentTimeMillis(),
-            restoreHealthOk = true,
-        )
     }
 
     private fun markUdsRestoreUnhealthy(reason: String) {
         udsHeaderRestoreFailed = true
-        val now = System.currentTimeMillis()
-        vwUdsNotBeforeMs = UdsRestorePolicy.nextUdsAllowedAtMs(
-            nowMs = now,
-            restoreHealthOk = false,
-        )
-        logE(
-            "UDS restore unhealthy ($reason) — backing off cluster UDS " +
-                "${UdsRestorePolicy.DEFAULT_BACKOFF_MS / 1000}s; Mode 01 keeps polling",
-        )
+        // Not an error yet: the engine usually answers again within seconds, and
+        // the poll loop clears this flag on its first decode.
+        logW("Engine not confirmed after cluster UDS ($reason) — Mode 01 poll will confirm")
     }
 
     /** Health probe after header restore; updates RPM if decoded. */
@@ -2565,7 +2650,7 @@ object ObdBleManager {
                 WWH_HEALTH_TIMEOUT_MS,
                 isInit = false,
             )
-            if (!WwhObd.isPositiveRead(live, expectPid = 0x0C)) return false
+            if (!WwhObd.isPositiveRead(live, expectPid = 0x0C)) return healthProbeMiss(live)
             val shim = WwhObd.mode01CompatibleResponse("0c", live)
             val rpm = shim?.let { parser.decodePid("0c", it) }
             if (rpm != null && isValidPidValue("0c", rpm)) {
@@ -2589,7 +2674,7 @@ object ObdBleManager {
                 MODE01_HEALTH_TIMEOUT_MS,
                 isInit = false,
             )
-            if (!ElmHeaderRestore.isMode01Live(live, expectPid = 0x0C)) return false
+            if (!ElmHeaderRestore.isMode01Live(live, expectPid = 0x0C)) return healthProbeMiss(live)
             val rpm = live?.let { parser.decodePid("0c", it) }
             if (rpm != null && isValidPidValue("0c", rpm)) {
                 val updated = LinkedHashMap(
@@ -2603,6 +2688,12 @@ object ObdBleManager {
             }
             true
         }
+    }
+
+    /** Logs what a failed health probe actually got back; @return false. */
+    private fun healthProbeMiss(raw: String?): Boolean {
+        logW("Engine health probe << ${raw?.replace('\n', ' ')?.trim()?.take(80) ?: "timeout"}")
+        return false
     }
 
     private fun stopPollLoop() {

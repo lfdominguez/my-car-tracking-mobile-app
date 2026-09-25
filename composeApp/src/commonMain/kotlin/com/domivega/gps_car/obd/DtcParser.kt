@@ -60,6 +60,38 @@ object DtcParser {
 
     fun parsePending(raw: String?): List<String>? = parse(raw, PENDING_RESPONSE_SID)
 
+    /** Mode 01 PID 01 byte A: check-engine lamp (bit 7) and confirmed DTC count (bits 0–6). */
+    data class MonitorStatus(val milOn: Boolean, val confirmedCount: Int)
+
+    private val MONITOR_STATUS = Regex("""4101([0-9A-F]{2})[0-9A-F]{6}""")
+
+    /**
+     * Parses a `0101` answer, OR-ing the lamp and summing counts when several ECUs
+     * reply. Null when nothing decodes: every OBD-II ECU supports PID 01, so here
+     * `NO DATA` is a lost reply, not "no codes".
+     */
+    fun parseMonitorStatus(raw: String?): MonitorStatus? {
+        if (raw.isNullOrBlank()) return null
+        val compact = raw.uppercase().filter { it in '0'..'9' || it in 'A'..'F' }
+        val bytes = MONITOR_STATUS.findAll(compact).map { it.groupValues[1].toInt(16) }.toList()
+        if (bytes.isEmpty()) return null
+        return MonitorStatus(
+            milOn = bytes.any { it and 0x80 != 0 },
+            confirmedCount = bytes.sumOf { it and 0x7F },
+        )
+    }
+
+    /**
+     * Cross-checks a Mode 03 read against PID 01's confirmed-code count. Mode 03
+     * treats `NO DATA` as "no codes", which a lost reply also looks like; an empty
+     * list while the ECU counts stored codes is a failed read, so it becomes null.
+     */
+    fun reconcileStored(stored: List<String>?, status: MonitorStatus?): List<String>? {
+        if (stored == null) return null
+        if (stored.isEmpty() && status != null && status.confirmedCount > 0) return null
+        return stored
+    }
+
     fun parse(raw: String?, responseSid: Int): List<String>? {
         if (raw.isNullOrBlank()) return null
         var text = raw.uppercase().replace(">", "\n")

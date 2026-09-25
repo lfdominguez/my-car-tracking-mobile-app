@@ -17,12 +17,13 @@ object ElmSessionStallPolicy {
     /**
      * Consecutive Mode 01 command timeouts before closing the link for a full re-init.
      *
-     * Sized against [EcuTrackingGate.DEFAULT_STOP_GRACE_MS]: at a 4 s command timeout
-     * this fires around 52 s, leaving room for a ~10 s re-init so live PIDs resume
-     * inside the 90 s grace and the trip is never cut. Raising it past
-     * [maxStreakWithinGrace] would let the trip end before recovery is attempted.
+     * At a 4 s command timeout this fires around 24 s. A timeout means no reply
+     * at all (`NO DATA` is a reply and resets the streak), so six in a row is a
+     * hung adapter; at 12 a real trip sat 45 s with every PID expired before the
+     * re-init. Must stay within [maxStreakWithinGrace] so live PIDs resume inside
+     * [EcuTrackingGate.DEFAULT_STOP_GRACE_MS] and the trip is never cut.
      */
-    const val DEFAULT_TIMEOUT_STREAK: Int = 12
+    const val DEFAULT_TIMEOUT_STREAK: Int = 6
 
     /**
      * Largest streak that still recovers before the trip-stop grace expires.

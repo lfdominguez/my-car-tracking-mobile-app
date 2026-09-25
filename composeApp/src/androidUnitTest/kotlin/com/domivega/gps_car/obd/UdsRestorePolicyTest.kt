@@ -1,6 +1,5 @@
 package com.domivega.gps_car.obd
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -40,15 +39,6 @@ class UdsRestorePolicyTest {
                 udsRestoreUnhealthy = false,
                 consecutiveEngineTimeouts = 100,
             ),
-        )
-    }
-
-    @Test
-    fun `failed health schedules UDS backoff`() {
-        assertEquals(0L, UdsRestorePolicy.nextUdsAllowedAtMs(nowMs = 1000L, restoreHealthOk = true))
-        assertEquals(
-            1000L + UdsRestorePolicy.DEFAULT_BACKOFF_MS,
-            UdsRestorePolicy.nextUdsAllowedAtMs(nowMs = 1000L, restoreHealthOk = false),
         )
     }
 }
