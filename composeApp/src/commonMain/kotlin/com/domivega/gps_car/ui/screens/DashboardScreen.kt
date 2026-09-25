@@ -133,11 +133,20 @@ private fun HealthStatusCard(
                 )
             }
 
-            state.uploadWarning?.let { warning ->
+            val pausedMessage = state.uploadPausedMessage
+            if (pausedMessage != null) {
+                // Retry cannot fix a revoked token or a vault car, so no button.
                 UploadWarningRow(
-                    message = warning,
-                    onRetry = onRetryUpload,
+                    message = pausedMessage,
+                    onRetry = null,
                 )
+            } else {
+                state.uploadWarning?.let { warning ->
+                    UploadWarningRow(
+                        message = warning,
+                        onRetry = onRetryUpload,
+                    )
+                }
             }
 
             Row(
@@ -196,7 +205,7 @@ private fun StatusChip(
 @Composable
 private fun UploadWarningRow(
     message: String,
-    onRetry: () -> Unit,
+    onRetry: (() -> Unit)?,
 ) {
     var retrying by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -220,19 +229,21 @@ private fun UploadWarningRow(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
             )
-            TextButton(
-                onClick = {
-                    if (retrying) return@TextButton
-                    retrying = true
-                    onRetry()
-                    scope.launch {
-                        delay(1_500)
-                        retrying = false
-                    }
-                },
-                enabled = !retrying,
-            ) {
-                Text(if (retrying) "…" else "Retry")
+            if (onRetry != null) {
+                TextButton(
+                    onClick = {
+                        if (retrying) return@TextButton
+                        retrying = true
+                        onRetry()
+                        scope.launch {
+                            delay(1_500)
+                            retrying = false
+                        }
+                    },
+                    enabled = !retrying,
+                ) {
+                    Text(if (retrying) "…" else "Retry")
+                }
             }
         }
     }

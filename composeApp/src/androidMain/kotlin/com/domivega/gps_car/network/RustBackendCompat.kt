@@ -31,13 +31,21 @@ fun resolveTrackingId(serverBody: String, startedAtMs: Long): String {
 }
 
 /** Derive public `/health` URL from any absolute track URL on the same origin. */
-fun healthUrlFromTrackUrl(trackUrl: String): String? {
+fun healthUrlFromTrackUrl(trackUrl: String): String? =
+    originOfTrackUrl(trackUrl)?.let { "$it/health" }
+
+/** Derive `/api/track/ping` from any absolute track URL on the same origin. */
+fun pingUrlFromTrackUrl(trackUrl: String): String? =
+    originOfTrackUrl(trackUrl)?.let { "$it${TrackPing.PATH}" }
+
+/** `scheme://host[:port]` of an absolute URL, or null when it has no scheme/host. */
+private fun originOfTrackUrl(trackUrl: String): String? {
     val raw = trackUrl.trim()
     if (raw.isEmpty()) return null
     return runCatching {
         val uri = URI(raw)
         if (uri.scheme.isNullOrBlank() || uri.host.isNullOrBlank()) return null
         val port = if (uri.port == -1) "" else ":${uri.port}"
-        "${uri.scheme}://${uri.host}$port/health"
+        "${uri.scheme}://${uri.host}$port"
     }.getOrNull()
 }

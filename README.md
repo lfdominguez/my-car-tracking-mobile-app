@@ -127,8 +127,8 @@ cp local.properties.example local.properties
 Install the debug APK, open **Settings**, then:
 
 1. **Preferred:** on the web platform → car → **device** → scan the **QR** (token, track URLs, fuel/engine, optional car name)
-2. **Or manual:** **API token** (raw device token for `Authorization: Basic <token>`) + absolute `/api/track/start|stop|sample|samples` URLs
-3. Tap **Test connection** — public `/health`, then a short start/stop smoke with your device token
+2. **Or manual:** **API token** (raw device token for `Authorization: Basic <token>`) + absolute `/api/track/start|stop|samples` URLs (plus an optional ping URL)
+3. Tap **Test connection** — public `/health`, then a read-only `GET /api/track/ping` with your device token (never opens a trip). The ping URL comes from the QR (`pingUrl`) or, when blank, from the start URL's origin
 4. **Bluetooth transport** — **BLE (GATT)** default, or **Classic SPP** for RFCOMM “OBDII” sticks  
    Classic: pair in system Bluetooth first (PIN often `1234` / `0000`), fully quit Torque/other OBD apps, then Scan
 5. **Adapter** — scan, select, save (auto-reconnect next time)
@@ -162,13 +162,18 @@ Companion platform: [my-car-tracking-platform](https://github.com/lfdominguez/my
 |:-------|:-----|:------|
 | `POST` | `…/start` | Body `{ "timestamp_start": "<RFC3339>" }` · tracking id from JSON `id` if present, else client millis string |
 | `POST` | `…/stop` | `{ "id": "<tracking_id>" }` |
-| `POST` | `…/sample` | Single sample (legacy) |
 | `POST` | `…/samples` | `{ "samples": [ … ] }` batch (**preferred**) |
 | `GET` / `HEAD` | `/health` | Public probe used by **Test connection** |
+| `GET` | `/api/track/ping` | Token check used by **Test connection**: `200 {"ok":true,"car_id","car_name","vault_required"}`, `401`/`403` token rejected, `404` older server (token not verified) |
 
 Header: `Authorization: Basic <device_token>` (plaintext device token from the web platform).
 
 OBD metric fields may be missing — backends should treat them as optional so GPS-only or partial OBD points are kept.
+
+**Fault codes (opt-in, off by default).** With *Read fault codes at trip start* enabled (OBD Device screen), the app
+reads Mode 03 (stored) and Mode 07 (pending) once when a trip starts and attaches them to the first sample
+recorded after the read as `dtc_codes` / `pending_dtc_codes` (JSON string arrays such as `["P0420"]`). An absent
+field means "not read" (disabled, failed or timed out); `[]` means "read, no codes".
 
 **`lat` / `lon` / `acc` may also be absent.** Samples are produced by a fixed 1 Hz clock, so a
 point recorded in a tunnel or a garage carries engine telemetry with no coordinates at all
@@ -180,7 +185,7 @@ reject the whole batch — see `migrations/015_optional_gps.sql` on the companio
 
 - Start body sends `timestamp_start` as an **ISO-8601 / RFC3339** instant (not a raw millis number).
 - If start returns an empty body (current Rust API), the app uses the client epoch-millis string as `tracking_id` so samples still attach.
-- Platform QR JSON is camelCase (`apiToken`, `startUrl`, `fuelType`, `carId`, `carName`, …); unknown keys are ignored.
+- Platform QR JSON is camelCase (`apiToken`, `startUrl`, `pingUrl`, `fuelType`, `carId`, `carName`, …); unknown keys are ignored (including the legacy `sampleUrl`). Fuel/engine keys absent from the QR keep the phone's current values.
 
 </details>
 

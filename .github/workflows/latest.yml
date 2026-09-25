@@ -37,6 +37,11 @@ jobs:
 
       - name: Set up Android SDK (build-tools for apksigner)
         uses: android-actions/setup-android@v3
+        # The default package list includes the long-removed `tools`, which
+        # cmdline-tools 16+ rejects. apksigner comes from the build-tools the
+        # runner image preinstalls (the defaults never installed build-tools).
+        with:
+          packages: platform-tools
 
       - name: Materialize release keystore
         env:

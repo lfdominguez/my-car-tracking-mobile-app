@@ -4,7 +4,8 @@ import kotlinx.serialization.Serializable
 
 /**
  * Which optional sample metrics may be uploaded.
- * Always-on: tracking_id, recorded_at, lat, lon, acc, RPM, velocity.
+ * Always-on: tracking_id, recorded_at, RPM, velocity. lat/lon/acc are never filtered
+ * here; they are sent whenever the sample has a usable GPS fix.
  */
 @Serializable
 data class SampleUploadFieldFlags(
@@ -25,6 +26,8 @@ data class SampleUploadFieldFlags(
     val lambdaCmd: Boolean = true,
     val atmosphericPressure: Boolean = true,
     val intakeAirTemperature: Boolean = true,
+    /** OBD PID 0x31, distance since codes were cleared (km). */
+    val distanceSinceDtcClearKm: Boolean = true,
     /**
      * Phone accelerometer aggregates. Grouped under one flag because the three fields
      * are useless apart, and offered at all because motion is phone data rather than

@@ -24,6 +24,7 @@ interface CarMetricSource {
     val pidStale: StateFlow<Set<String>>
 
     val ecuConnected: StateFlow<Boolean>
-    val serviceVersion: StateFlow<String?>
+    /** Human-readable OBD adapter / ECU connection status line. */
+    val obdConnectionStatus: StateFlow<String>
     val pidNames: Map<String, String>
 }

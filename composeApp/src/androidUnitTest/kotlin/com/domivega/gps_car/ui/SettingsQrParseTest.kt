@@ -1,5 +1,6 @@
 package com.domivega.gps_car.ui
 
+import com.domivega.gps_car.data.ConnectionTestOutcome
 import com.domivega.gps_car.data.SettingsRepository
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import com.domivega.gps_car.ui.state.SettingsUiState
@@ -16,8 +17,8 @@ private class FakeSettingsRepository : SettingsRepository {
     override var apiToken: String = ""
     override var startUrl: String = ""
     override var stopUrl: String = ""
-    override var sampleUrl: String = ""
     override var samplesUrl: String = ""
+    override var pingUrl: String = ""
     override var carId: String = ""
     override var carName: String = ""
     override var bleDeviceAddress: String = ""
@@ -29,6 +30,7 @@ private class FakeSettingsRepository : SettingsRepository {
     override var wwhObdOnly: Boolean = false
     override var obdPerformanceMode: Boolean = false
     override var obdEnabled: Boolean = true
+    override var readFaultCodesAtTripStart: Boolean = false
     override var fuelClass: String = "GASOLINE"
     override var fuelType: String = "E10"
     override var fuelStoichAfr: Double = 14.08
@@ -41,6 +43,9 @@ private class FakeSettingsRepository : SettingsRepository {
 }
 
 class SettingsQrParseTest {
+
+    // Payloads below still carry the legacy `sampleUrl` key: it must be accepted and
+    // ignored (single-sample upload was removed; unknown keys are skipped).
 
     private val platformQr = """
         {
@@ -285,5 +290,102 @@ class SettingsQrParseTest {
         assertEquals("GASOLINE", repo.fuelClass)
         assertEquals(1.0, repo.engineDisplacementL, 0.0001)
         assertEquals(0.0, repo.tankCapacityL, 0.0001)
+    }
+
+    @Test
+    fun qrWithPingUrl_appliesIt_andMissingKeyKeepsExisting() {
+        val repo = FakeSettingsRepository()
+        repo.pingUrl = "https://old.example.com/api/track/ping"
+        val vm = SettingsViewModel(repo)
+
+        vm.updateSettingsFromQr("""{"apiToken":"tok"}""")
+        assertEquals("https://old.example.com/api/track/ping", repo.pingUrl)
+
+        vm.updateSettingsFromQr(
+            """{"apiToken":"tok","pingUrl":"https://track.example.com/api/track/ping"}""",
+        )
+        assertEquals("", vm.uiState.value.qrError)
+        assertEquals("https://track.example.com/api/track/ping", repo.pingUrl)
+        assertEquals("https://track.example.com/api/track/ping", vm.uiState.value.pingUrl)
+    }
+
+    @Test
+    fun connectionTestMessage_okShowsCar_andVaultIsAnError() {
+        val (ok, okIsError) = SettingsViewModel.connectionTestMessage(
+            ConnectionTestOutcome.Ok(carName = "Demo Car", vaultRequired = false),
+        )
+        assertTrue(ok.contains("Demo Car"))
+        assertFalse(okIsError)
+
+        val (vault, vaultIsError) = SettingsViewModel.connectionTestMessage(
+            ConnectionTestOutcome.Ok(carName = "Demo Car", vaultRequired = true),
+        )
+        assertTrue(vault.contains("vault"))
+        assertTrue(vaultIsError)
+
+        val (old, oldIsError) = SettingsViewModel.connectionTestMessage(
+            ConnectionTestOutcome.TokenNotVerified(""),
+        )
+        assertTrue(old.contains("not verified"))
+        assertTrue(oldIsError)
+    }
+
+    @Test
+    fun qrWithoutEngineKeys_keepsLocalFuelAndEngineValues() {
+        val repo = FakeSettingsRepository()
+        repo.fuelClass = "DIESEL"
+        repo.fuelType = "B7"
+        repo.fuelStoichAfr = 14.5
+        repo.fuelDensityGl = 835.0
+        repo.engineDisplacementL = 1.9
+        repo.engineVe = 0.9
+        repo.tankCapacityL = 55.0
+        val vm = SettingsViewModel(repo)
+
+        vm.updateSettingsFromQr(
+            """
+            {
+              "apiToken": "tok",
+              "startUrl": "https://track.example.com/api/track/start",
+              "carName": "Demo Car"
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("", vm.uiState.value.qrError)
+        assertEquals(14.5, repo.fuelStoichAfr, 0.0001)
+        assertEquals(835.0, repo.fuelDensityGl, 0.0001)
+        assertEquals(1.9, repo.engineDisplacementL, 0.0001)
+        assertEquals(0.9, repo.engineVe, 0.0001)
+        assertEquals(55.0, repo.tankCapacityL, 0.0001)
+        assertEquals(1.9, vm.uiState.value.engineDisplacementL, 0.0001)
+    }
+
+    @Test
+    fun qrWithEngineKeysAndTank_appliesOnlyThoseKeys() {
+        val repo = FakeSettingsRepository()
+        repo.fuelStoichAfr = 14.5
+        repo.engineVe = 0.9
+        val vm = SettingsViewModel(repo)
+
+        vm.updateSettingsFromQr(
+            """
+            {
+              "apiToken": "tok",
+              "engineDisplacementL": 1.5,
+              "fuelDensityGl": 750.0,
+              "tankCapacityL": 36.0,
+              "sampleUrl": "https://track.example.com/api/track/sample"
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("", vm.uiState.value.qrError)
+        assertEquals(1.5, repo.engineDisplacementL, 0.0001)
+        assertEquals(750.0, repo.fuelDensityGl, 0.0001)
+        assertEquals(36.0, repo.tankCapacityL, 0.0001)
+        // Absent keys keep their local values.
+        assertEquals(14.5, repo.fuelStoichAfr, 0.0001)
+        assertEquals(0.9, repo.engineVe, 0.0001)
     }
 }

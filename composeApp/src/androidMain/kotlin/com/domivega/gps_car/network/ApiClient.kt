@@ -26,6 +26,10 @@ class ApiClient(private val settings: AppSettings) {
         .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
+    /** The token the next request will carry; callers bind a refusal to it. */
+    val currentToken: String
+        get() = settings.apiToken
+
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
     suspend fun postJson(url: String, body: String): Result<String> {
@@ -93,9 +97,26 @@ class ApiClient(private val settings: AppSettings) {
         }
     }
 
+    /** GET returning the HTTP status and body instead of failing on non-2xx. */
+    private suspend fun getReply(url: String, authorized: Boolean): Result<HttpReply> {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val builder = Request.Builder().url(url).get()
+                if (authorized) {
+                    builder.addHeader("Authorization", "Basic ${settings.apiToken}")
+                }
+                client.newCall(builder.build()).execute().use { resp ->
+                    HttpReply(code = resp.code, body = resp.body.string())
+                }
+            }
+        }
+    }
+
     /**
-     * Health check on the API origin, then start/stop smoke with the device token.
-     * Creates a short finished track when the token is valid.
+     * Health check on the API origin, then `GET /api/track/ping` with the device token.
+     *
+     * Read-only on purpose: the old start/stop smoke left a tiny finished trip on the
+     * server every time. Never calls start/stop.
      */
     suspend fun testConnection(): ConnectionTestResult {
         val healthUrl = healthUrlFromTrackUrl(settings.startUrl)
@@ -112,31 +133,18 @@ class ApiClient(private val settings: AppSettings) {
             return ConnectionTestResult.Failed("API token is empty")
         }
 
-        val start = startSession()
-        if (start.isFailure) {
-            val msg = start.exceptionOrNull()?.message.orEmpty()
-            return if (msg.contains("HTTP 401") || msg.contains("HTTP 403")) {
-                ConnectionTestResult.Unauthorized(msg)
-            } else {
-                ConnectionTestResult.Failed(msg.ifBlank { "start failed" })
-            }
-        }
+        val pingUrl = TrackPing.resolveUrl(settings.pingUrl, settings.startUrl)
+            ?: return ConnectionTestResult.Failed("Ping URL is missing or invalid")
 
-        val id = start.getOrNull()?.id
-        if (!id.isNullOrBlank()) {
-            stopSession(id)
-        }
-        return ConnectionTestResult.Ok
+        return getReply(pingUrl, authorized = true).fold(
+            onSuccess = { reply -> TrackPing.classify(reply.code, reply.body) },
+            onFailure = { e -> ConnectionTestResult.Unreachable(e.message ?: "ping failed") },
+        )
     }
 
     suspend fun stopSession(id: String): Result<Unit> {
         val body = json.encodeToString(StopRequest.serializer(), StopRequest(id))
         return postJson(settings.stopUrl, body).map { }
-    }
-
-    suspend fun sendSample(sample: Sample): Result<Unit> {
-        val body = json.encodeToString(Sample.serializer(), sample)
-        return postJson(settings.sampleUrl, body).map { }
     }
 
     suspend fun sendSamples(samples: List<Sample>): Result<SampleBatchResponse> {
@@ -148,10 +156,15 @@ class ApiClient(private val settings: AppSettings) {
     }
 }
 
+internal data class HttpReply(val code: Int, val body: String)
+
 sealed class ConnectionTestResult {
-    data object Ok : ConnectionTestResult()
+    /** Token accepted. [vaultRequired]: the car's owner has an E2E vault, so plaintext uploads are rejected. */
+    data class Ok(val carName: String?, val vaultRequired: Boolean) : ConnectionTestResult()
     data class Unreachable(val detail: String) : ConnectionTestResult()
     data class Unauthorized(val detail: String) : ConnectionTestResult()
+    /** Server reachable but too old for `/api/track/ping` (404): token not checked. */
+    data class TokenNotVerified(val detail: String) : ConnectionTestResult()
     data class Failed(val detail: String) : ConnectionTestResult()
 }
 
@@ -262,6 +275,15 @@ data class Sample(
     val batterySocPct: Double? = null,
     @SerialName("battery_power_kw")
     val batteryPowerKw: Double? = null,
+    /** HV pack voltage (V) from PID 0x9A, as on the dashboard's HV line. */
+    @SerialName("hv_battery_voltage_v")
+    val hvBatteryVoltageV: Double? = null,
+    /** HV pack current (A) from PID 0x9A; positive = discharge, negative = charging. */
+    @SerialName("hv_battery_current_a")
+    val hvBatteryCurrentA: Double? = null,
+    /** OBD PID 0x31: distance since diagnostic codes were cleared (km), not the odometer. */
+    @SerialName("distance_since_dtc_clear_km")
+    val distanceSinceDtcClearKm: Double? = null,
 
     /**
      * Phone motion aggregated over this sample's second. Horizontal magnitudes are in
@@ -276,4 +298,13 @@ data class Sample(
     /** Largest tilt swing during the second; the backend rejects handled-phone windows. */
     @SerialName("device_tilt_delta_deg")
     val deviceTiltDeltaDeg: Double? = null,
+
+    /**
+     * Fault codes read once at trip start (opt-in), carried by one sample only.
+     * Absent = not read; `[]` = read, no codes. Mode 03 stored / Mode 07 pending.
+     */
+    @SerialName("dtc_codes")
+    val dtcCodes: List<String>? = null,
+    @SerialName("pending_dtc_codes")
+    val pendingDtcCodes: List<String>? = null,
 )

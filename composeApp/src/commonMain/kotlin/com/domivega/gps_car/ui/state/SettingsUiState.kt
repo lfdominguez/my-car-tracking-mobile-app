@@ -8,8 +8,9 @@ data class SettingsUiState(
     val apiToken: String = "",
     val startUrl: String = "",
     val stopUrl: String = "",
-    val sampleUrl: String = "",
     val samplesUrl: String = "",
+    /** Full `GET /api/track/ping` URL; blank = derived from [startUrl]'s origin. */
+    val pingUrl: String = "",
     /** Optional car identity from platform QR provisioning (not required for ingest). */
     val carId: String = "",
     val carName: String = "",
@@ -28,6 +29,8 @@ data class SettingsUiState(
     /** Faster ELM polling (ATAT2 + Mode 01 line suffix). Default off. */
     val obdPerformanceMode: Boolean = false,
     val obdEnabled: Boolean = true,
+    /** Read fault codes (Mode 03/07) once at trip start. Never applied from the QR. */
+    val readFaultCodesAtTripStart: Boolean = false,
     /** [FuelClass] enum name; default GASOLINE. */
     val fuelClass: String = "GASOLINE",
     /** FuelTypePreset name; default E10. */
@@ -39,7 +42,7 @@ data class SettingsUiState(
     /** Liters; 0 = unknown (no tank-level fuel cross-check). */
     val tankCapacityL: Double = 0.0,
     val batteryCapacityKwh: Double = 0.0,
-    /** Optional Sample metrics to upload (lat/lon/speed/RPM always on). */
+    /** Optional Sample metrics to upload (speed/RPM always on; lat/lon whenever a usable fix exists). */
     val sampleUploadFieldFlags: SampleUploadFieldFlags = SampleUploadFieldFlags.ALL_ENABLED,
     /** Last QR parse error (cleared on successful apply). */
     val qrError: String = "",

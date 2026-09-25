@@ -6,8 +6,9 @@ interface SettingsRepository {
     var apiToken: String
     var startUrl: String
     var stopUrl: String
-    var sampleUrl: String
     var samplesUrl: String
+    /** Blank = derived from the start URL's origin + `/api/track/ping`. */
+    var pingUrl: String
     var carId: String
     var carName: String
     var bleDeviceAddress: String
@@ -19,6 +20,8 @@ interface SettingsRepository {
     var wwhObdOnly: Boolean
     var obdPerformanceMode: Boolean
     var obdEnabled: Boolean
+    /** Mode 03/07 once at trip start (default off; not applied from QR). */
+    var readFaultCodesAtTripStart: Boolean
     var fuelClass: String
     var fuelType: String
     var fuelStoichAfr: Double

@@ -2,6 +2,8 @@ package com.domivega.gps_car.network
 
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -33,6 +35,11 @@ class SampleFieldFilterTest {
         lambdaCmd = 1.0,
         atmosphericPressure = 101.0,
         intakeAirTemperature = 30.0,
+        batterySocPct = 70.0,
+        batteryPowerKw = -12.5,
+        hvBatteryVoltageV = 355.0,
+        hvBatteryCurrentA = -35.2,
+        distanceSinceDtcClearKm = 1234.0,
         accelPeakMps2 = 3.4,
         accelRmsMps2 = 2.8,
         deviceTiltDeltaDeg = 1.5,
@@ -84,5 +91,103 @@ class SampleFieldFilterTest {
         assertEquals(3.0, out.acc!!, 0.0)
         assertEquals(800.0, out.vehicleEngineRpm)
         assertEquals(40.0, out.vehicleSpeedKph)
+    }
+
+    @Test
+    fun `fault codes pass through whatever the flags`() {
+        val withCodes = baseSample().copy(dtcCodes = listOf("P0133"), pendingDtcCodes = emptyList())
+        val allOff = SampleUploadFieldFlags(
+            fuelConsumptionRate = false,
+            engineLoadPct = false,
+            absoluteEngineLoadPct = false,
+            shortTermFuelTrimPct = false,
+            longTermFuelTrimPct = false,
+            fuelLevelPct = false,
+            acceleratorPedalPct = false,
+            ambientAirTempC = false,
+            odometerValueKm = false,
+            engineCoolantTempC = false,
+            manifoldAbsolutePressureKpa = false,
+            controlModuleVoltage = false,
+            engineOnTime = false,
+            massAirFlow = false,
+            lambdaCmd = false,
+            atmosphericPressure = false,
+            intakeAirTemperature = false,
+            distanceSinceDtcClearKm = false,
+            motion = false,
+        )
+        val out = SampleFieldFilter.apply(withCodes, allOff)
+        assertEquals(listOf("P0133"), out.dtcCodes)
+        assertEquals(emptyList<String>(), out.pendingDtcCodes)
+    }
+
+    @Test
+    fun `fault code fields are omitted when not read and kept when empty`() {
+        val json = kotlinx.serialization.json.Json {
+            explicitNulls = false
+            encodeDefaults = true
+        }
+        val notRead = json.encodeToString(Sample.serializer(), baseSample())
+        assertFalse(notRead.contains("dtc_codes"))
+        assertFalse(notRead.contains("pending_dtc_codes"))
+
+        val readNone = json.encodeToString(
+            Sample.serializer(),
+            baseSample().copy(dtcCodes = listOf("P0420"), pendingDtcCodes = emptyList()),
+        )
+        assertTrue(readNone.contains("\"dtc_codes\":[\"P0420\"]"))
+        assertTrue(readNone.contains("\"pending_dtc_codes\":[]"))
+    }
+
+    @Test
+    fun `distance since codes cleared has its own toggle`() {
+        val on = SampleFieldFilter.apply(baseSample(), SampleUploadFieldFlags.ALL_ENABLED)
+        assertEquals(1234.0, on.distanceSinceDtcClearKm!!, 0.0)
+        val off = SampleFieldFilter.apply(
+            baseSample(),
+            SampleUploadFieldFlags.ALL_ENABLED.copy(distanceSinceDtcClearKm = false),
+        )
+        assertNull(off.distanceSinceDtcClearKm)
+        assertEquals(1000.0, off.odometerValueKm!!, 0.0)
+    }
+
+    @Test
+    fun `hv battery voltage and current are always kept like battery power`() {
+        val allOff = SampleUploadFieldFlags(
+            fuelConsumptionRate = false,
+            engineLoadPct = false,
+            absoluteEngineLoadPct = false,
+            shortTermFuelTrimPct = false,
+            longTermFuelTrimPct = false,
+            fuelLevelPct = false,
+            acceleratorPedalPct = false,
+            ambientAirTempC = false,
+            odometerValueKm = false,
+            engineCoolantTempC = false,
+            manifoldAbsolutePressureKpa = false,
+            controlModuleVoltage = false,
+            engineOnTime = false,
+            massAirFlow = false,
+            lambdaCmd = false,
+            atmosphericPressure = false,
+            intakeAirTemperature = false,
+            distanceSinceDtcClearKm = false,
+            motion = false,
+        )
+        val out = SampleFieldFilter.apply(baseSample(), allOff)
+        assertEquals(355.0, out.hvBatteryVoltageV!!, 0.0)
+        assertEquals(-35.2, out.hvBatteryCurrentA!!, 0.0)
+        assertEquals(-12.5, out.batteryPowerKw!!, 0.0)
+        assertEquals(70.0, out.batterySocPct!!, 0.0)
+    }
+
+    @Test
+    fun `new fields use the server's snake case names`() {
+        val json = kotlinx.serialization.json.Json { explicitNulls = false }
+        val encoded = json.encodeToString(Sample.serializer(), baseSample())
+        assertTrue(encoded.contains("\"hv_battery_voltage_v\":355.0"))
+        assertTrue(encoded.contains("\"hv_battery_current_a\":-35.2"))
+        assertTrue(encoded.contains("\"distance_since_dtc_clear_km\":1234.0"))
     }
 }

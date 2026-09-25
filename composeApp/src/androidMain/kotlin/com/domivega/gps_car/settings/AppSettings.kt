@@ -10,8 +10,8 @@ class AppSettings(context: Context) {
         private const val KEY_API_TOKEN = "track_api_token"
         private const val KEY_START_URL = "track_start_url"
         private const val KEY_STOP_URL = "track_stop_url"
-        private const val KEY_SAMPLE_URL = "track_sample_url"
         private const val KEY_SAMPLES_URL = "track_samples_url"
+        private const val KEY_PING_URL = "track_ping_url"
         private const val KEY_BLE_DEVICE_ADDRESS = "ble_device_address"
         private const val KEY_BLE_DEVICE_NAME = "ble_device_name"
         private const val KEY_BLUETOOTH_TRANSPORT = "bluetooth_transport"
@@ -21,6 +21,7 @@ class AppSettings(context: Context) {
         private const val KEY_WWH_OBD_ONLY = "wwh_obd_only"
         private const val KEY_OBD_PERFORMANCE_MODE = "obd_performance_mode"
         private const val KEY_OBD_ENABLED = "obd_enabled"
+        private const val KEY_READ_FAULT_CODES_AT_TRIP_START = "read_fault_codes_at_trip_start"
         private const val KEY_FUEL_CLASS = "fuel_class"
         private const val KEY_FUEL_TYPE = "fuel_type"
         private const val KEY_FUEL_STOICH_AFR = "fuel_stoich_afr"
@@ -50,13 +51,15 @@ class AppSettings(context: Context) {
         private const val KEY_UPLOAD_ATMOSPHERIC_PRESSURE = "upload_atmospheric_pressure"
         private const val KEY_UPLOAD_INTAKE_AIR_TEMPERATURE = "upload_intake_air_temperature"
         private const val KEY_UPLOAD_MOTION = "upload_motion"
+        private const val KEY_UPLOAD_DISTANCE_SINCE_DTC_CLEAR_KM = "upload_distance_since_dtc_clear_km"
 
         // Empty/placeholder defaults — configure real values in Settings (do not commit secrets).
         const val DEFAULT_API_TOKEN = ""
         const val DEFAULT_START_URL = "https://YOUR_SERVER.example/api/track/start"
         const val DEFAULT_STOP_URL = "https://YOUR_SERVER.example/api/track/stop"
-        const val DEFAULT_SAMPLE_URL = "https://YOUR_SERVER.example/api/track/sample"
         const val DEFAULT_SAMPLES_URL = "https://YOUR_SERVER.example/api/track/samples"
+        /** Blank = derive from the start URL's origin + `/api/track/ping`. */
+        const val DEFAULT_PING_URL = ""
         const val DEFAULT_BLUETOOTH_TRANSPORT = "Ble"
         const val DEFAULT_OBD_PROTOCOL = "ISO_15765_4_CAN_11_500"
         const val DEFAULT_VEHICLE_OBD_PROFILE = "Generic"
@@ -64,6 +67,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_WWH_OBD_ONLY = false
         const val DEFAULT_OBD_PERFORMANCE_MODE = false
         const val DEFAULT_OBD_ENABLED = true
+        const val DEFAULT_READ_FAULT_CODES_AT_TRIP_START = false
 
         // Example vehicle defaults: compact 1.0L turbo on E10 (edit in Settings)
         const val DEFAULT_FUEL_CLASS = "GASOLINE"
@@ -89,13 +93,14 @@ class AppSettings(context: Context) {
         get() = prefs.getString(KEY_STOP_URL, DEFAULT_STOP_URL) ?: DEFAULT_STOP_URL
         set(value) = prefs.edit().putString(KEY_STOP_URL, value).apply()
 
-    var sampleUrl: String
-        get() = prefs.getString(KEY_SAMPLE_URL, DEFAULT_SAMPLE_URL) ?: DEFAULT_SAMPLE_URL
-        set(value) = prefs.edit().putString(KEY_SAMPLE_URL, value).apply()
-
     var samplesUrl: String
         get() = prefs.getString(KEY_SAMPLES_URL, DEFAULT_SAMPLES_URL) ?: DEFAULT_SAMPLES_URL
         set(value) = prefs.edit().putString(KEY_SAMPLES_URL, value).apply()
+
+    /** `GET /api/track/ping` for Test connection; blank = derived from [startUrl]. */
+    var pingUrl: String
+        get() = prefs.getString(KEY_PING_URL, DEFAULT_PING_URL) ?: DEFAULT_PING_URL
+        set(value) = prefs.edit().putString(KEY_PING_URL, value).apply()
 
     var bleDeviceAddress: String
         get() = prefs.getString(KEY_BLE_DEVICE_ADDRESS, "") ?: ""
@@ -139,6 +144,14 @@ class AppSettings(context: Context) {
     var obdEnabled: Boolean
         get() = prefs.getBoolean(KEY_OBD_ENABLED, DEFAULT_OBD_ENABLED)
         set(value) = prefs.edit().putBoolean(KEY_OBD_ENABLED, value).apply()
+
+    /**
+     * Read Mode 03/07 fault codes once when a trip starts and attach them to the
+     * first sample. Off by default: the read costs a few seconds of OBD polling.
+     */
+    var readFaultCodesAtTripStart: Boolean
+        get() = prefs.getBoolean(KEY_READ_FAULT_CODES_AT_TRIP_START, DEFAULT_READ_FAULT_CODES_AT_TRIP_START)
+        set(value) = prefs.edit().putBoolean(KEY_READ_FAULT_CODES_AT_TRIP_START, value).apply()
 
     /** Stored as [com.domivega.gps_car.fuel.FuelClass] enum name. */
     var fuelClass: String
@@ -252,6 +265,10 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_UPLOAD_INTAKE_AIR_TEMPERATURE, true)
         set(value) = prefs.edit().putBoolean(KEY_UPLOAD_INTAKE_AIR_TEMPERATURE, value).apply()
 
+    var uploadDistanceSinceDtcClearKm: Boolean
+        get() = prefs.getBoolean(KEY_UPLOAD_DISTANCE_SINCE_DTC_CLEAR_KM, true)
+        set(value) = prefs.edit().putBoolean(KEY_UPLOAD_DISTANCE_SINCE_DTC_CLEAR_KM, value).apply()
+
     /** Phone accelerometer aggregates: phone data rather than car data, so it is opt-out. */
     var uploadMotion: Boolean
         get() = prefs.getBoolean(KEY_UPLOAD_MOTION, true)
@@ -275,6 +292,7 @@ class AppSettings(context: Context) {
         lambdaCmd = uploadLambdaCmd,
         atmosphericPressure = uploadAtmosphericPressure,
         intakeAirTemperature = uploadIntakeAirTemperature,
+        distanceSinceDtcClearKm = uploadDistanceSinceDtcClearKm,
         motion = uploadMotion,
     )
 
@@ -296,6 +314,7 @@ class AppSettings(context: Context) {
         uploadLambdaCmd = flags.lambdaCmd
         uploadAtmosphericPressure = flags.atmosphericPressure
         uploadIntakeAirTemperature = flags.intakeAirTemperature
+        uploadDistanceSinceDtcClearKm = flags.distanceSinceDtcClearKm
         uploadMotion = flags.motion
     }
 

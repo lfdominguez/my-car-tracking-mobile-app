@@ -39,12 +39,19 @@ class SampleUploadWorker(
             prefs.edit().remove(ForegroundTrackingService.KEY_PENDING_STOP_ID).apply()
             return
         }
+        // Revoked token: keep the durable stop until a new token is saved.
+        if (UploadPauseStore.get(applicationContext) == UploadPauseReason.DeviceUnauthorized) return
+        val tokenUsed = api.currentToken
         val result = TrackingRepository(api).notifyStop(pending)
         if (result.isSuccess) {
             prefs.edit().remove(ForegroundTrackingService.KEY_PENDING_STOP_ID).apply()
             Log.i(TAG, "WorkManager delivered pending stop for $pending")
         } else {
-            Log.w(TAG, "WorkManager pending stop failed for $pending: ${result.exceptionOrNull()?.message}")
+            val message = result.exceptionOrNull()?.message.orEmpty()
+            Log.w(TAG, "WorkManager pending stop failed for $pending: $message")
+            if (UploadFailureClassifier.classify(message) == UploadFailureKind.DeviceUnauthorized) {
+                UploadPauseStore.pause(applicationContext, UploadPauseReason.DeviceUnauthorized, tokenUsed)
+            }
         }
     }
 

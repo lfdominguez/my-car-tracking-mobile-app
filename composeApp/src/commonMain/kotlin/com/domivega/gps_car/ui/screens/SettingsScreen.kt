@@ -42,12 +42,11 @@ fun SettingsScreen(
     onApiTokenChange: (String) -> Unit,
     onStartUrlChange: (String) -> Unit,
     onStopUrlChange: (String) -> Unit,
-    onSampleUrlChange: (String) -> Unit,
     onSamplesUrlChange: (String) -> Unit,
+    onPingUrlChange: (String) -> Unit = {},
     onScanQrCode: () -> Unit,
     onTestConnection: () -> Unit = {},
     onClearQrError: () -> Unit = {},
-    fuelTypeOptions: List<Pair<String, String>> = emptyList(),
     onFuelClassSelected: (String) -> Unit = {},
     onFuelTypeSelected: (String) -> Unit = {},
     onFuelStoichAfrChange: (Double) -> Unit = {},
@@ -66,7 +65,6 @@ fun SettingsScreen(
     val fuelClassOptions = FuelClass.entries.map { it.name to it.displayName }
     val gradeOptions = FuelTypePreset.gradesFor(selectedFuelClass)
         .map { it.name to it.displayName }
-        .ifEmpty { fuelTypeOptions }
 
     val selectedFuelClassLabel = fuelClassOptions
         .firstOrNull { it.first == selectedFuelClass.name }
@@ -148,15 +146,15 @@ fun SettingsScreen(
         )
 
         SettingsTextField(
-            value = state.sampleUrl,
-            onValueChange = onSampleUrlChange,
-            label = "Sample URL"
-        )
-
-        SettingsTextField(
             value = state.samplesUrl,
             onValueChange = onSamplesUrlChange,
             label = "Samples URL (Batch)"
+        )
+
+        SettingsTextField(
+            value = state.pingUrl,
+            onValueChange = onPingUrlChange,
+            label = "Ping URL (blank = from Start URL)"
         )
 
         OutlinedButton(
@@ -295,7 +293,7 @@ fun SettingsScreen(
 
         SettingsSection(
             title = "Upload fields",
-            supporting = "Always sent: GPS lat/lon, velocity, RPM (plus tracking id and accuracy).",
+            supporting = "Always sent: velocity and RPM (plus tracking id). GPS lat/lon and accuracy are sent whenever there is a usable fix.",
         ) {
         val flags = state.sampleUploadFieldFlags
         UploadFieldSwitch(
@@ -382,6 +380,11 @@ fun SettingsScreen(
             label = "Intake air temperature",
             checked = flags.intakeAirTemperature,
             onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(intakeAirTemperature = it)) },
+        )
+        UploadFieldSwitch(
+            label = "Distance since codes cleared (km)",
+            checked = flags.distanceSinceDtcClearKm,
+            onCheckedChange = { onSampleUploadFieldFlagsChange(flags.copy(distanceSinceDtcClearKm = it)) },
         )
         UploadFieldSwitch(
             label = "Phone motion (harsh braking detection)",

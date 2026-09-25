@@ -38,6 +38,11 @@ import com.domivega.gps_car.data.queue.LocalTrackingIds
 import com.domivega.gps_car.data.queue.SampleQueueRepository
 import com.domivega.gps_car.data.queue.SampleQueueUploader
 import com.domivega.gps_car.data.queue.SampleUploadScheduler
+import com.domivega.gps_car.data.queue.UploadFailureClassifier
+import com.domivega.gps_car.data.queue.UploadFailureKind
+import com.domivega.gps_car.data.queue.UploadPauseReason
+import com.domivega.gps_car.data.queue.UploadPauseStore
+import com.domivega.gps_car.data.queue.pauseReason
 import com.domivega.gps_car.network.ApiClient
 import com.domivega.gps_car.network.Sample
 import com.domivega.gps_car.network.SampleFieldFilter
@@ -120,6 +125,13 @@ class ForegroundTrackingService : Service(), SensorEventListener {
     /** Wall clock when OBD speed first became exactly 0.0; cleared when moving or unknown. */
     private var speedZeroSinceMs: Long? = null
 
+    /**
+     * Token of this trip's opt-in fault-code read ([ObdBleManager.requestTripStartFaultCodes]).
+     * Cleared once the result rides on a sample, or when the trip ends.
+     */
+    @Volatile
+    private var tripFaultCodeToken: Long? = null
+
 
     override fun onCreate() {
         super.onCreate()
@@ -193,6 +205,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         val current = trackingId ?: prefs.getString(KEY_TRACKING_ID, null) ?: return
         if (LocalTrackingIds.isUploadable(current)) return
         if (isStartingSession.get()) return
+        // Revoked token: /start can only fail. Samples stay local until a new token is saved.
+        if (UploadPauseStore.get(this) == UploadPauseReason.DeviceUnauthorized) return
 
         val now = System.currentTimeMillis()
         if (now - lastSessionStartAttempt < 10_000) return
@@ -204,7 +218,16 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             lastSessionStartAttempt = System.currentTimeMillis()
             val localId = trackingId ?: prefs.getString(KEY_TRACKING_ID, null) ?: return
             Log.d(TAG, "Binding server session for localId=$localId")
-            val serverId = repo.notifyStart()
+            val startToken = appSettings.apiToken
+            val startResult = repo.notifyStart()
+            startResult.exceptionOrNull()?.let { error ->
+                val kind = UploadFailureClassifier.classify(error.message ?: error.toString())
+                kind.pauseReason()?.let { reason ->
+                    Log.w(TAG, "/start refused ($kind) — pausing uploads")
+                    UploadPauseStore.pause(this, reason, startToken)
+                }
+            }
+            val serverId = startResult.getOrNull()
             // Re-check after network: Stop must not leave a fresh tracking_id in prefs.
             if (!TrackingCollectionGate.shouldCommitBoundSession(
                     epochAtStart = epochAtStart,
@@ -309,8 +332,13 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         }
 
         // Always have a session id (local until /start succeeds). Only Start may create it.
+        val isNewTrip = currentSessionIdOrNull() == null
         ensureLocalSessionId()
         Log.d(TAG, "Tracking ID: $trackingId")
+
+        // Fault codes once per trip, at its start only: a sticky restart resuming the
+        // same session id is not a new trip. The OBD loop does the (slow) read.
+        tripFaultCodeToken = if (isNewTrip) ObdBleManager.requestTripStartFaultCodes() else null
 
         serviceScope.launch(Dispatchers.IO) {
             tryBindServerSession(epochAtStart = epoch)
@@ -483,6 +511,11 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             return
         }
 
+        // Only the first sample after the trip-start read carries its result.
+        val faultCodes = tripFaultCodeToken?.let { token ->
+            ObdBleManager.takeTripStartFaultCodes(token)?.also { tripFaultCodeToken = null }
+        }
+
         val sample = Sample(
             trackingId = enqueueId!!,
             recordedAt = nowMs,
@@ -517,10 +550,18 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             // no longer used here; it supplies battery_power_kw below instead.
             batterySocPct = pidValues["5b"],
             batteryPowerKw = pidValues[HvBatteryReading.KEY_PACK_KW],
+            // Same PID 0x9A decode the dashboard's HV line shows.
+            hvBatteryVoltageV = pidValues[HvBatteryReading.KEY_PACK_VOLT],
+            hvBatteryCurrentA = pidValues[HvBatteryReading.KEY_PACK_AMP],
+            // PID 0x31 (km since codes cleared), polled for the VW odometer delta.
+            distanceSinceDtcClearKm = pidValues["31"],
 
             accelPeakMps2 = motion?.peakMps2,
             accelRmsMps2 = motion?.rmsMps2,
             deviceTiltDeltaDeg = motion?.tiltDeltaDeg,
+
+            dtcCodes = faultCodes?.stored,
+            pendingDtcCodes = faultCodes?.pending,
         )
         // Local enqueue only — never block collection on network.
         val toEnqueue = SampleFieldFilter.apply(sample, appSettings.sampleUploadFieldFlags())
@@ -599,6 +640,10 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         // A new trip must not inherit the previous trip's fix or parked timer.
         lastLocation = null
         speedZeroSinceMs = null
+        if (tripFaultCodeToken != null) {
+            tripFaultCodeToken = null
+            ObdBleManager.cancelTripStartFaultCodes()
+        }
 
         val idToStop = trackingId?.takeIf { LocalTrackingIds.isUploadable(it) }
         prefs.edit { remove(KEY_TRACKING_ID) }
@@ -691,6 +736,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             prefs.edit { remove(KEY_PENDING_STOP_ID) }
             return
         }
+        // Revoked token: keep the durable stop for after a new token is saved.
+        if (UploadPauseStore.get(this) == UploadPauseReason.DeviceUnauthorized) return
+        val stopToken = appSettings.apiToken
         val result = runCatching { repo.notifyStop(pending) }.getOrElse { Result.failure(it) }
         result
             .onSuccess {
@@ -699,7 +747,16 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             }
             .onFailure {
                 Log.w(TAG, "Pending stop failed for trackingId=$pending — will retry", it)
+                pauseIfDeviceUnauthorized(it, stopToken)
             }
+    }
+
+    /** 401/403 on /stop means the token was revoked: pause instead of retrying blindly. */
+    private fun pauseIfDeviceUnauthorized(error: Throwable, tokenUsed: String) {
+        val kind = UploadFailureClassifier.classify(error.message ?: error.toString())
+        if (kind == UploadFailureKind.DeviceUnauthorized) {
+            UploadPauseStore.pause(this, UploadPauseReason.DeviceUnauthorized, tokenUsed)
+        }
     }
 
     override fun onDestroy() {

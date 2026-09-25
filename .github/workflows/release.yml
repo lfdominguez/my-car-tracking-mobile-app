@@ -33,6 +33,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        # The default package list includes the long-removed `tools`, which
+        # cmdline-tools 16+ rejects; AGP fetches platforms/build-tools itself.
+        with:
+          packages: platform-tools
 
       - name: Make gradlew executable
         run: chmod +x gradlew

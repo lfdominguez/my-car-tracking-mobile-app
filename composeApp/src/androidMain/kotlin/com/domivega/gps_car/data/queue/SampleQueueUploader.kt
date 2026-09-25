@@ -23,6 +23,10 @@ import kotlinx.serialization.json.Json
  *
  * Rows still on a `local:` tracking id are never uploaded until rewritten after `/start`.
  * Transient network failures restore PENDING without burning attempts.
+ *
+ * A 401/403 (device unlinked) or a 409 vault rejection pauses uploading via
+ * [UploadPauseStore]: rows go back to PENDING untouched and nothing is sent until
+ * a new token is saved or Test connection succeeds.
  */
 class SampleQueueUploader(
     context: Context,
@@ -88,6 +92,12 @@ class SampleQueueUploader(
     }
 
     suspend fun flushOnce() = flushMutex.withLock {
+        if (UploadPauseStore.isPaused(appContext)) {
+            // Server refused this device/car; keep the queue intact until resumed.
+            UploadPauseStore.publish(appContext)
+            refreshHealth()
+            return@withLock
+        }
         val batch = dao.getBatch(BATCH_SIZE)
         if (batch.isEmpty()) {
             refreshHealth(lastFlushOk = UploadStatusDataSource.status.value.lastFlushOk)
@@ -130,6 +140,7 @@ class SampleQueueUploader(
             return@withLock
         }
 
+        val tokenUsed = api.currentToken
         val result = api.sendSamples(samples)
         result.fold(
             onSuccess = { response ->
@@ -180,8 +191,9 @@ class SampleQueueUploader(
             onFailure = { error ->
                 val message = (error.message ?: error.toString()).take(MAX_ERROR_LEN)
                 val inflightIds = readyRows.map { it.id }.filter { it !in decodeFailedIds }
+                val kind = UploadFailureClassifier.classify(message)
                 if (inflightIds.isNotEmpty()) {
-                    when (UploadFailureClassifier.classify(message)) {
+                    when (kind) {
                         UploadFailureKind.Transient -> {
                             dao.restoreToPending(inflightIds)
                             Log.w(TAG, "Flush transient failure (no attempt burn): $message")
@@ -190,7 +202,24 @@ class SampleQueueUploader(
                             dao.markFailed(inflightIds, message)
                             Log.w(TAG, "Flush permanent failure: $message")
                         }
+                        UploadFailureKind.DeviceUnauthorized,
+                        UploadFailureKind.VaultRequired -> {
+                            dao.restoreToPending(inflightIds)
+                            Log.w(TAG, "Flush refused ($kind) — pausing uploads, queue kept: $message")
+                        }
                     }
+                }
+                val pauseReason = kind.pauseReason()
+                if (pauseReason != null) {
+                    val paused = UploadPauseStore.pause(appContext, pauseReason, tokenUsed)
+                    if (!paused && !UploadPauseStore.isPaused(appContext)) {
+                        // The refused token was replaced while this batch was in flight:
+                        // the rows are pending again, so retry them with the new token.
+                        SampleUploadScheduler.enqueue(appContext)
+                    }
+                    // Not a network fault: no backoff growth, no WorkManager retry loop.
+                    refreshHealth(lastFlushOk = null, lastError = null)
+                    return@withLock
                 }
                 onFlushFailure(message)
                 refreshHealth(lastFlushOk = false, lastError = message)

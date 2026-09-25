@@ -2,7 +2,6 @@ package com.domivega.gps_car.ui.navigation
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
@@ -34,9 +33,10 @@ fun AppNavigation(
     settingsViewModel: SettingsViewModel,
     onObdEnabledChange: (Boolean) -> Unit,
     onRetryUpload: () -> Unit = {},
-    onOpenSettings: () -> Unit, // Callback to open legacy/android settings if needed
     onScanQrCode: () -> Unit,
     logoPainter: Painter? = null,
+    /** Shown on the About screen, e.g. `1.2 (3)`. */
+    appVersion: String = "",
     bleDeviceLabel: String = "",
     connectionStatus: String = "",
     protocolOptions: List<Pair<String, String>> = emptyList(),
@@ -105,8 +105,6 @@ fun AppNavigation(
                     selected = currentScreen == "Settings",
                     onClick = {
                         currentScreen = "Settings"
-                        // For now, we might delegate settings to the Android activity or show a placeholder
-                        onOpenSettings() 
                         scope.launch { drawerState.close() }
                     },
                     icon = { Icon(Icons.Default.Settings, contentDescription = null) }
@@ -171,6 +169,7 @@ fun AppNavigation(
                         onVwOdometerDidChange = settingsViewModel::updateVwOdometerDid,
                         onWwhObdOnlyChange = settingsViewModel::updateWwhObdOnly,
                         onObdPerformanceModeChange = settingsViewModel::updateObdPerformanceMode,
+                        onReadFaultCodesAtTripStartChange = settingsViewModel::updateReadFaultCodesAtTripStart,
                         onScanClick = onBleScanClick,
                         onDeviceSelected = onBleDeviceSelected,
                         onConnectClick = onBleConnectClick,
@@ -181,8 +180,8 @@ fun AppNavigation(
                         onApiTokenChange = settingsViewModel::updateApiToken,
                         onStartUrlChange = settingsViewModel::updateStartUrl,
                         onStopUrlChange = settingsViewModel::updateStopUrl,
-                        onSampleUrlChange = settingsViewModel::updateSampleUrl,
                         onSamplesUrlChange = settingsViewModel::updateSamplesUrl,
+                        onPingUrlChange = settingsViewModel::updatePingUrl,
                         onScanQrCode = onScanQrCode,
                         onTestConnection = settingsViewModel::testConnection,
                         onClearQrError = settingsViewModel::clearQrError,
@@ -207,13 +206,9 @@ fun AppNavigation(
                         onShareTripLog = onShareTripLog,
                     )
                     "About" -> AboutScreen(
-                        logoPainter = logoPainter
+                        logoPainter = logoPainter,
+                        appVersion = appVersion,
                     )
-                    else -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                            Text("Screen '$currentScreen' not implemented yet")
-                        }
-                    }
                 }
             }
         }

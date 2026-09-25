@@ -23,10 +23,18 @@ object SampleFieldFilter {
             lambdaCmd = sample.lambdaCmd.takeIf { flags.lambdaCmd },
             atmosphericPressure = sample.atmosphericPressure.takeIf { flags.atmosphericPressure },
             intakeAirTemperature = sample.intakeAirTemperature.takeIf { flags.intakeAirTemperature },
+            // HV battery fields are always kept (no toggle), like SoC and power.
             batterySocPct = sample.batterySocPct,
             batteryPowerKw = sample.batteryPowerKw,
+            hvBatteryVoltageV = sample.hvBatteryVoltageV,
+            hvBatteryCurrentA = sample.hvBatteryCurrentA,
+            distanceSinceDtcClearKm =
+                sample.distanceSinceDtcClearKm.takeIf { flags.distanceSinceDtcClearKm },
             accelPeakMps2 = sample.accelPeakMps2.takeIf { flags.motion },
             accelRmsMps2 = sample.accelRmsMps2.takeIf { flags.motion },
             deviceTiltDeltaDeg = sample.deviceTiltDeltaDeg.takeIf { flags.motion },
+            // Opt-in via its own setting (default off), so never filtered here.
+            dtcCodes = sample.dtcCodes,
+            pendingDtcCodes = sample.pendingDtcCodes,
         )
 }

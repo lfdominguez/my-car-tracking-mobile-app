@@ -38,6 +38,8 @@ import kotlinx.coroutines.yield
 import java.nio.charset.Charset
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
 
 data class BleDeviceInfo(
@@ -164,6 +166,20 @@ object ObdBleManager {
      */
     private const val UI_HOT_STALE_MS = 3_000L
     private const val UI_SLOW_STALE_MS = 12_000L
+
+    /**
+     * Per-command wait for the trip-start Mode 03 / 07 reads. Several ECUs may
+     * answer and no response-count suffix is sent, so the adapter waits its ST
+     * window out. Each command runs at the start of its own poll round, so the
+     * HOT PIDs are refreshed in between and the vehicle-on proof (10 s) stays fresh.
+     */
+    private const val DTC_COMMAND_TIMEOUT_MS = 4_000L
+
+    /**
+     * A trip-start fault-code request not served within this window is dropped:
+     * the read belongs to the start of the trip, never to the middle of it.
+     */
+    private const val DTC_REQUEST_TTL_MS = 60_000L
 
     /** Poll throughput summary cadence. Was 10s, which flooded the debug ring. */
     private const val RATE_LOG_INTERVAL_MS = 60_000L
@@ -427,6 +443,21 @@ object ObdBleManager {
 
     /** One INFO after first successful poll cycle per connection. */
     private val loggedFirstPollOk = AtomicBoolean(false)
+
+    /**
+     * Trip-start fault-code read in progress. [storedAttempted] flips before `03`
+     * is sent so a reconnect can never re-send it; `07` runs one round later.
+     */
+    private data class DtcRequest(
+        val token: Long,
+        val requestedAtMs: Long,
+        val storedAttempted: Boolean = false,
+        val stored: List<String>? = null,
+    )
+
+    private val dtcTokenSeq = AtomicLong(0L)
+    private val dtcRequest = AtomicReference<DtcRequest?>(null)
+    private val dtcResult = AtomicReference<Pair<Long, TripStartFaultCodes>?>(null)
 
     fun initialize(context: Context) {
         if (isInitialized) return
@@ -796,6 +827,36 @@ object ObdBleManager {
                 )
             }
         }
+    }
+
+    /**
+     * Asks the poll loop to read stored (Mode 03) and pending (Mode 07) fault codes
+     * once, at the start of its next rounds. No-op unless enabled in settings.
+     * @return token for [takeTripStartFaultCodes], or null when not requested
+     */
+    fun requestTripStartFaultCodes(): Long? {
+        if (!isInitialized) return null
+        if (!settings.readFaultCodesAtTripStart) return null
+        val token = dtcTokenSeq.incrementAndGet()
+        dtcResult.set(null)
+        dtcRequest.set(DtcRequest(token = token, requestedAtMs = System.currentTimeMillis()))
+        return token
+    }
+
+    /** Trip ended: drop any read still pending and any result not yet attached. */
+    fun cancelTripStartFaultCodes() {
+        dtcRequest.set(null)
+        dtcResult.set(null)
+    }
+
+    /**
+     * The finished read for [token], handed out exactly once so only one sample
+     * carries it. Null while the read is still running, or when it failed.
+     */
+    fun takeTripStartFaultCodes(token: Long): TripStartFaultCodes? {
+        val current = dtcResult.get() ?: return null
+        if (current.first != token) return null
+        return if (dtcResult.compareAndSet(current, null)) current.second else null
     }
 
     fun isSessionReady(): Boolean = sessionReady.get()
@@ -1860,6 +1921,7 @@ object ObdBleManager {
                     // PID's miss accounting. Inside the try so a fatal write is handled
                     // by the same recovery path as a failed poll.
                     maybeReprobePhysicalHeader(round)
+                    maybeReadTripStartFaultCodes()
                     for (pid in pids) {
                         if (!sessionReady.get()) break
                         val cmd = if (wwhEngineOnly) {
@@ -2067,6 +2129,46 @@ object ObdBleManager {
                 // No 1s pad — yield so cancellation can run between rounds
                 yield()
             }
+        }
+    }
+
+    /**
+     * One step of the trip-start fault-code read, run between poll rounds like the
+     * 7E0 re-probe: `03` on one round, `07` on the next, so HOT PIDs keep flowing in
+     * between. Each command is sent at most once per trip — no retries mid-trip —
+     * and a failed or timed-out read just leaves its field absent. The 1 Hz sample
+     * clock never waits on any of this; it only snapshots [pidValues].
+     */
+    private suspend fun maybeReadTripStartFaultCodes() {
+        val request = dtcRequest.get() ?: return
+        if (wwhEngineOnly) {
+            // Classic Mode 03 on a UDS-only session would read as "no codes".
+            dtcRequest.compareAndSet(request, null)
+            logI("Trip-start fault codes skipped (WWH-OBD only session)")
+            return
+        }
+        if (System.currentTimeMillis() - request.requestedAtMs > DTC_REQUEST_TTL_MS) {
+            dtcRequest.compareAndSet(request, null)
+            logW("Trip-start fault codes skipped (OBD not polling within ${DTC_REQUEST_TTL_MS / 1000}s)")
+            return
+        }
+        if (!request.storedAttempted) {
+            val attempt = request.copy(storedAttempted = true)
+            if (!dtcRequest.compareAndSet(request, attempt)) return
+            val raw = sendCommandLogged("03", DTC_COMMAND_TIMEOUT_MS, isInit = false)
+            dtcRequest.compareAndSet(attempt, attempt.copy(stored = DtcParser.parseStored(raw)))
+            return
+        }
+        // Clear first: whatever happens to `07`, this trip's read is over.
+        if (!dtcRequest.compareAndSet(request, null)) return
+        val raw = sendCommandLogged("07", DTC_COMMAND_TIMEOUT_MS, isInit = false)
+        val result = TripStartFaultCodes(stored = request.stored, pending = DtcParser.parsePending(raw))
+        logI(
+            "Trip-start fault codes: stored=${result.stored?.joinToString(",", "[", "]") ?: "unread"} " +
+                "pending=${result.pending?.joinToString(",", "[", "]") ?: "unread"}",
+        )
+        if (result.stored != null || result.pending != null) {
+            dtcResult.set(request.token to result)
         }
     }
 

@@ -1,15 +1,26 @@
 package com.domivega.gps_car.data
 
 import android.content.Context
+import com.domivega.gps_car.data.queue.UploadPauseStore
 import com.domivega.gps_car.settings.AppSettings
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
 
 class AndroidSettingsRepository(context: Context) : SettingsRepository {
+    private val appContext = context.applicationContext
     private val appSettings = AppSettings(context)
 
+    /**
+     * The field saves per keystroke, so a change must not resume uploads right
+     * away: [UploadPauseStore.onTokenChanged] lifts a pause bound to the refused
+     * token and schedules a single drain once typing settles.
+     */
     override var apiToken: String
         get() = appSettings.apiToken
-        set(value) { appSettings.apiToken = value }
+        set(value) {
+            val changed = value != appSettings.apiToken
+            appSettings.apiToken = value
+            if (changed) UploadPauseStore.onTokenChanged(appContext)
+        }
 
     override var startUrl: String
         get() = appSettings.startUrl
@@ -19,13 +30,13 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
         get() = appSettings.stopUrl
         set(value) { appSettings.stopUrl = value }
 
-    override var sampleUrl: String
-        get() = appSettings.sampleUrl
-        set(value) { appSettings.sampleUrl = value }
-
     override var samplesUrl: String
         get() = appSettings.samplesUrl
         set(value) { appSettings.samplesUrl = value }
+
+    override var pingUrl: String
+        get() = appSettings.pingUrl
+        set(value) { appSettings.pingUrl = value }
 
     override var carId: String
         get() = appSettings.carId
@@ -70,6 +81,10 @@ class AndroidSettingsRepository(context: Context) : SettingsRepository {
     override var obdEnabled: Boolean
         get() = appSettings.obdEnabled
         set(value) { appSettings.obdEnabled = value }
+
+    override var readFaultCodesAtTripStart: Boolean
+        get() = appSettings.readFaultCodesAtTripStart
+        set(value) { appSettings.readFaultCodesAtTripStart = value }
 
     override var fuelClass: String
         get() = appSettings.fuelClass

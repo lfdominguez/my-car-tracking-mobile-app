@@ -46,4 +46,14 @@ class QueueHealthMessagesTest {
         assertNull(QueueHealthMessages.warning(failedCount = 0, deadCount = 0, lastFlushOk = true))
         assertNull(QueueHealthMessages.warning(failedCount = 0, deadCount = 0, lastFlushOk = null))
     }
+
+    @Test
+    fun `pause messages explain the fix`() {
+        assertNull(QueueHealthMessages.pauseMessage(null))
+        val unlinked = QueueHealthMessages.pauseMessage(UploadPauseReason.DeviceUnauthorized)!!
+        assertTrue(unlinked.contains("unlinked"))
+        assertTrue(unlinked.contains("Scan a new QR in Settings"))
+        val vault = QueueHealthMessages.pauseMessage(UploadPauseReason.VaultRequired)!!
+        assertTrue(vault.contains("vault", ignoreCase = true))
+    }
 }

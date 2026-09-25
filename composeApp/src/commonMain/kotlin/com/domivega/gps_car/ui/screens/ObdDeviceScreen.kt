@@ -56,6 +56,7 @@ fun ObdDeviceScreen(
     onVwOdometerDidChange: (String) -> Unit = {},
     onWwhObdOnlyChange: (Boolean) -> Unit = {},
     onObdPerformanceModeChange: (Boolean) -> Unit = {},
+    onReadFaultCodesAtTripStartChange: (Boolean) -> Unit = {},
     onScanClick: () -> Unit = {},
     onDeviceSelected: (address: String, name: String?) -> Unit = { _, _ -> },
     onConnectClick: () -> Unit = {},
@@ -326,6 +327,27 @@ fun ObdDeviceScreen(
                 Switch(
                     checked = state.obdPerformanceMode,
                     onCheckedChange = onObdPerformanceModeChange,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Read fault codes at trip start")
+                    Text(
+                        text = "Reads stored and pending DTCs (Mode 03/07) once when a trip " +
+                            "starts and uploads them with the first sample. Pauses PID polling " +
+                            "for a few seconds; skipped for that trip if the car does not answer.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = state.readFaultCodesAtTripStart,
+                    onCheckedChange = onReadFaultCodesAtTripStartChange,
                 )
             }
         }
