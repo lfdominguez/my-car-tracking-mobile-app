@@ -1611,14 +1611,16 @@ object ObdBleManager {
     }
 
     private fun clearPidCache() {
+        // Values before timestamps: the 1 Hz refresh would otherwise publish old
+        // values against an empty seen map and report every PID as expired.
+        _pidLastGood.value = emptyMap()
+        _pidValues.value = emptyMap()
         pidOkWindow.clear()
         pidMissWindow.clear()
         pidSeenAtMs.clear()
         pidMissStreak.clear()
         pidExpiryLoggedAtMs.clear()
         pidExpired.clear()
-        _pidLastGood.value = emptyMap()
-        _pidValues.value = emptyMap()
         _pidSeenAt.value = emptyMap()
         _pidStale.value = emptySet()
     }
@@ -1665,11 +1667,14 @@ object ObdBleManager {
      * ring in seconds, which is exactly what made the shared logs unreadable.
      */
     private fun notePidExpiry(key: String, nowMs: Long) {
+        // No timestamp = cleared (link lost, or RPM/speed dropped on a miss, which
+        // notePidMiss already logs), not aged out.
+        val seen = pidSeenAtMs[key] ?: return
         expiredSinceRateLog += 1
         val last = pidExpiryLoggedAtMs[key]
         if (last != null && nowMs - last < EXPIRY_LOG_THROTTLE_MS) return
         pidExpiryLoggedAtMs[key] = nowMs
-        val ageMs = pidSeenAtMs[key]?.let { nowMs - it } ?: -1L
+        val ageMs = nowMs - seen
         val budgetMs = PidPollPolicy.maxAgeMsFor(key, SLOW_PID_KEYS)
         logW("PID $key stale ${ageMs}ms > ${budgetMs}ms — dropped from samples")
     }
