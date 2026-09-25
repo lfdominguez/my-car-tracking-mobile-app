@@ -7,9 +7,6 @@ package com.domivega.gps_car.obd
  * prefer soft backoff of further UDS while Mode 01 keeps polling.
  */
 object UdsRestorePolicy {
-    /** Skip further cluster UDS for this long after a failed restore health check. */
-    const val DEFAULT_BACKOFF_MS: Long = 120_000L
-
     /** How many consecutive Mode 01 command timeouts before a hard session recovery. */
     const val HARD_RECOVERY_TIMEOUT_STREAK: Int = 8
 
@@ -24,14 +21,5 @@ object UdsRestorePolicy {
     ): Boolean {
         if (!udsRestoreUnhealthy) return false
         return consecutiveEngineTimeouts >= hardStreak
-    }
-
-    fun nextUdsAllowedAtMs(
-        nowMs: Long,
-        restoreHealthOk: Boolean,
-        backoffMs: Long = DEFAULT_BACKOFF_MS,
-    ): Long {
-        if (restoreHealthOk) return 0L
-        return nowMs + backoffMs
     }
 }

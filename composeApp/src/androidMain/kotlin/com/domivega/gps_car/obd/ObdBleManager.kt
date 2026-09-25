@@ -295,9 +295,9 @@ object ObdBleManager {
     @Volatile
     private var udsHeaderRestoreFailed = false
 
-    /** Wall clock: do not run cluster UDS before this (0 = no extra backoff). */
+    /** Wall clock of the last decoded engine PID; decides whether an odometer lock survives a re-init. */
     @Volatile
-    private var vwUdsNotBeforeMs: Long = 0L
+    private var lastLiveDecodeAtMs: Long = 0L
 
     /** Consecutive engine command timeouts (null raw) in the poll loop. */
     @Volatile
@@ -982,7 +982,7 @@ object ObdBleManager {
 
     private suspend fun runInitSequence(): Boolean {
         return try {
-            resetPidDiscoveryState()
+            resetPidDiscoveryState(keepRecentOdometer = true)
             // Clear noise after link-up; adapters often need a beat after GATT notify.
             delay(500)
             drainBuffer()
@@ -1370,7 +1370,13 @@ object ObdBleManager {
         logI("Discovered Mode 01 PIDs (${all.size}): $sample${if (all.size > 24) "…" else ""}")
     }
 
-    private fun resetPidDiscoveryState() {
+    /**
+     * @param keepRecentOdometer true on a re-init: keep the VW cluster odometer lock
+     * if the engine answered within [VwOdoFirstGate.LOCK_CARRY_MS], so a mid-trip
+     * reconnect does not block Mode 01 on another cluster read. PID 0x31 keeps
+     * advancing the kept lock across the gap.
+     */
+    private fun resetPidDiscoveryState(keepRecentOdometer: Boolean = false) {
         supportedMode01Pids = emptySet()
         noDataLogged.clear()
         pidEverDecoded.clear()
@@ -1382,7 +1388,17 @@ object ObdBleManager {
         }
         sessionWinningDid = null
         vwOdoSchedule.reset()
-        sessionOdometerTracker.reset()
+        val keepOdometer = keepRecentOdometer &&
+            VwOdoFirstGate.keepLockAcrossReinit(
+                locked = sessionOdometerTracker.isLocked,
+                lastLiveAtMs = lastLiveDecodeAtMs,
+                nowMs = System.currentTimeMillis(),
+            )
+        if (keepOdometer) {
+            logI("VW odometer lock kept across re-init")
+        } else {
+            sessionOdometerTracker.reset()
+        }
         engineOkCount = 0
         wwhEngineOnly = false
         sessionEngineHeader = "7DF"
@@ -1400,7 +1416,6 @@ object ObdBleManager {
         loggedVwUdsSuccess.set(false)
         loggedVwUdsFail.set(false)
         udsHeaderRestoreFailed = false
-        vwUdsNotBeforeMs = 0L
         consecutiveEngineTimeouts = 0
         consecutiveLiveMisses = 0
         // Drop stale metrics (e.g. prior-trip engine run time PID 1F) before a new session.
@@ -1685,6 +1700,7 @@ object ObdBleManager {
         pidEverDecoded.add(touchedPid.lowercase())
         pidOkWindow.merge(touchedPid.lowercase(), 1, Int::plus)
         markPidSeen(touchedPid, now)
+        lastLiveDecodeAtMs = now
         _pidLastGood.value = updated
         if (updated.containsKey("ff125a")) markPidSeen("ff125a", now)
         if (updated.containsKey(ESTIMATED_MAF_KEY)) markPidSeen(ESTIMATED_MAF_KEY, now)
@@ -2575,23 +2591,13 @@ object ObdBleManager {
         udsHeaderRestoreFailed = false
         udsReceiveFilterWasSet = false
         consecutiveEngineTimeouts = 0
-        vwUdsNotBeforeMs = UdsRestorePolicy.nextUdsAllowedAtMs(
-            nowMs = System.currentTimeMillis(),
-            restoreHealthOk = true,
-        )
     }
 
     private fun markUdsRestoreUnhealthy(reason: String) {
         udsHeaderRestoreFailed = true
-        val now = System.currentTimeMillis()
-        vwUdsNotBeforeMs = UdsRestorePolicy.nextUdsAllowedAtMs(
-            nowMs = now,
-            restoreHealthOk = false,
-        )
-        logE(
-            "UDS restore unhealthy ($reason) — backing off cluster UDS " +
-                "${UdsRestorePolicy.DEFAULT_BACKOFF_MS / 1000}s; Mode 01 keeps polling",
-        )
+        // Not an error yet: the engine usually answers again within seconds, and
+        // the poll loop clears this flag on its first decode.
+        logW("Engine not confirmed after cluster UDS ($reason) — Mode 01 poll will confirm")
     }
 
     /** Health probe after header restore; updates RPM if decoded. */
@@ -2602,7 +2608,7 @@ object ObdBleManager {
                 WWH_HEALTH_TIMEOUT_MS,
                 isInit = false,
             )
-            if (!WwhObd.isPositiveRead(live, expectPid = 0x0C)) return false
+            if (!WwhObd.isPositiveRead(live, expectPid = 0x0C)) return healthProbeMiss(live)
             val shim = WwhObd.mode01CompatibleResponse("0c", live)
             val rpm = shim?.let { parser.decodePid("0c", it) }
             if (rpm != null && isValidPidValue("0c", rpm)) {
@@ -2626,7 +2632,7 @@ object ObdBleManager {
                 MODE01_HEALTH_TIMEOUT_MS,
                 isInit = false,
             )
-            if (!ElmHeaderRestore.isMode01Live(live, expectPid = 0x0C)) return false
+            if (!ElmHeaderRestore.isMode01Live(live, expectPid = 0x0C)) return healthProbeMiss(live)
             val rpm = live?.let { parser.decodePid("0c", it) }
             if (rpm != null && isValidPidValue("0c", rpm)) {
                 val updated = LinkedHashMap(
@@ -2640,6 +2646,12 @@ object ObdBleManager {
             }
             true
         }
+    }
+
+    /** Logs what a failed health probe actually got back; @return false. */
+    private fun healthProbeMiss(raw: String?): Boolean {
+        logW("Engine health probe << ${raw?.replace('\n', ' ')?.trim()?.take(80) ?: "timeout"}")
+        return false
     }
 
     private fun stopPollLoop() {
