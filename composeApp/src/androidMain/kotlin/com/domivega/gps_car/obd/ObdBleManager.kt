@@ -18,6 +18,7 @@ import com.domivega.gps_car.fuel.FuelClass
 import com.domivega.gps_car.fuel.FuelConsumptionCalculator
 import com.domivega.gps_car.settings.AppSettings
 import com.domivega.gps_car.startForegroundServiceCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -128,6 +129,9 @@ object ObdBleManager {
         "10", // MAF (fuel rate primary input)
         "0b", // MAP (fuel rate fallback when MAF absent)
     )
+
+    /** Universally supported hot PIDs whose miss rate judges adaptive timing. */
+    private val TIMING_PIDS = listOf("0c", "0d")
 
     /** Slow-changing PIDs polled every [SLOW_EVERY]th round. */
     private val SLOW_PIDS = listOf(
@@ -267,6 +271,9 @@ object ObdBleManager {
     /** ELM `ST` response timer currently pinned for this session, as ATST hex. */
     @Volatile
     private var sessionStHex: String = ElmPerformanceMode.ST_BASELINE_HEX
+
+    /** True once this session fell back to ATAT0 after a high hot-PID miss rate. */
+    private var sessionFixedTiming = false
 
     /** True while polling is still on 7DF and a mid-session 7E0 re-probe is worth trying. */
     @Volatile
@@ -1191,6 +1198,32 @@ object ObdBleManager {
         return false
     }
 
+    /** Once per session: swap ATAT1 for ATAT0 when RPM/speed miss too often (see [ElmPerformanceMode.shouldUseFixedTiming]). */
+    private suspend fun maybeUseFixedTiming() {
+        if (sessionFixedTiming || wwhEngineOnly) return
+        val ok = TIMING_PIDS.sumOf { pidOkWindow[it] ?: 0 }
+        val miss = TIMING_PIDS.sumOf { pidMissWindow[it] ?: 0 }
+        if (
+            !ElmPerformanceMode.shouldUseFixedTiming(
+                hotOk = ok,
+                hotMiss = miss,
+                performance = settings.obdPerformanceMode,
+                singleResponder = sessionEngineHeader == "7E0",
+            )
+        ) {
+            return
+        }
+        sessionFixedTiming = true
+        val resp = sendCommandLogged(ElmPerformanceMode.FIXED_TIMING_COMMAND, COMMAND_TIMEOUT_MS, isInit = false)
+        if (!ElmHeaderRestore.isAcceptableAtResponse(resp)) {
+            logW("RPM/speed missed $miss/${ok + miss} — ATAT0 not accepted, keeping adaptive timing")
+            return
+        }
+        // Re-pin ST: changing AT resets the adapter's working timer.
+        sendCommandLogged(ElmPerformanceMode.responseTimeoutCommand(sessionStHex), COMMAND_TIMEOUT_MS, isInit = false)
+        logW("RPM/speed missed $miss/${ok + miss} with adaptive timing — switched to ATAT0 (fixed ST=$sessionStHex)")
+    }
+
     /** Pin the ELM response timer and remember it for the throughput log line. */
     private suspend fun applySessionStHex(stHex: String) {
         if (sessionStHex == stHex) return
@@ -1403,6 +1436,7 @@ object ObdBleManager {
         wwhEngineOnly = false
         sessionEngineHeader = "7DF"
         sessionStHex = ElmPerformanceMode.ST_BASELINE_HEX
+        sessionFixedTiming = false
         synchronized(responseLock) { pendingStaleFrames = 0 }
         loggedStaleFrame.set(false)
         loggedFrameDesync.set(false)
@@ -2139,6 +2173,14 @@ object ObdBleManager {
                             "st=$sessionStHex count=${sessionEngineHeader == "7E0"}" +
                             "$desyncNote$tallyNote",
                     )
+                    try {
+                        maybeUseFixedTiming()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (t: Throwable) {
+                        // A dead link here is caught by the next round's write.
+                        logW("Fixed-timing switch failed: ${t.message}")
+                    }
                     pidsOkWindow = 0
                     missesSinceRateLog = 0
                     expiredSinceRateLog = 0

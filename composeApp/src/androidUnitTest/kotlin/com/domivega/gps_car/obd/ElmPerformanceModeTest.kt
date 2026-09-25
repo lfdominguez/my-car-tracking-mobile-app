@@ -105,4 +105,18 @@ class ElmPerformanceModeTest {
         assertFalse(ElmPerformanceMode.expectsSingleResponseLine("00"))
         assertFalse(ElmPerformanceMode.expectsSingleResponseLine("not-hex"))
     }
+
+    @Test
+    fun `fixed timing kicks in on a sustained RPM and speed miss rate`() {
+        // Real trip: 0c 42/55 and 0d 41/54 decoded in one minute.
+        assertTrue(ElmPerformanceMode.shouldUseFixedTiming(hotOk = 83, hotMiss = 26, performance = false, singleResponder = true))
+        assertFalse(ElmPerformanceMode.shouldUseFixedTiming(hotOk = 100, hotMiss = 5, performance = false, singleResponder = true))
+    }
+
+    @Test
+    fun `fixed timing needs enough samples, a single responder and no performance opt-in`() {
+        assertFalse(ElmPerformanceMode.shouldUseFixedTiming(hotOk = 20, hotMiss = 10, performance = false, singleResponder = true))
+        assertFalse(ElmPerformanceMode.shouldUseFixedTiming(hotOk = 83, hotMiss = 26, performance = false, singleResponder = false))
+        assertFalse(ElmPerformanceMode.shouldUseFixedTiming(hotOk = 83, hotMiss = 26, performance = true, singleResponder = true))
+    }
 }

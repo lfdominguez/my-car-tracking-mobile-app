@@ -37,6 +37,35 @@ object ElmPerformanceMode {
     fun adaptiveTimingCommand(performance: Boolean): String =
         if (performance) "ATAT2" else "ATAT1"
 
+    /** Disables adaptive timing so the adapter always waits the full `ST` window. */
+    const val FIXED_TIMING_COMMAND: String = "ATAT0"
+
+    /** Hot-PID miss share, in percent, that triggers [FIXED_TIMING_COMMAND]. */
+    const val FIXED_TIMING_MISS_PCT: Int = 15
+
+    /** Minimum hot-PID requests in a window before the miss share is trusted. */
+    const val FIXED_TIMING_MIN_SAMPLES: Int = 40
+
+    /**
+     * True when ATAT1 looks like it is cutting the ECU off. Adaptive timing shortens
+     * the wait below `ST` from recent reply times, so an ECU that is sometimes slower
+     * reads as `NO DATA`: a real trip missed ~20% of RPM/speed requests, every minute,
+     * on one car. Only on a single responder, where the count suffix returns on the
+     * first frame and the full window is paid by misses alone, and never over the
+     * user's opt-in to ATAT2.
+     */
+    fun shouldUseFixedTiming(
+        hotOk: Int,
+        hotMiss: Int,
+        performance: Boolean,
+        singleResponder: Boolean,
+    ): Boolean {
+        if (performance || !singleResponder) return false
+        val total = hotOk + hotMiss
+        if (total < FIXED_TIMING_MIN_SAMPLES) return false
+        return hotMiss * 100 >= total * FIXED_TIMING_MISS_PCT
+    }
+
     fun responseTimeoutCommand(stHex: String): String = "ATST${stHex.trim().uppercase()}"
 
     /**
