@@ -451,6 +451,8 @@ object ObdBleManager {
     private data class DtcRequest(
         val token: Long,
         val requestedAtMs: Long,
+        val statusAttempted: Boolean = false,
+        val status: DtcParser.MonitorStatus? = null,
         val storedAttempted: Boolean = false,
         val stored: List<String>? = null,
     )
@@ -2134,8 +2136,9 @@ object ObdBleManager {
 
     /**
      * One step of the trip-start fault-code read, run between poll rounds like the
-     * 7E0 re-probe: `03` on one round, `07` on the next, so HOT PIDs keep flowing in
-     * between. Each command is sent at most once per trip — no retries mid-trip —
+     * 7E0 re-probe: `0101`, then `03`, then `07` on successive rounds, so HOT PIDs
+     * keep flowing in between. `0101`'s confirmed-code count cross-checks `03`,
+     * whose `NO DATA` would otherwise read as "no codes" even when the reply was lost. Each command is sent at most once per trip — no retries mid-trip —
      * and a failed or timed-out read just leaves its field absent. The 1 Hz sample
      * clock never waits on any of this; it only snapshots [pidValues].
      */
@@ -2152,24 +2155,53 @@ object ObdBleManager {
             logW("Trip-start fault codes skipped (OBD not polling within ${DTC_REQUEST_TTL_MS / 1000}s)")
             return
         }
+        if (!request.statusAttempted) {
+            val attempt = request.copy(statusAttempted = true)
+            if (!dtcRequest.compareAndSet(request, attempt)) return
+            val cmd = ElmPerformanceMode.mode01PollCommand(
+                "01",
+                settings.obdPerformanceMode,
+                singleResponder = sessionEngineHeader == "7E0",
+            )
+            val raw = sendDtcCommand(cmd)
+            dtcRequest.compareAndSet(attempt, attempt.copy(status = DtcParser.parseMonitorStatus(raw)))
+            return
+        }
         if (!request.storedAttempted) {
             val attempt = request.copy(storedAttempted = true)
             if (!dtcRequest.compareAndSet(request, attempt)) return
-            val raw = sendCommandLogged("03", DTC_COMMAND_TIMEOUT_MS, isInit = false)
+            val raw = sendDtcCommand("03")
             dtcRequest.compareAndSet(attempt, attempt.copy(stored = DtcParser.parseStored(raw)))
             return
         }
         // Clear first: whatever happens to `07`, this trip's read is over.
         if (!dtcRequest.compareAndSet(request, null)) return
-        val raw = sendCommandLogged("07", DTC_COMMAND_TIMEOUT_MS, isInit = false)
-        val result = TripStartFaultCodes(stored = request.stored, pending = DtcParser.parsePending(raw))
+        val raw = sendDtcCommand("07")
+        val status = request.status
+        val stored = DtcParser.reconcileStored(request.stored, status)
+        if (stored == null && request.stored != null) {
+            logW(
+                "Mode 03 read no codes but the ECU counts ${status?.confirmedCount} stored — " +
+                    "reply lost, stored codes left unread",
+            )
+        }
+        val result = TripStartFaultCodes(stored = stored, pending = DtcParser.parsePending(raw))
+        val lamp = status?.let { if (it.milOn) "ON" else "off" } ?: "unread"
         logI(
-            "Trip-start fault codes: stored=${result.stored?.joinToString(",", "[", "]") ?: "unread"} " +
+            "Trip-start fault codes: MIL=$lamp count=${status?.confirmedCount ?: "unread"} " +
+                "stored=${result.stored?.joinToString(",", "[", "]") ?: "unread"} " +
                 "pending=${result.pending?.joinToString(",", "[", "]") ?: "unread"}",
         )
         if (result.stored != null || result.pending != null) {
             dtcResult.set(request.token to result)
         }
+    }
+
+    /** Sends one fault-code step and logs its raw reply, so an empty result can be audited. */
+    private suspend fun sendDtcCommand(cmd: String): String? {
+        val raw = sendCommandLogged(cmd, DTC_COMMAND_TIMEOUT_MS, isInit = false)
+        logI("DTC $cmd << ${raw?.replace('\n', ' ')?.trim()?.take(200) ?: "timeout"}")
+        return raw
     }
 
     /**

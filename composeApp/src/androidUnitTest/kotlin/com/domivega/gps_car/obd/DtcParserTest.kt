@@ -147,4 +147,36 @@ class DtcParserTest {
         // A stored-code answer is not a pending-code answer.
         assertNull(DtcParser.parsePending("43 01 01 33"))
     }
+
+    @Test
+    fun `monitor status decodes lamp and confirmed count`() {
+        assertEquals(DtcParser.MonitorStatus(milOn = false, confirmedCount = 0), DtcParser.parseMonitorStatus("41 01 00 07 E5 00"))
+        assertEquals(DtcParser.MonitorStatus(milOn = true, confirmedCount = 2), DtcParser.parseMonitorStatus("41018207E500>"))
+        // Headers on, two ECUs glued on one line: lamp OR-ed, counts summed.
+        assertEquals(
+            DtcParser.MonitorStatus(milOn = true, confirmedCount = 3),
+            DtcParser.parseMonitorStatus("7E8064101810765004101020765 00"),
+        )
+        // Data bytes that happen to spell 41 01 are not a second answer.
+        assertEquals(DtcParser.MonitorStatus(milOn = false, confirmedCount = 0), DtcParser.parseMonitorStatus("4101004101 00"))
+    }
+
+    @Test
+    fun `monitor status is unread on NO DATA or errors`() {
+        assertNull(DtcParser.parseMonitorStatus("NO DATA>"))
+        assertNull(DtcParser.parseMonitorStatus("CAN ERROR"))
+        assertNull(DtcParser.parseMonitorStatus(null))
+        assertNull(DtcParser.parseMonitorStatus("410C11EC"))
+    }
+
+    @Test
+    fun `empty stored read is dropped when the ECU counts stored codes`() {
+        val clean = DtcParser.MonitorStatus(milOn = false, confirmedCount = 0)
+        val two = DtcParser.MonitorStatus(milOn = true, confirmedCount = 2)
+        assertEquals(emptyList<String>(), DtcParser.reconcileStored(emptyList(), clean))
+        assertEquals(emptyList<String>(), DtcParser.reconcileStored(emptyList(), null))
+        assertNull(DtcParser.reconcileStored(emptyList(), two))
+        assertEquals(listOf("P0133"), DtcParser.reconcileStored(listOf("P0133"), two))
+        assertNull(DtcParser.reconcileStored(null, clean))
+    }
 }
