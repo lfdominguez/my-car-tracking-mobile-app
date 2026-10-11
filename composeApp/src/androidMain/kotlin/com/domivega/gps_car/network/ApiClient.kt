@@ -1,6 +1,8 @@
 package com.domivega.gps_car.network
 
 import android.util.Log
+import com.domivega.gps_car.data.FuelLogEntry
+import com.domivega.gps_car.data.TicketReadOutcome
 import com.domivega.gps_car.settings.AppSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -145,6 +147,40 @@ class ApiClient(private val settings: AppSettings) {
     suspend fun stopSession(id: String): Result<Unit> {
         val body = json.encodeToString(StopRequest.serializer(), StopRequest(id))
         return postJson(settings.stopUrl, body).map { }
+    }
+
+    /**
+     * Sends a receipt photo for reading. Server-side OCR can take a minute when
+     * another photo is queued, so this call waits far longer than the others.
+     */
+    suspend fun readFuelTicket(photoJpeg: ByteArray): TicketReadOutcome {
+        val url = trackEndpointFromTrackUrl(settings.startUrl, FuelLogApi.TICKET_PATH)
+            ?: return TicketReadOutcome.Failed("Start URL is missing or invalid")
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url(url)
+                    .post(photoJpeg.toRequestBody("image/jpeg".toMediaType()))
+                    .addHeader("Authorization", "Basic ${settings.apiToken}")
+                    .build()
+                val slow = client.newBuilder()
+                    .writeTimeout(60, TimeUnit.SECONDS)
+                    .readTimeout(150, TimeUnit.SECONDS)
+                    .build()
+                slow.newCall(request).execute().use { resp ->
+                    FuelLogApi.classifyTicket(resp.code, resp.body.string())
+                }
+            }.getOrElse { TicketReadOutcome.Failed(it.message ?: "network error") }
+        }
+    }
+
+    suspend fun saveFuelLog(entry: FuelLogEntry): Result<Unit> {
+        val url = trackEndpointFromTrackUrl(settings.startUrl, FuelLogApi.LOG_PATH)
+            ?: return Result.failure(IllegalStateException("Start URL is missing or invalid"))
+        val body = runCatching {
+            json.encodeToString(FuelLogRequest.serializer(), FuelLogApi.request(entry))
+        }.getOrElse { return Result.failure(it) }
+        return postJson(url, body).map { }
     }
 
     suspend fun sendSamples(samples: List<Sample>): Result<SampleBatchResponse> {

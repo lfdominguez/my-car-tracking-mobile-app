@@ -38,6 +38,10 @@ fun healthUrlFromTrackUrl(trackUrl: String): String? =
 fun pingUrlFromTrackUrl(trackUrl: String): String? =
     originOfTrackUrl(trackUrl)?.let { "$it${TrackPing.PATH}" }
 
+/** Derive a device endpoint such as [FuelLogApi.LOG_PATH] from any absolute track URL. */
+fun trackEndpointFromTrackUrl(trackUrl: String, path: String): String? =
+    originOfTrackUrl(trackUrl)?.let { "$it$path" }
+
 /** `scheme://host[:port]` of an absolute URL, or null when it has no scheme/host. */
 private fun originOfTrackUrl(trackUrl: String): String? {
     val raw = trackUrl.trim()
