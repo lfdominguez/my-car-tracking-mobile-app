@@ -202,26 +202,6 @@ fun App() {
 
         var pendingBleAction by remember { mutableStateOf<String?>(null) }
 
-        val blePermissionLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { results ->
-            val granted = results.values.all { it }
-            val action = pendingBleAction
-            pendingBleAction = null
-            if (granted) {
-                when (action) {
-                    "connect" -> ObdBleManager.connect()
-                    else -> ObdBleManager.startScan()
-                }
-            } else {
-                Toast.makeText(
-                    context,
-                    "Bluetooth permissions are required for OBD adapters",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-
         fun blePermissionsNeeded(): Array<String> {
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 arrayOf(
@@ -240,6 +220,33 @@ fun App() {
             }
         }
 
+        val blePermissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { results ->
+            val action = pendingBleAction
+            pendingBleAction = null
+            // Location rides along on "connect" so auto-tracking can start; it is not a BLE gate on S+.
+            if (action == "connect" && !PermissionsChecker.hasLocationPermission(context)) {
+                Toast.makeText(
+                    context,
+                    "Location permission is required to record trips",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            if (hasBlePermissions()) {
+                when (action) {
+                    "connect" -> ObdBleManager.connect()
+                    else -> ObdBleManager.startScan()
+                }
+            } else {
+                Toast.makeText(
+                    context,
+                    "Bluetooth permissions are required for OBD adapters",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
         fun startBleScanWithPermissions() {
             if (hasBlePermissions()) {
                 ObdBleManager.startScan()
@@ -250,11 +257,16 @@ fun App() {
         }
 
         fun connectWithPermissions() {
-            if (hasBlePermissions()) {
+            if (hasBlePermissions() && PermissionsChecker.hasLocationPermission(context)) {
                 ObdBleManager.connect()
             } else {
                 pendingBleAction = "connect"
-                blePermissionLauncher.launch(blePermissionsNeeded())
+                blePermissionLauncher.launch(
+                    (blePermissionsNeeded() + arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    )).distinct().toTypedArray()
+                )
             }
         }
 
