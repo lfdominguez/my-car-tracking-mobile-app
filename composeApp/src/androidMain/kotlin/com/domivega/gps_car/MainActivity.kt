@@ -40,15 +40,7 @@ class MainActivity : ComponentActivity() {
                 perms += Manifest.permission.POST_NOTIFICATIONS
             }
         }
-        // BLE runtime permissions (also requested on-demand before scan in Settings)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                perms += Manifest.permission.BLUETOOTH_SCAN
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                perms += Manifest.permission.BLUETOOTH_CONNECT
-            }
-        }
+        // BLE runtime permissions are requested on demand (adapter scan / OBD enable) in App.kt.
 
         if (perms.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, perms.toTypedArray(), 100)
