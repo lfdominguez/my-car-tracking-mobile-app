@@ -1,0 +1,10 @@
+Version 2.0 — big update since 1.2.
+
+• New digital cockpit dashboard; OBD Enable switch replaces Start/Stop
+• Fixed 1 Hz sampling, GPS optional per sample
+• Much more robust ELM327 polling and hung-session recovery
+• Hybrid/EV support (HV battery SoC), diesel class with B7, MG3 Hybrid+ and Golf mk4 TDI profiles
+• Log refuels from a receipt photo
+• OBD debug log sharing, phone motion data
+• Bluetooth asked only when an adapter is used; clear message when location is denied
+• About shows the real version
