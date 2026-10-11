@@ -63,6 +63,16 @@ object FuelLogApi {
         return format.format(date)
     }
 
+    /**
+     * Where the phone is: the mobile network's country (right even when roaming),
+     * else the SIM's, else the phone's region setting. Alpha-2, upper case.
+     */
+    fun phoneCountry(network: String?, sim: String?, locale: String?): String? =
+        listOf(network, sim, locale)
+            .map { it?.trim().orEmpty() }
+            .firstOrNull { it.length == 2 && it.all(Char::isLetter) }
+            ?.uppercase(Locale.US)
+
     fun nowLocal(zone: TimeZone = TimeZone.getDefault()): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).apply { timeZone = zone }
             .format(java.util.Date())

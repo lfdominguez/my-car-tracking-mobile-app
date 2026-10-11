@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -153,9 +154,14 @@ class ApiClient(private val settings: AppSettings) {
      * Sends a receipt photo for reading. Server-side OCR can take a minute when
      * another photo is queued, so this call waits far longer than the others.
      */
-    suspend fun readFuelTicket(photoJpeg: ByteArray): TicketReadOutcome {
-        val url = trackEndpointFromTrackUrl(settings.startUrl, FuelLogApi.TICKET_PATH)
+    suspend fun readFuelTicket(photoJpeg: ByteArray, country: String?): TicketReadOutcome {
+        val base = trackEndpointFromTrackUrl(settings.startUrl, FuelLogApi.TICKET_PATH)
+            ?.toHttpUrlOrNull()
             ?: return TicketReadOutcome.Failed("Start URL is missing or invalid")
+        // Where the receipt was issued: settles a bare "$" and the date order.
+        val url = base.newBuilder()
+            .apply { if (country != null) addQueryParameter("country", country) }
+            .build()
         return withContext(Dispatchers.IO) {
             runCatching {
                 val request = Request.Builder()
