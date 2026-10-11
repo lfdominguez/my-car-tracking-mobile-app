@@ -183,10 +183,13 @@ git commit --trailer "Co-authored-by: Junie <junie@jetbrains.com>" \
 git tag -a "$TAG" -m "Release ${NEXT_NAME}"
 
 info "Building signed release APK"
+# Clean, uncached build: F-Droid compiles from scratch, and incremental Kotlin/Compose
+# output can differ from a clean compile, which breaks the reproducible-build check.
+RELEASE_GRADLE_ARGS=(clean :composeApp:assembleRelease --no-daemon --no-build-cache --no-configuration-cache)
 if command -v devenv >/dev/null 2>&1 && [[ -f devenv.nix ]]; then
-  devenv shell -- ./gradlew :composeApp:assembleRelease --no-daemon
+  devenv shell -- ./gradlew "${RELEASE_GRADLE_ARGS[@]}"
 else
-  ./gradlew :composeApp:assembleRelease --no-daemon
+  ./gradlew "${RELEASE_GRADLE_ARGS[@]}"
 fi
 
 APK_SRC=""
