@@ -220,13 +220,22 @@ fun App() {
             }
         }
 
+        fun obdPermissionsNeeded(): Array<String> =
+            (blePermissionsNeeded() + arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            )).distinct().toTypedArray()
+
+        fun hasObdPermissions(): Boolean =
+            hasBlePermissions() && PermissionsChecker.hasLocationPermission(context)
+
         val blePermissionLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
-        ) { results ->
+        ) { _ ->
             val action = pendingBleAction
             pendingBleAction = null
-            // Location rides along on "connect" so auto-tracking can start; it is not a BLE gate on S+.
-            if (action == "connect" && !PermissionsChecker.hasLocationPermission(context)) {
+            // Location rides along so auto-tracking can start; it is not a BLE gate on S+.
+            if (!PermissionsChecker.hasLocationPermission(context)) {
                 Toast.makeText(
                     context,
                     "Location permission is required to record trips",
@@ -248,25 +257,20 @@ fun App() {
         }
 
         fun startBleScanWithPermissions() {
-            if (hasBlePermissions()) {
+            if (hasObdPermissions()) {
                 ObdBleManager.startScan()
             } else {
                 pendingBleAction = "scan"
-                blePermissionLauncher.launch(blePermissionsNeeded())
+                blePermissionLauncher.launch(obdPermissionsNeeded())
             }
         }
 
         fun connectWithPermissions() {
-            if (hasBlePermissions() && PermissionsChecker.hasLocationPermission(context)) {
+            if (hasObdPermissions()) {
                 ObdBleManager.connect()
             } else {
                 pendingBleAction = "connect"
-                blePermissionLauncher.launch(
-                    (blePermissionsNeeded() + arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION,
-                    )).distinct().toTypedArray()
-                )
+                blePermissionLauncher.launch(obdPermissionsNeeded())
             }
         }
 
