@@ -12,11 +12,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.domivega.gps_car.data.AndroidCarMetricSource
 import com.domivega.gps_car.data.AndroidSettingsRepository
 import com.domivega.gps_car.data.ApiBackendConnectionTester
+import com.domivega.gps_car.data.ApiFuelLogBackend
 import com.domivega.gps_car.data.queue.QueueRetryActions
 import com.domivega.gps_car.network.ApiClient
+import com.domivega.gps_car.network.FuelLogApi
 import com.domivega.gps_car.settings.AppSettings
 import com.domivega.gps_car.obd.BluetoothTransport
 import com.domivega.gps_car.obd.ObdBleManager
@@ -25,12 +28,16 @@ import com.domivega.gps_car.obd.ObdPresenceController
 import com.domivega.gps_car.obd.TripLogStore
 import com.domivega.gps_car.obd.ObdProtocol
 import com.domivega.gps_car.ui.MainViewModel
+import com.domivega.gps_car.ui.RefuelViewModel
 import com.domivega.gps_car.ui.SettingsViewModel
 import com.domivega.gps_car.ui.navigation.AppNavigation
 import com.domivega.gps_car.ui.theme.AutomotiveTheme
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 
 /**
@@ -95,6 +102,13 @@ fun App() {
             )
         }
         
+        val refuelViewModel = remember {
+            RefuelViewModel(
+                backend = ApiFuelLogBackend(ApiClient(AppSettings(context))),
+                nowLocal = { FuelLogApi.nowLocal() },
+            )
+        }
+
         // Sync tracking state to ViewModel
         LaunchedEffect(isTracking) {
             viewModel.updateTrackingState(isTracking)
@@ -152,6 +166,37 @@ fun App() {
                 scanLauncher.launch(provisioningQrScanOptions())
             } else {
                 Toast.makeText(context, "Camera permission required for scanning", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // --- Fuel receipt photo ---
+        // Full-size capture into cache (covered by the existing FileProvider cache-path).
+        val receiptFile = remember { File(context.cacheDir, "fuel_ticket.jpg") }
+        val receiptUri = remember {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", receiptFile)
+        }
+        val takeReceiptLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.TakePicture()
+        ) { saved ->
+            if (!saved) return@rememberLauncherForActivityResult
+            appScope.launch {
+                val photo = withContext(Dispatchers.IO) {
+                    runCatching { FuelTicketPhoto.prepare(receiptFile) }
+                        .also { receiptFile.delete() }
+                }
+                photo.fold(
+                    onSuccess = refuelViewModel::readTicket,
+                    onFailure = { refuelViewModel.photoFailed(it.message ?: "The photo could not be read") },
+                )
+            }
+        }
+        val receiptPermissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            if (isGranted) {
+                takeReceiptLauncher.launch(receiptUri)
+            } else {
+                Toast.makeText(context, "Camera permission required for receipts", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -217,6 +262,14 @@ fun App() {
         AppNavigation(
             dashboardState = dashboardState,
             settingsViewModel = settingsViewModel,
+            refuelViewModel = refuelViewModel,
+            onScanReceipt = {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    takeReceiptLauncher.launch(receiptUri)
+                } else {
+                    receiptPermissionLauncher.launch(Manifest.permission.CAMERA)
+                }
+            },
             onObdEnabledChange = { enabled ->
                 settingsViewModel.updateObdEnabled(enabled)
                 if (!enabled) {

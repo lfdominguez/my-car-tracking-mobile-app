@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
@@ -15,11 +16,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.unit.dp
+import com.domivega.gps_car.ui.RefuelViewModel
 import com.domivega.gps_car.ui.SettingsViewModel
 import com.domivega.gps_car.ui.screens.AboutScreen
 import com.domivega.gps_car.ui.screens.DashboardScreen
 import com.domivega.gps_car.ui.screens.DebugConsoleScreen
 import com.domivega.gps_car.ui.screens.ObdDeviceScreen
+import com.domivega.gps_car.ui.screens.RefuelScreen
 import com.domivega.gps_car.ui.screens.SettingsScreen
 import com.domivega.gps_car.obd.ObdLogEntry
 import com.domivega.gps_car.obd.TripLogRecord
@@ -31,6 +34,9 @@ import kotlinx.coroutines.launch
 fun AppNavigation(
     dashboardState: DashboardState,
     settingsViewModel: SettingsViewModel,
+    refuelViewModel: RefuelViewModel,
+    /** Opens the camera for a receipt photo; the result goes to [refuelViewModel]. */
+    onScanReceipt: () -> Unit,
     onObdEnabledChange: (Boolean) -> Unit,
     onRetryUpload: () -> Unit = {},
     onScanQrCode: () -> Unit,
@@ -90,6 +96,15 @@ fun AppNavigation(
                         scope.launch { drawerState.close() }
                     },
                     icon = { Icon(Icons.Default.Home, contentDescription = null) }
+                )
+                NavigationDrawerItem(
+                    label = { Text(text = "Log refuel") },
+                    selected = currentScreen == "Log refuel",
+                    onClick = {
+                        currentScreen = "Log refuel"
+                        scope.launch { drawerState.close() }
+                    },
+                    icon = { Icon(Icons.Default.LocalGasStation, contentDescription = null) }
                 )
                 NavigationDrawerItem(
                     label = { Text(text = "OBD Device") },
@@ -156,6 +171,19 @@ fun AppNavigation(
                         onObdEnabledChange = onObdEnabledChange,
                         onRetryUpload = onRetryUpload,
                     )
+                    "Log refuel" -> {
+                        val refuelState by refuelViewModel.uiState.collectAsState()
+                        val unit = if (settingsState.fuelClass == "FULL_ELECTRIC") "kWh" else "L"
+                        LaunchedEffect(Unit) {
+                            refuelViewModel.prefill(unit, dashboardState.odometerKm)
+                        }
+                        RefuelScreen(
+                            state = refuelState,
+                            onScanReceipt = onScanReceipt,
+                            onEdit = refuelViewModel::edit,
+                            onSave = refuelViewModel::save,
+                        )
+                    }
                     "OBD Device" -> ObdDeviceScreen(
                         state = settingsState,
                         bleDeviceLabel = bleDeviceLabel,
