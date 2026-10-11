@@ -104,7 +104,7 @@ fun App() {
         
         val refuelViewModel = remember {
             RefuelViewModel(
-                backend = ApiFuelLogBackend(ApiClient(AppSettings(context))),
+                backend = ApiFuelLogBackend(ApiClient(AppSettings(context)), context),
                 nowLocal = { FuelLogApi.nowLocal() },
             )
         }

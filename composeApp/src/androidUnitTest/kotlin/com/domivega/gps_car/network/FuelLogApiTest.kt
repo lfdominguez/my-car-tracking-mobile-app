@@ -77,6 +77,15 @@ class FuelLogApiTest {
     }
 
     @Test
+    fun phoneCountryPrefersTheNetworkThenSimThenRegion() {
+        assertEquals("AR", FuelLogApi.phoneCountry(network = "ar", sim = "uy", locale = "UY"))
+        assertEquals("UY", FuelLogApi.phoneCountry(network = "", sim = "uy", locale = "US"))
+        assertEquals("UY", FuelLogApi.phoneCountry(network = null, sim = null, locale = "UY"))
+        // Emulators and some tablets report junk or nothing at all.
+        assertEquals(null, FuelLogApi.phoneCountry(network = "310", sim = " ", locale = ""))
+    }
+
+    @Test
     fun endpointsDeriveFromTheTrackUrl() {
         assertEquals(
             "https://cars.example:8443/api/track/fuel-ticket",
