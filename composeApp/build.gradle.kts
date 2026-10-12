@@ -76,8 +76,8 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         // Base versions for F-Droid / local release. CI latest workflow may override:
         //   -PciVersionCode=… -PciVersionName=…
-        val baseVersionCode = 5
-        val baseVersionName = "2.0"
+        val baseVersionCode = 6
+        val baseVersionName = "2.1"
         versionCode = (findProperty("ciVersionCode") as String?)?.toIntOrNull() ?: baseVersionCode
         versionName = (findProperty("ciVersionName") as String?) ?: baseVersionName
 

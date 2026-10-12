@@ -1,0 +1,1 @@
+Release builds are now shrunk with R8 for a smaller APK.
