@@ -1581,6 +1581,11 @@ object ObdBleManager {
         }
     }
 
+    fun lastSeenMoving(): Boolean {
+        if (!isInitialized) return false
+        return synchronized(vehicleOnLock) { VehicleOnPolicy.lastSeenMoving(vehicleOnState) }
+    }
+
     fun clearSawPositiveRpm() {
         if (!isInitialized) return
         synchronized(vehicleOnLock) {
@@ -1610,7 +1615,10 @@ object ObdBleManager {
 
     private fun resetVehicleOnProofClock() {
         synchronized(vehicleOnLock) {
-            vehicleOnState = VehicleOnPolicy.onSessionReset(vehicleOnState.sawPositiveRpm)
+            vehicleOnState = VehicleOnPolicy.onSessionReset(
+                vehicleOnState.sawPositiveRpm,
+                previous = vehicleOnState,
+            )
             obdSpeedDecoded = false
             publishVehicleOn(System.currentTimeMillis())
         }

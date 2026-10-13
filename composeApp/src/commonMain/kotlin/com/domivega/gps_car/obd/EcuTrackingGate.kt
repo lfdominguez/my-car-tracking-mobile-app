@@ -15,6 +15,16 @@ object EcuTrackingGate {
     const val DEFAULT_STOP_GRACE_MS: Long = 90_000L
 
     /**
+     * Grace when the last decoded speed was > 0: the adapter went mute mid-drive
+     * (K-line ELM clones stall and need a minute or two to re-init), so give the
+     * 60s idle reconnect room to rejoin the same trip instead of splitting it.
+     */
+    const val MOVING_DROPOUT_GRACE_MS: Long = 300_000L
+
+    fun graceFor(lastSeenMoving: Boolean): Long =
+        if (lastSeenMoving) MOVING_DROPOUT_GRACE_MS else DEFAULT_STOP_GRACE_MS
+
+    /**
      * @param disconnectStartedAtMs wall clock when continuous disconnect began, or null if connected.
      * @return true when tracking should stop for a sustained disconnect.
      */

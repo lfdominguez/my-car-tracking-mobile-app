@@ -142,6 +142,29 @@ class VehicleOnPolicyTest {
     }
 
     @Test
+    fun `mid-drive session reset keeps moving speed so trip end does not park adapter`() {
+        // Friend's K-line log: ELM mute at highway speed → session re-init → EndTrip 90s later.
+        var state = VehicleOnPolicy.onRpm(VehicleOnPolicy.State(), rpm = 2_500.0, nowMs = 1_000L)
+        state = VehicleOnPolicy.onVoltage(state, volts = 14.1, nowMs = 1_100L)
+        state = VehicleOnPolicy.onSpeed(state, speedKph = 110.0, nowMs = 1_200L)
+        val reset = VehicleOnPolicy.onSessionReset(state.sawPositiveRpm, previous = state)
+        assertNull(reset.lastProofAtMs)
+        assertNull(reset.lastVoltage)
+        assertTrue(VehicleOnPolicy.lastSeenMoving(reset))
+        assertFalse(VehicleOnPolicy.mayParkAdapterAfterTripEnd(reset))
+    }
+
+    @Test
+    fun `session reset after a real stop still allows parked sleep`() {
+        var state = VehicleOnPolicy.onRpm(VehicleOnPolicy.State(), rpm = 800.0, nowMs = 1_000L)
+        state = VehicleOnPolicy.onSpeed(state, speedKph = 0.0, nowMs = 1_100L)
+        val reset = VehicleOnPolicy.onSessionReset(state.sawPositiveRpm, previous = state)
+        assertNull(reset.lastSpeedKph)
+        assertFalse(VehicleOnPolicy.lastSeenMoving(reset))
+        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(reset))
+    }
+
+    @Test
     fun `GPS speed is allowed only when OBD speed never decoded and ECU is live`() {
         assertTrue(
             VehicleOnPolicy.shouldAcceptGpsSpeed(
