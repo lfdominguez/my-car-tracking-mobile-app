@@ -19,6 +19,21 @@ class EcuTrackingGateTest {
     }
 
     @Test
+    fun `dropout while moving gets the long grace`() {
+        assertEquals(EcuTrackingGate.DEFAULT_STOP_GRACE_MS, EcuTrackingGate.graceFor(false))
+        assertEquals(EcuTrackingGate.MOVING_DROPOUT_GRACE_MS, EcuTrackingGate.graceFor(true))
+        // 16:20:33 mute → 16:22:08 trip end in the log; the moving grace keeps it alive.
+        val decision = EcuTrackingGate.evaluate(
+            vehicleOn = false,
+            isTracking = true,
+            disconnectStartedAtMs = 0L,
+            nowMs = 95_000L,
+            graceMs = EcuTrackingGate.graceFor(true),
+        )
+        assertEquals(EcuTrackingAction.None, decision.action)
+    }
+
+    @Test
     fun `brief disconnect within grace keeps trip alive`() {
         val start = 1_000L
         assertFalse(

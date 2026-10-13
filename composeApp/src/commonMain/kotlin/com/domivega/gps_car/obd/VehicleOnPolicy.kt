@@ -186,13 +186,27 @@ object VehicleOnPolicy {
      * [shouldReleaseAdapter], which the 5 s tracking reconcile keeps evaluating.
      */
     fun mayParkAdapterAfterTripEnd(state: State): Boolean {
-        if ((state.lastSpeedKph ?: 0.0) > 0.0) return false
+        if (lastSeenMoving(state)) return false
         return !isChargingVoltage(state.lastVoltage)
     }
 
-    /** Clear proof clock after a hard OBD session reset (not after EndTrip). */
-    fun onSessionReset(sawPositiveRpm: Boolean): State =
-        State(sawPositiveRpm = sawPositiveRpm, lastProofAtMs = null)
+    /** Last decoded speed was > 0 — any silence since then is a dropout, not a stop. */
+    fun lastSeenMoving(state: State): Boolean = (state.lastSpeedKph ?: 0.0) > 0.0
+
+    /**
+     * Clear proof clock after a hard OBD session reset (not after EndTrip).
+     *
+     * A moving [previous] speed survives the reset: a K-line adapter that goes mute
+     * mid-drive is re-initialized before the trip grace runs out, and wiping the speed
+     * there made [mayParkAdapterAfterTripEnd] park a car doing highway speed. Speed > 0
+     * never counts as parked rest, so carrying it changes nothing else.
+     */
+    fun onSessionReset(sawPositiveRpm: Boolean, previous: State? = null): State =
+        State(
+            sawPositiveRpm = sawPositiveRpm,
+            lastProofAtMs = null,
+            lastSpeedKph = previous?.lastSpeedKph?.takeIf { it > 0.0 },
+        )
 
     /** Bluetooth/link drop: vehicle is immediately off; keep ICE flag. */
     fun onLinkLost(state: State): State =

@@ -98,11 +98,13 @@ object EcuConnectionController {
             val on = ObdBleManager.vehicleOn.value
             val tracking = isTrackingActive()
             val priorGrace = disconnectStartedAtMs
+            val graceMs = EcuTrackingGate.graceFor(ObdBleManager.lastSeenMoving())
             val decision = EcuTrackingGate.evaluate(
                 vehicleOn = on,
                 isTracking = tracking,
                 disconnectStartedAtMs = priorGrace,
                 nowMs = System.currentTimeMillis(),
+                graceMs = graceMs,
             )
             disconnectStartedAtMs = decision.disconnectStartedAtMs
 
@@ -113,7 +115,7 @@ object EcuConnectionController {
                 Log.i(
                     TAG,
                     "vehicle off while tracking — grace " +
-                        "${EcuTrackingGate.DEFAULT_STOP_GRACE_MS / 1000}s before stop ($reason)",
+                        "${graceMs / 1000}s before stop ($reason)",
                 )
             }
 
