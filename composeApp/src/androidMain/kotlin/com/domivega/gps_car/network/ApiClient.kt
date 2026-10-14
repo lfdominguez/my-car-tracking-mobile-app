@@ -201,8 +201,8 @@ class ApiClient(private val settings: AppSettings) {
 internal data class HttpReply(val code: Int, val body: String)
 
 sealed class ConnectionTestResult {
-    /** Token accepted. [vaultRequired]: the car's owner has an E2E vault, so plaintext uploads are rejected. */
-    data class Ok(val carName: String?, val vaultRequired: Boolean) : ConnectionTestResult()
+    /** Token accepted. */
+    data class Ok(val carName: String?) : ConnectionTestResult()
     data class Unreachable(val detail: String) : ConnectionTestResult()
     data class Unauthorized(val detail: String) : ConnectionTestResult()
     /** Server reachable but too old for `/api/track/ping` (404): token not checked. */

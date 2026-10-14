@@ -8,14 +8,8 @@ fun interface BackendConnectionTester {
 }
 
 sealed class ConnectionTestOutcome {
-    /**
-     * Token accepted by `GET /api/track/ping`. [vaultRequired] means the car's owner has
-     * an end-to-end vault, so this app's plaintext samples would be rejected.
-     */
-    data class Ok(
-        val carName: String? = null,
-        val vaultRequired: Boolean = false,
-    ) : ConnectionTestOutcome()
+    /** Token accepted by `GET /api/track/ping`. */
+    data class Ok(val carName: String? = null) : ConnectionTestOutcome()
     data class Unreachable(val detail: String) : ConnectionTestOutcome()
     data class Unauthorized(val detail: String) : ConnectionTestOutcome()
     /** Server reachable but too old for the ping endpoint, so the token was not checked. */

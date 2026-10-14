@@ -310,18 +310,12 @@ class SettingsQrParseTest {
     }
 
     @Test
-    fun connectionTestMessage_okShowsCar_andVaultIsAnError() {
+    fun connectionTestMessage_okShowsCar_andTokenNotVerifiedIsAnError() {
         val (ok, okIsError) = SettingsViewModel.connectionTestMessage(
-            ConnectionTestOutcome.Ok(carName = "Demo Car", vaultRequired = false),
+            ConnectionTestOutcome.Ok(carName = "Demo Car"),
         )
         assertTrue(ok.contains("Demo Car"))
         assertFalse(okIsError)
-
-        val (vault, vaultIsError) = SettingsViewModel.connectionTestMessage(
-            ConnectionTestOutcome.Ok(carName = "Demo Car", vaultRequired = true),
-        )
-        assertTrue(vault.contains("vault"))
-        assertTrue(vaultIsError)
 
         val (old, oldIsError) = SettingsViewModel.connectionTestMessage(
             ConnectionTestOutcome.TokenNotVerified(""),

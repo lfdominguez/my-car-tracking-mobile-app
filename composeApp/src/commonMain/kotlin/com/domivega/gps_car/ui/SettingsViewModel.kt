@@ -361,12 +361,7 @@ class SettingsViewModel(
             when (outcome) {
                 is ConnectionTestOutcome.Ok -> {
                     val car = outcome.carName?.let { " for $it" }.orEmpty()
-                    if (outcome.vaultRequired) {
-                        "Token OK$car, but this car has an end-to-end vault enabled. " +
-                            "The server rejects plaintext samples, so this app can't record this car." to true
-                    } else {
-                        "Connected — device token OK$car" to false
-                    }
+                    "Connected — device token OK$car" to false
                 }
                 is ConnectionTestOutcome.Unreachable -> {
                     val suffix = outcome.detail.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()

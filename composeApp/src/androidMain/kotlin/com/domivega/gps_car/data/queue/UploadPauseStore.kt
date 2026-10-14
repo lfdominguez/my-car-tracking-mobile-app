@@ -15,8 +15,7 @@ import com.domivega.gps_car.settings.AppSettings
 /**
  * Persisted "uploading is paused" flag (runtime `tracking_prefs`).
  *
- * Set when the server refuses the device token (401/403 on any ingest call) or the
- * car (409 vault on `/samples`). While set, the uploader leaves the queue intact —
+ * Set when the server refuses the device token (401/403 on any ingest call). While set, the uploader leaves the queue intact —
  * no attempts burned, no FAILED/DEAD rows — and `/start` / pending `/stop` wait.
  * The pause belongs to the token the server refused ([PauseTokenBinding]): it holds
  * only while that token is configured, so editing the token lifts it and a late 401
@@ -46,7 +45,23 @@ object UploadPauseStore {
 
     /** Publishes the persisted flag to the dashboard (process start). */
     fun publish(context: Context) {
+        dropObsoleteReason(context)
         UploadStatusDataSource.setPauseReason(get(context))
+    }
+
+    /**
+     * A pause persisted by an older build under a reason this build dropped reads as
+     * "not paused", but its keys and alert would linger and [clear] could not remove
+     * them. Drop both, cancel the alert and drain the queue it held back.
+     */
+    private fun dropObsoleteReason(context: Context) {
+        val p = prefs(context)
+        val stored = p.getString(KEY_UPLOAD_PAUSE_REASON, null)
+        if (!UploadPauseReason.isObsolete(stored)) return
+        p.edit().remove(KEY_UPLOAD_PAUSE_REASON).remove(KEY_UPLOAD_PAUSE_TOKEN_FP).apply()
+        cancelAlert(context)
+        Log.i(TAG, "Dropping obsolete $stored pause")
+        SampleUploadScheduler.enqueueNow(context.applicationContext)
     }
 
     /**

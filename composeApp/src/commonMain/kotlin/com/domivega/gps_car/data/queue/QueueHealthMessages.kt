@@ -29,9 +29,6 @@ object QueueHealthMessages {
         UploadPauseReason.DeviceUnauthorized ->
             "This phone was unlinked from the car on the server. Scan a new QR in Settings. " +
                 "Recorded samples are kept and upload once a new token is saved."
-        UploadPauseReason.VaultRequired ->
-            "This car requires end-to-end vault uploads, which this app doesn't support. " +
-                "Uploading is paused; recorded samples are kept on the phone."
     }
 
     private fun suffix(n: Int): String = if (n == 1) "" else "s"

@@ -39,7 +39,6 @@ object TrackPing {
             } else {
                 ConnectionTestResult.Ok(
                     carName = parsed.carName?.trim()?.takeIf { it.isNotEmpty() },
-                    vaultRequired = parsed.vaultRequired,
                 )
             }
         }
@@ -63,7 +62,4 @@ data class PingResponse(
     val carId: String? = null,
     @SerialName("car_name")
     val carName: String? = null,
-    /** Owner has an end-to-end vault: plaintext samples will be rejected. */
-    @SerialName("vault_required")
-    val vaultRequired: Boolean = false,
 )

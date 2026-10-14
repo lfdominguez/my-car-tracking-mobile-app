@@ -33,7 +33,7 @@ data class DashboardState(
     val uploadWarning: String? = null,
     /**
      * Non-null while uploading is paused because the server refused this phone
-     * (unlinked) or the car (vault). Shown instead of [uploadWarning]; Retry
+     * (unlinked). Shown instead of [uploadWarning]; Retry
      * cannot help, a new QR / token can.
      */
     val uploadPausedMessage: String? = null,

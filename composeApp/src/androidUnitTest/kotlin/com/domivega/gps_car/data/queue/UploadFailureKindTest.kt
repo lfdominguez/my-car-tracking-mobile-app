@@ -1,7 +1,9 @@
 package com.domivega.gps_car.data.queue
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UploadFailureKindTest {
@@ -58,11 +60,7 @@ class UploadFailureKindTest {
     }
 
     @Test
-    fun `http 409 vault rejection pauses, other 409 stays permanent`() {
-        assertEquals(
-            UploadFailureKind.VaultRequired,
-            UploadFailureClassifier.classify("HTTP 409: vault car requires encrypted chunk upload"),
-        )
+    fun `http 409 stays permanent`() {
         assertEquals(
             UploadFailureKind.Permanent,
             UploadFailureClassifier.classify("HTTP 409: track already finished"),
@@ -73,11 +71,7 @@ class UploadFailureKindTest {
     fun `status code classification`() {
         assertEquals(UploadFailureKind.DeviceUnauthorized, UploadFailureClassifier.classifyHttp(401))
         assertEquals(UploadFailureKind.DeviceUnauthorized, UploadFailureClassifier.classifyHttp(403))
-        assertEquals(
-            UploadFailureKind.VaultRequired,
-            UploadFailureClassifier.classifyHttp(409, """{"error":"vault car requires encrypted chunk upload"}"""),
-        )
-        assertEquals(UploadFailureKind.Permanent, UploadFailureClassifier.classifyHttp(409, "conflict"))
+        assertEquals(UploadFailureKind.Permanent, UploadFailureClassifier.classifyHttp(409))
         assertEquals(UploadFailureKind.Permanent, UploadFailureClassifier.classifyHttp(400))
         assertEquals(UploadFailureKind.Permanent, UploadFailureClassifier.classifyHttp(404))
         assertEquals(UploadFailureKind.Transient, UploadFailureClassifier.classifyHttp(408))
@@ -87,9 +81,8 @@ class UploadFailureKindTest {
     }
 
     @Test
-    fun `only unauthorized and vault kinds pause uploading`() {
+    fun `only the unauthorized kind pauses uploading`() {
         assertEquals(UploadPauseReason.DeviceUnauthorized, UploadFailureKind.DeviceUnauthorized.pauseReason())
-        assertEquals(UploadPauseReason.VaultRequired, UploadFailureKind.VaultRequired.pauseReason())
         assertNull(UploadFailureKind.Transient.pauseReason())
         assertNull(UploadFailureKind.Permanent.pauseReason())
     }
@@ -101,6 +94,13 @@ class UploadFailureKindTest {
         }
         assertNull(UploadPauseReason.fromName(null))
         assertNull(UploadPauseReason.fromName("garbage"))
+    }
+
+    @Test
+    fun `a pause reason dropped by an update is obsolete`() {
+        assertTrue(UploadPauseReason.isObsolete("VaultRequired"))
+        assertFalse(UploadPauseReason.isObsolete(UploadPauseReason.DeviceUnauthorized.name))
+        assertFalse(UploadPauseReason.isObsolete(null))
     }
 
     @Test
