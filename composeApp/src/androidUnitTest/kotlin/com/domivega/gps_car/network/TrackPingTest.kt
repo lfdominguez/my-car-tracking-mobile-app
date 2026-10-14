@@ -44,7 +44,6 @@ class TrackPingTest {
         assertTrue(parsed.ok)
         assertEquals("550e8400-e29b-41d4-a716-446655440000", parsed.carId)
         assertEquals("Demo Car", parsed.carName)
-        assertEquals(false, parsed.vaultRequired)
         assertNull(TrackPing.parseBody("<html>not json</html>"))
     }
 
@@ -54,16 +53,16 @@ class TrackPingTest {
             200,
             """{"ok":true,"car_id":"c1","car_name":"Demo Car","vault_required":false}""",
         )
-        assertEquals(ConnectionTestResult.Ok(carName = "Demo Car", vaultRequired = false), result)
+        assertEquals(ConnectionTestResult.Ok(carName = "Demo Car"), result)
     }
 
     @Test
-    fun status_200_surfaces_vault_required() {
+    fun status_200_blank_car_name_is_null() {
         val result = TrackPing.classify(
             200,
-            """{"ok":true,"car_id":"c1","car_name":"","vault_required":true}""",
+            """{"ok":true,"car_id":"c1","car_name":""}""",
         )
-        assertEquals(ConnectionTestResult.Ok(carName = null, vaultRequired = true), result)
+        assertEquals(ConnectionTestResult.Ok(carName = null), result)
     }
 
     @Test

@@ -135,7 +135,7 @@ private fun HealthStatusCard(
 
             val pausedMessage = state.uploadPausedMessage
             if (pausedMessage != null) {
-                // Retry cannot fix a revoked token or a vault car, so no button.
+                // Retry cannot fix a revoked token, so no button.
                 UploadWarningRow(
                     message = pausedMessage,
                     onRetry = null,

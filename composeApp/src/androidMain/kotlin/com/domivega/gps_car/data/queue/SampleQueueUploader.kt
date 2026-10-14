@@ -24,7 +24,7 @@ import kotlinx.serialization.json.Json
  * Rows still on a `local:` tracking id are never uploaded until rewritten after `/start`.
  * Transient network failures restore PENDING without burning attempts.
  *
- * A 401/403 (device unlinked) or a 409 vault rejection pauses uploading via
+ * A 401/403 (device unlinked) pauses uploading via
  * [UploadPauseStore]: rows go back to PENDING untouched and nothing is sent until
  * a new token is saved or Test connection succeeds.
  */
@@ -202,8 +202,7 @@ class SampleQueueUploader(
                             dao.markFailed(inflightIds, message)
                             Log.w(TAG, "Flush permanent failure: $message")
                         }
-                        UploadFailureKind.DeviceUnauthorized,
-                        UploadFailureKind.VaultRequired -> {
+                        UploadFailureKind.DeviceUnauthorized -> {
                             dao.restoreToPending(inflightIds)
                             Log.w(TAG, "Flush refused ($kind) — pausing uploads, queue kept: $message")
                         }

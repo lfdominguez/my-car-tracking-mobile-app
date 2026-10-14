@@ -53,7 +53,5 @@ class QueueHealthMessagesTest {
         val unlinked = QueueHealthMessages.pauseMessage(UploadPauseReason.DeviceUnauthorized)!!
         assertTrue(unlinked.contains("unlinked"))
         assertTrue(unlinked.contains("Scan a new QR in Settings"))
-        val vault = QueueHealthMessages.pauseMessage(UploadPauseReason.VaultRequired)!!
-        assertTrue(vault.contains("vault", ignoreCase = true))
     }
 }

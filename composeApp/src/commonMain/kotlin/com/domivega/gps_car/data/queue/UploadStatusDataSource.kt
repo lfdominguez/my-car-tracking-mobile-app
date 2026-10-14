@@ -27,7 +27,7 @@ object UploadStatusDataSource {
 
     /**
      * Non-null while uploading is paused because the server refused this device
-     * (token revoked) or the car (vault). Kept apart from [status] so queue-count
+     * (token revoked). Kept apart from [status] so queue-count
      * refreshes can never clear it; the persisted copy lives in Android prefs.
      */
     val pauseReason: StateFlow<UploadPauseReason?> = _pauseReason.asStateFlow()

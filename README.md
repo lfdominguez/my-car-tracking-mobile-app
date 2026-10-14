@@ -164,7 +164,7 @@ Companion platform: [my-car-tracking-platform](https://github.com/lfdominguez/my
 | `POST` | `…/stop` | `{ "id": "<tracking_id>" }` |
 | `POST` | `…/samples` | `{ "samples": [ … ] }` batch (**preferred**) |
 | `GET` / `HEAD` | `/health` | Public probe used by **Test connection** |
-| `GET` | `/api/track/ping` | Token check used by **Test connection**: `200 {"ok":true,"car_id","car_name","vault_required"}`, `401`/`403` token rejected, `404` older server (token not verified) |
+| `GET` | `/api/track/ping` | Token check used by **Test connection**: `200 {"ok":true,"car_id","car_name"}`, `401`/`403` token rejected, `404` older server (token not verified) |
 
 Header: `Authorization: Basic <device_token>` (plaintext device token from the web platform).
 

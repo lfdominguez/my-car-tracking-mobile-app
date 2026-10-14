@@ -33,7 +33,7 @@ class GpsCarApp : Application() {
             startForegroundServiceCompat(ForegroundTrackingService.ACTION_START_WAITING)
         }
 
-        // Dashboard banner for a persisted upload pause (revoked token / vault car).
+        // Dashboard banner for a persisted upload pause (revoked token).
         UploadPauseStore.publish(this)
 
         // Drain leftover samples even if FGS is not running.
