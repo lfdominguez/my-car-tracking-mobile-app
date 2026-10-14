@@ -31,6 +31,15 @@ class EcuTrackingGateTest {
             graceMs = EcuTrackingGate.graceFor(true),
         )
         assertEquals(EcuTrackingAction.None, decision.action)
+        // ...but the trip still ends once the moving grace runs out.
+        val end = EcuTrackingGate.evaluate(
+            vehicleOn = false,
+            isTracking = true,
+            disconnectStartedAtMs = 0L,
+            nowMs = EcuTrackingGate.MOVING_DROPOUT_GRACE_MS,
+            graceMs = EcuTrackingGate.graceFor(true),
+        )
+        assertEquals(EcuTrackingAction.EndTrip, end.action)
     }
 
     @Test

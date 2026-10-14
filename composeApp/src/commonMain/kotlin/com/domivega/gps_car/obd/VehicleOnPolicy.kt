@@ -38,6 +38,16 @@ object VehicleOnPolicy {
     /** Hold parked-rest before sleeping the adapter so cranking is not "parked". */
     const val PARKED_CONFIRM_MS: Long = 20_000L
 
+    /** Below this a speed decode is parked GPS jitter, not driving. */
+    const val MOVING_MIN_KPH: Double = 5.0
+
+    /**
+     * How long a moving speed is remembered without a fresh decode. Outlasts proof
+     * staleness + [EcuTrackingGate.MOVING_DROPOUT_GRACE_MS] so the trip-end park check
+     * still sees it, then expires so a car switched off mid-dropout can still park.
+     */
+    const val MOVING_MEMORY_MS: Long = 600_000L
+
     data class State(
         val sawPositiveRpm: Boolean = false,
         val lastProofAtMs: Long? = null,
@@ -46,6 +56,7 @@ object VehicleOnPolicy {
         val lastRpm: Double? = null,
         val lastRuntimeSec: Double? = null,
         val parkedRestSinceMs: Long? = null,
+        val lastMovingAtMs: Long? = null,
     )
 
     fun isRestVoltage(voltage: Double?): Boolean =
@@ -95,7 +106,10 @@ object VehicleOnPolicy {
         nowMs: Long,
         powertrain: PowertrainKind = PowertrainKind.ICE,
     ): State {
-        val next = state.copy(lastSpeedKph = speedKph)
+        val next = state.copy(
+            lastSpeedKph = speedKph,
+            lastMovingAtMs = if (speedKph >= MOVING_MIN_KPH) nowMs else null,
+        )
         if (speedKph > 0.0) {
             return withParkedRestClock(next.copy(lastProofAtMs = nowMs), nowMs, powertrain)
         }
@@ -185,27 +199,33 @@ object VehicleOnPolicy {
      * A genuinely parked car reaches the same sleep a few seconds later through
      * [shouldReleaseAdapter], which the 5 s tracking reconcile keeps evaluating.
      */
-    fun mayParkAdapterAfterTripEnd(state: State): Boolean {
-        if (lastSeenMoving(state)) return false
+    fun mayParkAdapterAfterTripEnd(state: State, nowMs: Long): Boolean {
+        if (lastSeenMoving(state, nowMs)) return false
         return !isChargingVoltage(state.lastVoltage)
     }
 
-    /** Last decoded speed was > 0 — any silence since then is a dropout, not a stop. */
-    fun lastSeenMoving(state: State): Boolean = (state.lastSpeedKph ?: 0.0) > 0.0
+    /**
+     * Last speed decode was >= [MOVING_MIN_KPH] within [MOVING_MEMORY_MS] — silence
+     * since then is a dropout, not a stop.
+     */
+    fun lastSeenMoving(state: State, nowMs: Long): Boolean {
+        val at = state.lastMovingAtMs ?: return false
+        return nowMs - at < MOVING_MEMORY_MS
+    }
 
     /**
      * Clear proof clock after a hard OBD session reset (not after EndTrip).
      *
-     * A moving [previous] speed survives the reset: a K-line adapter that goes mute
-     * mid-drive is re-initialized before the trip grace runs out, and wiping the speed
-     * there made [mayParkAdapterAfterTripEnd] park a car doing highway speed. Speed > 0
-     * never counts as parked rest, so carrying it changes nothing else.
+     * [previous]'s moving timestamp survives the reset: a K-line adapter that goes mute
+     * mid-drive is re-initialized before the trip grace runs out, and wiping it there
+     * made [mayParkAdapterAfterTripEnd] park a car doing highway speed. Speed itself is
+     * cleared (unknown is never parked rest), and the timestamp ages out on its own.
      */
     fun onSessionReset(sawPositiveRpm: Boolean, previous: State? = null): State =
         State(
             sawPositiveRpm = sawPositiveRpm,
             lastProofAtMs = null,
-            lastSpeedKph = previous?.lastSpeedKph?.takeIf { it > 0.0 },
+            lastMovingAtMs = previous?.lastMovingAtMs,
         )
 
     /** Bluetooth/link drop: vehicle is immediately off; keep ICE flag. */

@@ -13,28 +13,33 @@ class VehicleOnPolicyTest {
         // Measured on an MG3 Hybrid+: two trips ended mid-drive at 20-25 km/h on a
         // 13.6 V bus. Parking the adapter there cost a 300 s blind window and split
         // one drive into separate trips exactly 400 s apart.
-        val moving = VehicleOnPolicy.State(lastSpeedKph = 21.0, lastVoltage = 13.628)
-        assertFalse(VehicleOnPolicy.mayParkAdapterAfterTripEnd(moving))
+        val moving = VehicleOnPolicy.onSpeed(
+            VehicleOnPolicy.State(lastVoltage = 13.628),
+            speedKph = 21.0,
+            nowMs = 1_000L,
+        )
+        // 10 s staleness + 90 s grace after the last decode.
+        assertFalse(VehicleOnPolicy.mayParkAdapterAfterTripEnd(moving, nowMs = 101_000L))
     }
 
     @Test
     fun `trip end on a charging bus does not park the adapter`() {
         val charging = VehicleOnPolicy.State(lastSpeedKph = 0.0, lastVoltage = 13.9)
-        assertFalse(VehicleOnPolicy.mayParkAdapterAfterTripEnd(charging))
+        assertFalse(VehicleOnPolicy.mayParkAdapterAfterTripEnd(charging, nowMs = 1_000L))
     }
 
     @Test
     fun `trip end stopped on a non-charging bus parks the adapter`() {
         // The same car's genuine parking ends: speed 0, bus fallen off charge.
         val parked = VehicleOnPolicy.State(lastSpeedKph = 0.0, lastVoltage = 12.928)
-        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(parked))
+        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(parked, nowMs = 1_000L))
     }
 
     @Test
     fun `trip end with nothing known parks the adapter`() {
         // Link lost before any decode — no evidence of motion, so the battery-saving
         // sleep stays the default.
-        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(VehicleOnPolicy.State()))
+        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(VehicleOnPolicy.State(), nowMs = 1_000L))
     }
 
     @Test
@@ -150,8 +155,30 @@ class VehicleOnPolicyTest {
         val reset = VehicleOnPolicy.onSessionReset(state.sawPositiveRpm, previous = state)
         assertNull(reset.lastProofAtMs)
         assertNull(reset.lastVoltage)
-        assertTrue(VehicleOnPolicy.lastSeenMoving(reset))
-        assertFalse(VehicleOnPolicy.mayParkAdapterAfterTripEnd(reset))
+        // 10 s staleness + 300 s moving grace later, trip end still refuses to park.
+        assertTrue(VehicleOnPolicy.lastSeenMoving(reset, nowMs = 311_200L))
+        assertFalse(VehicleOnPolicy.mayParkAdapterAfterTripEnd(reset, nowMs = 311_200L))
+    }
+
+    @Test
+    fun `carried moving state expires when no speed decode ever comes back`() {
+        // Ignition switched off during the dropout: 0x0D never decodes again.
+        var state = VehicleOnPolicy.onSpeed(VehicleOnPolicy.State(), speedKph = 110.0, nowMs = 1_000L)
+        repeat(5) { state = VehicleOnPolicy.onSessionReset(true, previous = state) }
+        val expired = 1_000L + VehicleOnPolicy.MOVING_MEMORY_MS
+        assertFalse(VehicleOnPolicy.lastSeenMoving(state, nowMs = expired))
+        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(state, nowMs = expired))
+    }
+
+    @Test
+    fun `parked GPS jitter does not count as moving`() {
+        val jitter = VehicleOnPolicy.onSpeed(VehicleOnPolicy.State(), speedKph = 0.8, nowMs = 1_000L)
+        assertFalse(VehicleOnPolicy.lastSeenMoving(jitter, nowMs = 1_000L))
+        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(jitter, nowMs = 1_000L))
+        val driving = VehicleOnPolicy.onSpeed(jitter, speedKph = 20.0, nowMs = 2_000L)
+        assertTrue(VehicleOnPolicy.lastSeenMoving(driving, nowMs = 2_000L))
+        val stopped = VehicleOnPolicy.onSpeed(driving, speedKph = 0.0, nowMs = 3_000L)
+        assertFalse(VehicleOnPolicy.lastSeenMoving(stopped, nowMs = 3_000L))
     }
 
     @Test
@@ -160,8 +187,8 @@ class VehicleOnPolicyTest {
         state = VehicleOnPolicy.onSpeed(state, speedKph = 0.0, nowMs = 1_100L)
         val reset = VehicleOnPolicy.onSessionReset(state.sawPositiveRpm, previous = state)
         assertNull(reset.lastSpeedKph)
-        assertFalse(VehicleOnPolicy.lastSeenMoving(reset))
-        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(reset))
+        assertFalse(VehicleOnPolicy.lastSeenMoving(reset, nowMs = 2_000L))
+        assertTrue(VehicleOnPolicy.mayParkAdapterAfterTripEnd(reset, nowMs = 2_000L))
     }
 
     @Test

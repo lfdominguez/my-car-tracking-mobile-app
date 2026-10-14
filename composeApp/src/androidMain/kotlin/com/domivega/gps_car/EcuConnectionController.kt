@@ -37,6 +37,7 @@ object EcuConnectionController {
 
     @Volatile
     private var disconnectStartedAtMs: Long? = null
+    private var disconnectGraceMs: Long = EcuTrackingGate.DEFAULT_STOP_GRACE_MS
 
     private val prefsListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -95,10 +96,12 @@ object EcuConnectionController {
     private suspend fun reconcile(reason: String) {
         evaluateMutex.withLock {
             ObdBleManager.refreshVehicleOn()
-            val on = ObdBleManager.vehicleOn.value
+            val (on, moving) = ObdBleManager.vehicleOnAndMoving()
             val tracking = isTrackingActive()
             val priorGrace = disconnectStartedAtMs
-            val graceMs = EcuTrackingGate.graceFor(ObdBleManager.lastSeenMoving())
+            // Fixed when the timer arms, so a later speed decode cannot shorten it mid-dropout.
+            val graceMs = if (priorGrace == null) EcuTrackingGate.graceFor(moving) else disconnectGraceMs
+            disconnectGraceMs = graceMs
             val decision = EcuTrackingGate.evaluate(
                 vehicleOn = on,
                 isTracking = tracking,

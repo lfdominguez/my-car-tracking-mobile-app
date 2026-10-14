@@ -392,6 +392,9 @@ object ObdBleManager {
     private var parkedSleepUntilMs: Long? = null
     private val parkedReleaseRequested = AtomicBoolean(false)
 
+    /** Trip ended while still looking moving; retry parked sleep once that ages out. */
+    private val parkAfterTripDeferred = AtomicBoolean(false)
+
     private val _connectionStatus = MutableStateFlow("Not initialized")
     val connectionStatus: StateFlow<String> = _connectionStatus.asStateFlow()
 
@@ -774,18 +777,22 @@ object ObdBleManager {
      */
     fun releaseAdapterForParkedSleep() {
         if (!isInitialized) return
+        val now = System.currentTimeMillis()
         val state = synchronized(vehicleOnLock) { vehicleOnState }
-        if (!VehicleOnPolicy.mayParkAdapterAfterTripEnd(state)) {
+        if (!VehicleOnPolicy.mayParkAdapterAfterTripEnd(state, now)) {
             // Trip ended on the grace alone while the car still looked alive — most
             // likely a mid-drive adapter dropout. Keep the 60s idle reconnect so the
             // drive is rejoined, instead of going blind for the parked backoff.
             logW(
                 "Trip ended but last picture is still moving/charging " +
-                    "(speed=${state.lastSpeedKph} volts=${state.lastVoltage}) — " +
+                    "(speed=${state.lastSpeedKph} movingAt=${state.lastMovingAtMs} " +
+                    "volts=${state.lastVoltage}) — " +
                     "skip parked sleep, keep ${IdleReconnectPolicy.INTERVAL_MS / 1000}s reconnect",
             )
+            parkAfterTripDeferred.set(true)
             return
         }
+        parkAfterTripDeferred.set(false)
         if (!parkedReleaseRequested.compareAndSet(false, true)) return
         parkedSleepUntilMs = IdleReconnectPolicy.parkedSleepUntilMs(System.currentTimeMillis())
         logI(
@@ -1581,9 +1588,12 @@ object ObdBleManager {
         }
     }
 
-    fun lastSeenMoving(): Boolean {
-        if (!isInitialized) return false
-        return synchronized(vehicleOnLock) { VehicleOnPolicy.lastSeenMoving(vehicleOnState) }
+    /** (vehicleOn, lastSeenMoving) from one locked read so the two never disagree. */
+    fun vehicleOnAndMoving(nowMs: Long = System.currentTimeMillis()): Pair<Boolean, Boolean> {
+        if (!isInitialized) return false to false
+        return synchronized(vehicleOnLock) {
+            _vehicleOn.value to VehicleOnPolicy.lastSeenMoving(vehicleOnState, nowMs)
+        }
     }
 
     fun clearSawPositiveRpm() {
@@ -1602,11 +1612,15 @@ object ObdBleManager {
         val shouldRelease: Boolean
         synchronized(vehicleOnLock) {
             publishVehicleOn(nowMs)
+            if (_vehicleOn.value) parkAfterTripDeferred.set(false)
             shouldRelease = VehicleOnPolicy.shouldReleaseAdapter(
                 vehicleOnState,
                 nowMs,
                 powertrain = powertrainKind(),
-            )
+            ) || (
+                parkAfterTripDeferred.get() &&
+                    VehicleOnPolicy.mayParkAdapterAfterTripEnd(vehicleOnState, nowMs)
+                )
         }
         if (shouldRelease) {
             releaseAdapterForParkedSleep()
