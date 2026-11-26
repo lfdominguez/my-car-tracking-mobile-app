@@ -161,7 +161,19 @@ fun AppNavigation(
         Scaffold(
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text(currentScreen) },
+                    title = {
+                        Text(
+                            when (currentScreen) {
+                                "Dashboard" -> stringResource(Res.string.nav_dashboard)
+                                "Log refuel" -> stringResource(Res.string.nav_refuel)
+                                "OBD Device" -> stringResource(Res.string.nav_obd)
+                                "Settings" -> stringResource(Res.string.nav_settings)
+                                "Debug" -> stringResource(Res.string.nav_debug)
+                                "About" -> stringResource(Res.string.nav_about)
+                                else -> currentScreen
+                            },
+                        )
+                    },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, contentDescription = stringResource(Res.string.nav_menu))
