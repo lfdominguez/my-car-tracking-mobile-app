@@ -1,5 +1,15 @@
 package com.domivega.gps_car.ui.state
 
+import com.domivega.gps_car.ui.UiText
+import org.jetbrains.compose.resources.StringResource
+import com.domivega.gps_car.generated.resources.Res
+import com.domivega.gps_car.generated.resources.msg_refuel_date
+import com.domivega.gps_car.generated.resources.msg_refuel_quantity
+import com.domivega.gps_car.generated.resources.msg_refuel_not_number
+import com.domivega.gps_car.generated.resources.msg_refuel_f_price
+import com.domivega.gps_car.generated.resources.msg_refuel_f_total
+import com.domivega.gps_car.generated.resources.msg_refuel_f_odometer
+
 import com.domivega.gps_car.data.FuelLogEntry
 import com.domivega.gps_car.data.FuelTicketSuggestion
 
@@ -17,7 +27,7 @@ data class RefuelUiState(
     val fullTank: Boolean = true,
     val reading: Boolean = false,
     val saving: Boolean = false,
-    val message: String = "",
+    val message: UiText = UiText.Empty,
     val isError: Boolean = false,
     /** Receipt text as the server read it, for checking the suggestion. */
     val receiptText: List<String> = emptyList(),
@@ -37,29 +47,36 @@ data class RefuelUiState(
 
     /** Validated entry, or the message to show. */
     fun toEntry(): Result<FuelLogEntry> = runCatching {
-        require(LOCAL_TIME.matches(filledAt.trim())) { "Date must look like 2026-10-09 18:32" }
+        invalidIf(!LOCAL_TIME.matches(filledAt.trim()), UiText.Res(Res.string.msg_refuel_date))
         val q = parseDecimal(quantity)
-        require(q != null && q > 0) { "Enter the quantity" }
-        fun optional(text: String, name: String): Double? {
+        invalidIf(q == null || q <= 0, UiText.Res(Res.string.msg_refuel_quantity))
+        fun optional(text: String, name: StringResource): Double? {
             if (text.isBlank()) return null
             val v = parseDecimal(text)
-            require(v != null && v >= 0) { "$name is not a number" }
+            invalidIf(v == null || v < 0, UiText.Res(Res.string.msg_refuel_not_number, listOf(UiText.Res(name))))
             return v
         }
         FuelLogEntry(
             filledAtLocal = filledAt.trim(),
             unit = unit,
-            quantity = q,
-            pricePerUnit = optional(pricePerUnit, "Price"),
-            totalCost = optional(totalCost, "Total"),
+            quantity = q!!,
+            pricePerUnit = optional(pricePerUnit, Res.string.msg_refuel_f_price),
+            totalCost = optional(totalCost, Res.string.msg_refuel_f_total),
             currency = currency.trim().uppercase().ifEmpty { null },
             station = station.trim().ifEmpty { null },
-            odometerKm = optional(odometerKm, "Odometer"),
+            odometerKm = optional(odometerKm, Res.string.msg_refuel_f_odometer),
             fullTank = fullTank,
         )
     }
 
+    /** Validation failure carrying the localised message to show. */
+    class InvalidEntry(val text: UiText) : IllegalArgumentException(text.toString())
+
     companion object {
+        private fun invalidIf(condition: Boolean, text: UiText) {
+            if (condition) throw InvalidEntry(text)
+        }
+
         private val LOCAL_TIME = Regex("""\d{4}-\d{2}-\d{2} \d{2}:\d{2}""")
 
         /** Accepts the decimal comma people type on European keyboards. */

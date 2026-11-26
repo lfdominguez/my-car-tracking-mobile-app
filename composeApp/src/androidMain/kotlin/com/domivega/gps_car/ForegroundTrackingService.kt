@@ -186,7 +186,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         Log.d(TAG, "Entering waiting state")
         cancelPendingShutdown()
         currentState = TrackingState.WAITING
-        startForeground(NOTIF_ID, buildNotification("Tracking Paused", TrackingState.WAITING))
+        startForeground(NOTIF_ID, buildNotification(getString(R.string.notif_paused), TrackingState.WAITING))
         maybeSuggestDisableBatteryOptimization()
     }
 
@@ -303,17 +303,17 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
         // IMPORTANT: When started via startForegroundService(), we must call startForeground
         // within a few seconds or the system will throw ForegroundServiceDidNotStartInTimeException.
-        startForeground(NOTIF_ID, buildNotification("Starting…", TrackingState.TRACKING))
+        startForeground(NOTIF_ID, buildNotification(getString(R.string.notif_starting), TrackingState.TRACKING))
 
         if (!PermissionsChecker.hasLocationPermission(this)) {
-            postAlertNotification("Permission required. Tap to open app.")
+            postAlertNotification(getString(R.string.notif_permission))
             shutdownService()
             return
         }
 
         cancelAlertNotification()
 
-        updateNotification("Starting tracking…", TrackingState.TRACKING)
+        updateNotification(getString(R.string.notif_starting_tracking), TrackingState.TRACKING)
 
         acquireSampleClockWakeLock()
 
@@ -472,11 +472,11 @@ class ForegroundTrackingService : Service(), SensorEventListener {
             vehicleOn = ObdBleManager.vehicleOn.value,
         )) {
             SampleTickDecision.PAUSED_OBD_DISCONNECTED -> {
-                updateLiveTrackingNotification("Tracking paused (OBD disconnected)", epochAtStart)
+                updateLiveTrackingNotification(getString(R.string.notif_paused_obd), epochAtStart)
                 return
             }
             SampleTickDecision.PAUSED_VEHICLE_OFF -> {
-                updateLiveTrackingNotification("Tracking paused (vehicle off)", epochAtStart)
+                updateLiveTrackingNotification(getString(R.string.notif_paused_off), epochAtStart)
                 return
             }
             SampleTickDecision.RECORD -> Unit
@@ -571,9 +571,9 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         val speedText = cleaned.speedKph?.let { "${"%1$.0f".format(it)} km/h" } ?: "?"
         updateLiveTrackingNotification(
             buildString {
-                append("Running: v=").append(speedText)
+                append(getString(R.string.notif_running)).append(" v=").append(speedText)
                 append(" a=").append("%1$.2f".format(accMag)).append(" m/s²")
-                if (position == null) append(" · no GPS")
+                if (position == null) append(" · ").append(getString(R.string.notif_no_gps))
             },
             epochAtStart,
         )
@@ -650,7 +650,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         trackingId = null
 
         if (updateWaitingNotification) {
-            updateNotification("Tracking Paused", TrackingState.WAITING)
+            updateNotification(getString(R.string.notif_paused), TrackingState.WAITING)
         }
         return idToStop
     }
@@ -807,7 +807,7 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             // Using IMPORTANCE_DEFAULT ensures the notification is not hidden by the system (e.g. collapsed).
             // We use setOnlyAlertOnce(true) in the builder to prevent constant noise on updates.
-            val channel = NotificationChannel(CHANNEL_ID, "GPS Tracking", NotificationManager.IMPORTANCE_DEFAULT)
+            val channel = NotificationChannel(CHANNEL_ID, getString(R.string.channel_tracking), NotificationManager.IMPORTANCE_DEFAULT)
             val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
         }
@@ -815,8 +815,8 @@ class ForegroundTrackingService : Service(), SensorEventListener {
 
     private fun createAlertNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(ALERTS_CHANNEL_ID, "GPS Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Important alerts from GPSCarTracking"
+            val channel = NotificationChannel(ALERTS_CHANNEL_ID, getString(R.string.channel_alerts), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = getString(R.string.channel_alerts_desc)
             }
             val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
@@ -831,12 +831,12 @@ class ForegroundTrackingService : Service(), SensorEventListener {
         when (state) {
             TrackingState.TRACKING -> {
                 actionIntent = Intent(this, ServiceControlReceiver::class.java).apply { action = ACTION_STOP }
-                actionTitle = "Stop"
+                actionTitle = getString(R.string.notif_action_stop)
                 actionIcon = android.R.drawable.ic_media_pause
             }
             TrackingState.WAITING -> {
                 actionIntent = Intent(this, ServiceControlReceiver::class.java).apply { action = ACTION_SHUTDOWN }
-                actionTitle = "Shutdown"
+                actionTitle = getString(R.string.notif_action_shutdown)
                 actionIcon = android.R.drawable.ic_lock_power_off
             }
         }

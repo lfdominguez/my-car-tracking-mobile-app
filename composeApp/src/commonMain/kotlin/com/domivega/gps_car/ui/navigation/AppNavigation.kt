@@ -1,5 +1,17 @@
 package com.domivega.gps_car.ui.navigation
 
+import org.jetbrains.compose.resources.stringResource
+import com.domivega.gps_car.generated.resources.Res
+import com.domivega.gps_car.generated.resources.app_title
+import com.domivega.gps_car.generated.resources.nav_about
+import com.domivega.gps_car.generated.resources.nav_dashboard
+import com.domivega.gps_car.generated.resources.nav_debug
+import com.domivega.gps_car.generated.resources.nav_menu
+import com.domivega.gps_car.generated.resources.nav_obd
+import com.domivega.gps_car.generated.resources.nav_refuel
+import com.domivega.gps_car.generated.resources.nav_settings
+import com.domivega.gps_car.generated.resources.nav_subtitle
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -77,19 +89,19 @@ fun AppNavigation(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "GPS Car Tracker",
+                        text = stringResource(Res.string.app_title),
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        text = "Digital cockpit",
+                        text = stringResource(Res.string.nav_subtitle),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 HorizontalDivider()
                 NavigationDrawerItem(
-                    label = { Text(text = "Dashboard") },
+                    label = { Text(text = stringResource(Res.string.nav_dashboard)) },
                     selected = currentScreen == "Dashboard",
                     onClick = {
                         currentScreen = "Dashboard"
@@ -98,7 +110,7 @@ fun AppNavigation(
                     icon = { Icon(Icons.Default.Home, contentDescription = null) }
                 )
                 NavigationDrawerItem(
-                    label = { Text(text = "Log refuel") },
+                    label = { Text(text = stringResource(Res.string.nav_refuel)) },
                     selected = currentScreen == "Log refuel",
                     onClick = {
                         currentScreen = "Log refuel"
@@ -107,7 +119,7 @@ fun AppNavigation(
                     icon = { Icon(Icons.Default.LocalGasStation, contentDescription = null) }
                 )
                 NavigationDrawerItem(
-                    label = { Text(text = "OBD Device") },
+                    label = { Text(text = stringResource(Res.string.nav_obd)) },
                     selected = currentScreen == "OBD Device",
                     onClick = {
                         currentScreen = "OBD Device"
@@ -116,7 +128,7 @@ fun AppNavigation(
                     icon = { Icon(Icons.Default.Search, contentDescription = null) }
                 )
                 NavigationDrawerItem(
-                    label = { Text(text = "Settings") },
+                    label = { Text(text = stringResource(Res.string.nav_settings)) },
                     selected = currentScreen == "Settings",
                     onClick = {
                         currentScreen = "Settings"
@@ -126,7 +138,7 @@ fun AppNavigation(
                 )
                  // Logs item removed as requested
                  NavigationDrawerItem(
-                    label = { Text(text = "Debug Console") },
+                    label = { Text(text = stringResource(Res.string.nav_debug)) },
                     selected = currentScreen == "Debug",
                     onClick = {
                         currentScreen = "Debug"
@@ -135,7 +147,7 @@ fun AppNavigation(
                     icon = { Icon(Icons.Default.Build, contentDescription = null) }
                 )
                  NavigationDrawerItem(
-                    label = { Text(text = "About") },
+                    label = { Text(text = stringResource(Res.string.nav_about)) },
                     selected = currentScreen == "About",
                     onClick = {
                         currentScreen = "About"
@@ -152,7 +164,7 @@ fun AppNavigation(
                     title = { Text(currentScreen) },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                            Icon(Icons.Default.Menu, contentDescription = stringResource(Res.string.nav_menu))
                         }
                     },
                      colors = TopAppBarDefaults.centerAlignedTopAppBarColors(

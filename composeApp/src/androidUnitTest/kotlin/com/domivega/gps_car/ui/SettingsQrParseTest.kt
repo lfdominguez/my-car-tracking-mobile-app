@@ -71,7 +71,7 @@ class SettingsQrParseTest {
 
         vm.updateSettingsFromQr(platformQr)
 
-        assertEquals("", vm.uiState.value.qrError)
+        assertEquals(UiText.Empty, vm.uiState.value.qrError)
         assertEquals(
             "deadbeefcafebabe0123456789abcdef0123456789abcdef0123456789abcdef",
             repo.apiToken,
@@ -87,7 +87,7 @@ class SettingsQrParseTest {
     fun invalidQr_setsUserVisibleError() {
         val vm = SettingsViewModel(FakeSettingsRepository())
         vm.updateSettingsFromQr("not-json")
-        assertTrue(vm.uiState.value.qrError.contains("Couldn't read QR settings"))
+        assertEquals("msg_qr_error", vm.uiState.value.qrError.key)
     }
 
     @Test
@@ -118,7 +118,7 @@ class SettingsQrParseTest {
 
         vm.updateSettingsFromQr(qr)
 
-        assertEquals("", vm.uiState.value.qrError)
+        assertEquals(UiText.Empty, vm.uiState.value.qrError)
         assertEquals("VwMqb", repo.vehicleObdProfile)
         assertEquals("22A6", repo.vwOdometerDid)
     }
@@ -225,7 +225,7 @@ class SettingsQrParseTest {
             }
         """.trimIndent()
         vm.updateSettingsFromQr(qr)
-        assertEquals("", vm.uiState.value.qrError)
+        assertEquals(UiText.Empty, vm.uiState.value.qrError)
         assertEquals("DIESEL", repo.fuelClass)
         assertEquals("B7", repo.fuelType)
     }
@@ -304,7 +304,7 @@ class SettingsQrParseTest {
         vm.updateSettingsFromQr(
             """{"apiToken":"tok","pingUrl":"https://track.example.com/api/track/ping"}""",
         )
-        assertEquals("", vm.uiState.value.qrError)
+        assertEquals(UiText.Empty, vm.uiState.value.qrError)
         assertEquals("https://track.example.com/api/track/ping", repo.pingUrl)
         assertEquals("https://track.example.com/api/track/ping", vm.uiState.value.pingUrl)
     }
@@ -314,13 +314,13 @@ class SettingsQrParseTest {
         val (ok, okIsError) = SettingsViewModel.connectionTestMessage(
             ConnectionTestOutcome.Ok(carName = "Demo Car"),
         )
-        assertTrue(ok.contains("Demo Car"))
+        assertTrue(ok.argStrings.contains("Demo Car"))
         assertFalse(okIsError)
 
         val (old, oldIsError) = SettingsViewModel.connectionTestMessage(
             ConnectionTestOutcome.TokenNotVerified(""),
         )
-        assertTrue(old.contains("not verified"))
+        assertEquals("msg_conn_not_verified", old.key)
         assertTrue(oldIsError)
     }
 
@@ -346,7 +346,7 @@ class SettingsQrParseTest {
             """.trimIndent(),
         )
 
-        assertEquals("", vm.uiState.value.qrError)
+        assertEquals(UiText.Empty, vm.uiState.value.qrError)
         assertEquals(14.5, repo.fuelStoichAfr, 0.0001)
         assertEquals(835.0, repo.fuelDensityGl, 0.0001)
         assertEquals(1.9, repo.engineDisplacementL, 0.0001)
@@ -374,7 +374,7 @@ class SettingsQrParseTest {
             """.trimIndent(),
         )
 
-        assertEquals("", vm.uiState.value.qrError)
+        assertEquals(UiText.Empty, vm.uiState.value.qrError)
         assertEquals(1.5, repo.engineDisplacementL, 0.0001)
         assertEquals(750.0, repo.fuelDensityGl, 0.0001)
         assertEquals(36.0, repo.tankCapacityL, 0.0001)

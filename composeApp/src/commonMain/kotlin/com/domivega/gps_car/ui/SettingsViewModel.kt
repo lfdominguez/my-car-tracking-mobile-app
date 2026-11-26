@@ -1,5 +1,18 @@
 package com.domivega.gps_car.ui
 
+import com.domivega.gps_car.generated.resources.Res
+import com.domivega.gps_car.generated.resources.msg_conn_unavailable
+import com.domivega.gps_car.generated.resources.msg_testing
+import com.domivega.gps_car.generated.resources.msg_qr_error
+import com.domivega.gps_car.generated.resources.msg_invalid_payload
+import com.domivega.gps_car.generated.resources.msg_conn_ok
+import com.domivega.gps_car.generated.resources.msg_conn_ok_car
+import com.domivega.gps_car.generated.resources.msg_conn_unreachable
+import com.domivega.gps_car.generated.resources.msg_conn_unreachable_detail
+import com.domivega.gps_car.generated.resources.msg_conn_unauthorized
+import com.domivega.gps_car.generated.resources.msg_conn_not_verified
+import com.domivega.gps_car.generated.resources.msg_conn_failed
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.domivega.gps_car.data.BackendConnectionTester
@@ -254,13 +267,13 @@ class SettingsViewModel(
     }
 
     fun clearQrError() {
-        _uiState.update { it.copy(qrError = "") }
+        _uiState.update { it.copy(qrError = UiText.Empty) }
     }
 
     fun clearConnectionTestMessage() {
         _uiState.update {
             it.copy(
-                connectionTestMessage = "",
+                connectionTestMessage = UiText.Empty,
                 connectionTestIsError = false,
             )
         }
@@ -272,7 +285,7 @@ class SettingsViewModel(
             _uiState.update {
                 it.copy(
                     connectionTestInProgress = false,
-                    connectionTestMessage = "Connection test is not available on this platform",
+                    connectionTestMessage = UiText.Res(Res.string.msg_conn_unavailable),
                     connectionTestIsError = true,
                 )
             }
@@ -282,7 +295,7 @@ class SettingsViewModel(
             _uiState.update {
                 it.copy(
                     connectionTestInProgress = true,
-                    connectionTestMessage = "Testing…",
+                    connectionTestMessage = UiText.Res(Res.string.msg_testing),
                     connectionTestIsError = false,
                 )
             }
@@ -342,39 +355,50 @@ class SettingsViewModel(
 
             _uiState.update {
                 it.copy(
-                    qrError = "",
-                    connectionTestMessage = "",
+                    qrError = UiText.Empty,
+                    connectionTestMessage = UiText.Empty,
                     connectionTestIsError = false,
                 )
             }
             loadSettings()
         } catch (e: Exception) {
             _uiState.update {
-                it.copy(qrError = "Couldn't read QR settings: ${e.message ?: "invalid payload"}")
+                it.copy(
+                    qrError = UiText.Res(
+                        Res.string.msg_qr_error,
+                        listOf(e.message?.let { m -> UiText.Plain(m) } ?: UiText.Res(Res.string.msg_invalid_payload)),
+                    ),
+                )
             }
         }
     }
 
     companion object {
         /** User-facing Test connection text and whether it reads as an error. */
-        fun connectionTestMessage(outcome: ConnectionTestOutcome): Pair<String, Boolean> =
+        fun connectionTestMessage(outcome: ConnectionTestOutcome): Pair<UiText, Boolean> =
             when (outcome) {
-                is ConnectionTestOutcome.Ok -> {
-                    val car = outcome.carName?.let { " for $it" }.orEmpty()
-                    "Connected — device token OK$car" to false
-                }
-                is ConnectionTestOutcome.Unreachable -> {
-                    val suffix = outcome.detail.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
-                    "Can't reach server$suffix" to true
-                }
+                is ConnectionTestOutcome.Ok ->
+                    outcome.carName?.let { UiText.Res(Res.string.msg_conn_ok_car, listOf(it)) }
+                        ?.let { it to false }
+                        ?: (UiText.Res(Res.string.msg_conn_ok) to false)
+                is ConnectionTestOutcome.Unreachable ->
+                    (
+                        outcome.detail.takeIf { it.isNotBlank() }
+                            ?.let { UiText.Res(Res.string.msg_conn_unreachable_detail, listOf(it)) }
+                            ?: UiText.Res(Res.string.msg_conn_unreachable)
+                        ) to true
                 is ConnectionTestOutcome.Unauthorized ->
-                    "Server reachable, token rejected (unlinked or revoked) — scan a new QR" to true
+                    UiText.Res(Res.string.msg_conn_unauthorized) to true
                 is ConnectionTestOutcome.TokenNotVerified ->
-                    outcome.detail.ifBlank {
-                        "Server reachable, token not verified (server too old for /api/track/ping)"
-                    } to true
+                    (
+                        outcome.detail.takeIf { it.isNotBlank() }?.let { UiText.Plain(it) }
+                            ?: UiText.Res(Res.string.msg_conn_not_verified)
+                        ) to true
                 is ConnectionTestOutcome.Failed ->
-                    outcome.detail.ifBlank { "Connection test failed" } to true
+                    (
+                        outcome.detail.takeIf { it.isNotBlank() }?.let { UiText.Plain(it) }
+                            ?: UiText.Res(Res.string.msg_conn_failed)
+                        ) to true
             }
     }
 }

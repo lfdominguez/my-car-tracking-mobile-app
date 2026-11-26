@@ -1,5 +1,25 @@
 package com.domivega.gps_car.ui.screens
 
+import org.jetbrains.compose.resources.stringResource
+import com.domivega.gps_car.generated.resources.Res
+import com.domivega.gps_car.generated.resources.common_saving
+import com.domivega.gps_car.generated.resources.refuel_currency
+import com.domivega.gps_car.generated.resources.refuel_datetime
+import com.domivega.gps_car.generated.resources.refuel_full
+import com.domivega.gps_car.generated.resources.refuel_litres
+import com.domivega.gps_car.generated.resources.refuel_odometer
+import com.domivega.gps_car.generated.resources.refuel_price
+import com.domivega.gps_car.generated.resources.refuel_quantity
+import com.domivega.gps_car.generated.resources.refuel_reading
+import com.domivega.gps_car.generated.resources.refuel_receipt
+import com.domivega.gps_car.generated.resources.refuel_receipt_hint
+import com.domivega.gps_car.generated.resources.refuel_save
+import com.domivega.gps_car.generated.resources.refuel_scan
+import com.domivega.gps_car.generated.resources.refuel_station
+import com.domivega.gps_car.generated.resources.refuel_title
+import com.domivega.gps_car.generated.resources.refuel_total
+import com.domivega.gps_car.ui.resolve
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,8 +67,8 @@ fun RefuelScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         SettingsSection(
-            title = "Receipt",
-            supporting = "Photograph the whole receipt, flat and well lit. The values below are filled in for you to check.",
+            title = stringResource(Res.string.refuel_receipt),
+            supporting = stringResource(Res.string.refuel_receipt_hint),
         ) {
             FilledTonalButton(
                 onClick = onScanReceipt,
@@ -61,7 +81,7 @@ fun RefuelScreen(
                     Icon(Icons.Default.PhotoCamera, contentDescription = null)
                 }
                 Spacer(Modifier.width(8.dp))
-                Text(if (state.reading) "Reading receipt…" else "Scan receipt")
+                Text(if (state.reading) stringResource(Res.string.refuel_reading) else stringResource(Res.string.refuel_scan))
             }
             if (state.receiptText.isNotEmpty()) {
                 Text(
@@ -72,14 +92,14 @@ fun RefuelScreen(
             }
         }
 
-        SettingsSection(title = "Refuel") {
+        SettingsSection(title = stringResource(Res.string.refuel_title)) {
             SettingsTextField(
                 value = state.filledAt,
                 onValueChange = { v -> onEdit { it.copy(filledAt = v) } },
-                label = "Date and time (yyyy-MM-dd HH:mm)",
+                label = stringResource(Res.string.refuel_datetime),
             )
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                listOf("L" to "Litres", "kWh" to "kWh").forEachIndexed { i, (unit, label) ->
+                listOf("L" to stringResource(Res.string.refuel_litres), "kWh" to "kWh").forEachIndexed { i, (unit, label) ->
                     SegmentedButton(
                         selected = state.unit == unit,
                         onClick = { onEdit { it.copy(unit = unit) } },
@@ -87,27 +107,27 @@ fun RefuelScreen(
                     ) { Text(label) }
                 }
             }
-            NumberField(state.quantity, { v -> onEdit { it.copy(quantity = v) } }, "Quantity (${state.unit})")
-            NumberField(state.pricePerUnit, { v -> onEdit { it.copy(pricePerUnit = v) } }, "Price per ${state.unit}")
-            NumberField(state.totalCost, { v -> onEdit { it.copy(totalCost = v) } }, "Total paid")
+            NumberField(state.quantity, { v -> onEdit { it.copy(quantity = v) } }, stringResource(Res.string.refuel_quantity, state.unit))
+            NumberField(state.pricePerUnit, { v -> onEdit { it.copy(pricePerUnit = v) } }, stringResource(Res.string.refuel_price, state.unit))
+            NumberField(state.totalCost, { v -> onEdit { it.copy(totalCost = v) } }, stringResource(Res.string.refuel_total))
             SettingsTextField(
                 value = state.currency,
                 onValueChange = { v -> onEdit { it.copy(currency = v) } },
-                label = "Currency (EUR, USD…)",
+                label = stringResource(Res.string.refuel_currency),
             )
             SettingsTextField(
                 value = state.station,
                 onValueChange = { v -> onEdit { it.copy(station = v) } },
-                label = "Station",
+                label = stringResource(Res.string.refuel_station),
             )
-            NumberField(state.odometerKm, { v -> onEdit { it.copy(odometerKm = v) } }, "Odometer (km)")
+            NumberField(state.odometerKm, { v -> onEdit { it.copy(odometerKm = v) } }, stringResource(Res.string.refuel_odometer))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Filled to full",
+                    text = stringResource(Res.string.refuel_full),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
                 )
@@ -121,11 +141,11 @@ fun RefuelScreen(
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (state.saving) "Saving…" else "Save refuel")
+                Text(if (state.saving) stringResource(Res.string.common_saving) else stringResource(Res.string.refuel_save))
             }
-            if (state.message.isNotBlank()) {
+            if (!state.message.isBlank()) {
                 Text(
-                    text = state.message,
+                    text = state.message.resolve(),
                     color = if (state.isError) {
                         MaterialTheme.colorScheme.error
                     } else {
