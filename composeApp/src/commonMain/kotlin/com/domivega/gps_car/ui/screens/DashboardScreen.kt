@@ -1,5 +1,24 @@
 package com.domivega.gps_car.ui.screens
 
+import org.jetbrains.compose.resources.stringResource
+import com.domivega.gps_car.generated.resources.Res
+import com.domivega.gps_car.generated.resources.common_cancel
+import com.domivega.gps_car.generated.resources.common_confirm
+import com.domivega.gps_car.generated.resources.dash_engine_load
+import com.domivega.gps_car.generated.resources.dash_fuel
+import com.domivega.gps_car.generated.resources.dash_obd_disabled
+import com.domivega.gps_car.generated.resources.dash_obd_enabled
+import com.domivega.gps_car.generated.resources.dash_odometer
+import com.domivega.gps_car.generated.resources.dash_retry
+import com.domivega.gps_car.generated.resources.dash_rpm
+import com.domivega.gps_car.generated.resources.dash_rpm_unit
+import com.domivega.gps_car.generated.resources.dash_speed
+import com.domivega.gps_car.generated.resources.dash_stop_text
+import com.domivega.gps_car.generated.resources.dash_stop_title
+import com.domivega.gps_car.generated.resources.dash_tracking_active
+import com.domivega.gps_car.generated.resources.dash_tracking_idle
+import com.domivega.gps_car.ui.resolve
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -64,8 +83,8 @@ fun DashboardScreen(
     if (confirmDisable) {
         AlertDialog(
             onDismissRequest = { confirmDisable = false },
-            title = { Text("Stop tracking and release the OBD adapter?") },
-            text = { Text("The current trip will end, and this app will not reconnect until you enable OBD again.") },
+            title = { Text(stringResource(Res.string.dash_stop_title)) },
+            text = { Text(stringResource(Res.string.dash_stop_text)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -73,12 +92,12 @@ fun DashboardScreen(
                         onObdEnabledChange(false)
                     },
                 ) {
-                    Text("Confirm")
+                    Text(stringResource(Res.string.common_confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDisable = false }) {
-                    Text("Cancel")
+                    Text(stringResource(Res.string.common_cancel))
                 }
             },
         )
@@ -111,7 +130,7 @@ private fun HealthStatusCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = DashboardPresentation.trackingLabel(state.isTracking),
+                text = if (state.isTracking) stringResource(Res.string.dash_tracking_active) else stringResource(Res.string.dash_tracking_idle),
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = trackingColor,
@@ -137,13 +156,13 @@ private fun HealthStatusCard(
             if (pausedMessage != null) {
                 // Retry cannot fix a revoked token, so no button.
                 UploadWarningRow(
-                    message = pausedMessage,
+                    message = pausedMessage.resolve(),
                     onRetry = null,
                 )
             } else {
                 state.uploadWarning?.let { warning ->
                     UploadWarningRow(
-                        message = warning,
+                        message = warning.resolve(),
                         onRetry = onRetryUpload,
                     )
                 }
@@ -155,7 +174,7 @@ private fun HealthStatusCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = if (state.obdEnabled) "Enabled" else "Disabled",
+                    text = if (state.obdEnabled) stringResource(Res.string.dash_obd_enabled) else stringResource(Res.string.dash_obd_disabled),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -242,7 +261,7 @@ private fun UploadWarningRow(
                     },
                     enabled = !retrying,
                 ) {
-                    Text(if (retrying) "…" else "Retry")
+                    Text(if (retrying) "…" else stringResource(Res.string.dash_retry))
                 }
             }
         }
@@ -257,15 +276,15 @@ private fun MetricGrid(state: DashboardState) {
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             MetricTile(
-                label = "Speed",
+                label = stringResource(Res.string.dash_speed),
                 reading = state.speed,
                 unit = "km/h",
                 modifier = Modifier.weight(1f),
             )
             MetricTile(
-                label = "RPM",
+                label = stringResource(Res.string.dash_rpm),
                 reading = state.rpm,
-                unit = "rpm",
+                unit = stringResource(Res.string.dash_rpm_unit),
                 modifier = Modifier.weight(1f),
             )
         }
@@ -274,13 +293,13 @@ private fun MetricGrid(state: DashboardState) {
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             MetricTile(
-                label = "Fuel",
+                label = stringResource(Res.string.dash_fuel),
                 reading = state.fuelLevel,
                 unit = "%",
                 modifier = Modifier.weight(1f),
             )
             MetricTile(
-                label = "Engine load",
+                label = stringResource(Res.string.dash_engine_load),
                 reading = state.engineLoad,
                 unit = "%",
                 modifier = Modifier.weight(1f),
@@ -360,7 +379,7 @@ private fun SecondaryMetricsRow(state: DashboardState) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Odometer",
+                    text = stringResource(Res.string.dash_odometer),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.SemiBold,

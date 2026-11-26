@@ -1,5 +1,7 @@
 package com.domivega.gps_car.obd
 
+import com.domivega.gps_car.R
+
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
@@ -490,9 +492,9 @@ object ObdBleManager {
 
             isInitialized = true
             _connectionStatus.value = when {
-                bluetoothAdapter == null -> "Bluetooth not available"
-                selectedAddress != null -> "Ready (saved ${selectedName ?: selectedAddress})"
-                else -> "Ready (no device selected)"
+                bluetoothAdapter == null -> str(R.string.obd_st_bt_unavailable)
+                selectedAddress != null -> str(R.string.obd_st_ready_saved, selectedName ?: selectedAddress!!)
+                else -> str(R.string.obd_st_ready_none)
             }
             logI(
                 "Manager initialized; device=${selectedAddress ?: "none"}, " +
@@ -504,17 +506,17 @@ object ObdBleManager {
     fun startScan() {
         ensureInit()
         if (!hasScanPermission()) {
-            setStatus("Missing Bluetooth scan permission")
+            setStatus(str(R.string.obd_st_no_scan_perm))
             Log.w(TAG, "startScan: missing permission")
             return
         }
         val adapter = bluetoothAdapter
         if (adapter == null) {
-            setStatus("Bluetooth not available")
+            setStatus(str(R.string.obd_st_bt_unavailable))
             return
         }
         if (!adapter.isEnabled) {
-            setStatus("Bluetooth is off")
+            setStatus(str(R.string.obd_st_bt_off))
             return
         }
         if (!scanning.compareAndSet(false, true)) {
@@ -524,7 +526,7 @@ object ObdBleManager {
 
         scanResults.clear()
         _scannedDevices.value = emptyList()
-        setStatus("Scanning…")
+        setStatus(str(R.string.obd_st_scanning))
 
         try {
             (transport as? SppElmTransport)?.attachContext(appContext)
@@ -548,7 +550,7 @@ object ObdBleManager {
             }
         } catch (t: Throwable) {
             scanning.set(false)
-            setStatus("Scan failed: ${t.message}")
+            setStatus(str(R.string.obd_st_scan_failed, t.message.orEmpty()))
             Log.w(TAG, "startScan failed", t)
         }
     }
@@ -566,7 +568,10 @@ object ObdBleManager {
         if (!wasScanning) return
         val count = _scannedDevices.value.size
         if (!transport.isLinked && !sessionReady.get()) {
-            setStatus(if (count > 0) "Scan done ($count devices)" else "Scan done (no devices)")
+            setStatus(
+                if (count > 0) appContext.resources.getQuantityString(R.plurals.obd_st_scan_done, count, count)
+                else str(R.string.obd_st_scan_done_none),
+            )
         }
     }
 
@@ -577,7 +582,7 @@ object ObdBleManager {
         selectedName = name
         settings.bleDeviceAddress = address
         settings.bleDeviceName = name.orEmpty()
-        setStatus("Selected ${name ?: address}")
+        setStatus(str(R.string.obd_st_selected, name ?: address))
         Log.i(TAG, "Selected device $address ($name)")
         // Re-arm idle wait (presence or cheap fallback) for the new target.
         runCatching { ObdPresenceController.arm(appContext) }
@@ -602,7 +607,7 @@ object ObdBleManager {
             scope.launch {
                 runCatching {
                     sendCommand(protocol.atspCommand)
-                    setStatus("Protocol ${protocol.displayName}")
+                    setStatus(str(R.string.obd_st_protocol, protocol.displayName))
                 }.onFailure {
                     Log.w(TAG, "Failed to apply protocol", it)
                 }
@@ -628,7 +633,7 @@ object ObdBleManager {
             bluetoothTransport = transportKind
             settings.bluetoothTransport = transportKind.name
             transport = createTransport(transportKind)
-            setStatus("Transport: ${transportKind.displayName}")
+            setStatus(str(R.string.obd_st_transport, transportKind.displayName))
             runCatching { ObdPresenceController.arm(appContext) }
                 .onFailure { Log.w(TAG, "ObdPresenceController.arm after transport change failed", it) }
         }
@@ -638,26 +643,26 @@ object ObdBleManager {
         ensureInit()
         if (!ObdEnableGate.mayConnect(settings.obdEnabled)) {
             logI("connect skipped: OBD disabled")
-            setStatus("OBD disabled")
+            setStatus(str(R.string.obd_st_disabled))
             return
         }
         val address = selectedAddress
         if (address.isNullOrBlank()) {
-            setStatus("No device selected")
+            setStatus(str(R.string.obd_st_no_device))
             return
         }
         if (!hasConnectPermission()) {
-            setStatus("Missing Bluetooth connect permission")
+            setStatus(str(R.string.obd_st_no_connect_perm))
             logW("connect: missing Bluetooth permission")
             return
         }
         val adapter = bluetoothAdapter
         if (adapter == null) {
-            setStatus("Bluetooth not available")
+            setStatus(str(R.string.obd_st_bt_unavailable))
             return
         }
         if (!adapter.isEnabled) {
-            setStatus("Bluetooth is off")
+            setStatus(str(R.string.obd_st_bt_off))
             return
         }
         if (sessionReady.get() && transport.isLinked) {
@@ -678,7 +683,7 @@ object ObdBleManager {
                     "Connect attempt ${selectedName ?: address} ($address) " +
                         "via ${bluetoothTransport.name}",
                 )
-                setStatus("Connecting to ${selectedName ?: address}…")
+                setStatus(str(R.string.obd_st_connecting, selectedName ?: address))
                 sessionReady.set(false)
                 loggedFirstPollOk.set(false)
 
@@ -697,23 +702,23 @@ object ObdBleManager {
                 )
                 if (!ok) {
                     val hint = if (bluetoothTransport == BluetoothTransport.ClassicSpp) {
-                        " (pair in system settings PIN 1234/0000; close other OBD apps)"
+                        str(R.string.obd_st_spp_hint)
                     } else {
                         ""
                     }
                     logW("Connect failed/timeout$hint")
-                    setStatus("Connect failed$hint")
+                    setStatus(str(R.string.obd_st_connect_failed, hint))
                     closeLinkInternal()
                     connecting.set(false)
                     return@launch
                 }
 
-                setStatus("Initializing ELM…")
+                setStatus(str(R.string.obd_st_init))
                 logI("Initializing ELM…")
                 val initOk = runInitSequence()
                 if (!initOk) {
-                    if (!_connectionStatus.value.startsWith("ELM init failed")) {
-                        setStatus("ELM init failed")
+                    if (!_connectionStatus.value.startsWith(str(R.string.obd_st_init_failed))) {
+                        setStatus(str(R.string.obd_st_init_failed))
                     }
                     logW("Reconnect will retry (init failed)")
                     _ecuConnected.value = false
@@ -736,13 +741,13 @@ object ObdBleManager {
 
                 sessionReady.set(true)
                 connecting.set(false)
-                setStatus("ECU online")
+                setStatus(str(R.string.obd_st_ecu_online))
                 logI("ECU online — starting PID poll")
                 startPollLoop()
             } catch (t: Throwable) {
                 logE("Connect error: ${t.message}")
                 Log.w(TAG, "connect failed", t)
-                setStatus("Connect error: ${t.message}")
+                setStatus(str(R.string.obd_st_connect_error, t.message.orEmpty()))
                 _ecuConnected.value = false
                 sessionReady.set(false)
                 closeLinkInternal()
@@ -766,7 +771,7 @@ object ObdBleManager {
                 vehicleOnState = VehicleOnPolicy.onLinkLost(vehicleOnState)
                 publishVehicleOn(System.currentTimeMillis())
             }
-            setStatus("Disconnected")
+            setStatus(str(R.string.obd_st_disconnected))
             logI("Disconnected")
         }
     }
@@ -899,6 +904,10 @@ object ObdBleManager {
         check(isInitialized) { "ObdBleManager not initialized. Call initialize() first." }
     }
 
+    /** Localised status text; falls back to the resource id before [initialize]. */
+    private fun str(id: Int, vararg args: Any): String =
+        if (::appContext.isInitialized) appContext.getString(id, *args) else id.toString()
+
     private fun setStatus(msg: String) {
         _connectionStatus.value = msg
     }
@@ -989,7 +998,7 @@ object ObdBleManager {
         failPendingResponse(reason)
         connecting.set(false)
         if (wasReady) {
-            setStatus("Disconnected from adapter")
+            setStatus(str(R.string.obd_st_adapter_lost))
             logW("Link lost ($reason) — will auto-retry")
         }
     }
@@ -1021,7 +1030,7 @@ object ObdBleManager {
                 val resp = sendCommandLogged(cmd, timeout, isInit = true)
                 if (resp == null) {
                     logE("ELM init failed at $cmd (timeout/error)")
-                    setStatus("ELM init failed ($cmd)")
+                    setStatus(str(R.string.obd_st_init_failed_cmd, cmd))
                     _ecuConnected.value = false
                     return false
                 }
@@ -1040,7 +1049,7 @@ object ObdBleManager {
             val sp = sendCommandLogged(atsp, COMMAND_TIMEOUT_MS, isInit = true)
             if (sp == null) {
                 logE("ELM init failed at $atsp (timeout/error)")
-                setStatus("ELM init failed ($atsp)")
+                setStatus(str(R.string.obd_st_init_failed_cmd, atsp))
                 _ecuConnected.value = false
                 return false
             }
@@ -1049,7 +1058,7 @@ object ObdBleManager {
             if (wwhEngineOnly) {
                 if (!probeWwhEngineLive(attempts = ECU_PROBE_ATTEMPTS)) {
                     logE("ELM init failed at WWH 22F40C (no ECU response)")
-                    setStatus("WWH-OBD init failed (no 22F40C)")
+                    setStatus(str(R.string.obd_st_wwh_failed))
                     _ecuConnected.value = false
                     return false
                 }
@@ -1074,7 +1083,7 @@ object ObdBleManager {
             val ecuRaw = probeEcuSupportedPids(attempts = ECU_PROBE_ATTEMPTS)
             if (ecuRaw == null) {
                 logE("ELM init failed at 0100 (no ECU response on $atsp)")
-                setStatus("ELM init failed (0100)")
+                setStatus(str(R.string.obd_st_init_failed_cmd, "0100"))
                 _ecuConnected.value = false
                 return false
             }
@@ -1113,7 +1122,7 @@ object ObdBleManager {
         } catch (t: Throwable) {
             logE("ELM init exception: ${t.message}")
             Log.w(TAG, "Init sequence failed", t)
-            setStatus("ELM init failed")
+            setStatus(str(R.string.obd_st_init_failed))
             _ecuConnected.value = false
             false
         }
@@ -1471,7 +1480,7 @@ object ObdBleManager {
         )
         consecutiveLiveMisses = next.consecutiveMisses
         if (!_ecuConnected.value && next.ecuConnected) {
-            setStatus("ECU online")
+            setStatus(str(R.string.obd_st_ecu_online))
         }
         _ecuConnected.value = next.ecuConnected
     }
@@ -1649,7 +1658,7 @@ object ObdBleManager {
                 "Live OBD miss streak=${next.consecutiveMisses} (0c/0d/42) — " +
                     "ECU offline for tracking (stale last-good PIDs expire)",
             )
-            setStatus("ECU offline (no live PIDs)")
+            setStatus(str(R.string.obd_st_ecu_offline))
         }
         _ecuConnected.value = next.ecuConnected
     }
@@ -2042,7 +2051,7 @@ object ObdBleManager {
                                 sessionReady.set(false)
                                 consecutiveLiveMisses = 0
                                 _ecuConnected.value = false
-                                setStatus("OBD stalled — reconnecting")
+                                setStatus(str(R.string.obd_st_stalled))
                                 closeLinkInternal()
                                 break
                             }
@@ -2298,7 +2307,7 @@ object ObdBleManager {
         var attempt = 0
         while (transport.isLinked && currentCoroutineContext().isActive) {
             if (sessionOdometerTracker.isLocked) return true
-            setStatus("Reading VW odometer…")
+            setStatus(str(R.string.obd_st_vw_odo))
             logI("VW UDS cluster hop (pre-Mode01 attempt=${attempt + 1})")
             val got = pollVwOdometerOnce()
             if (got || sessionOdometerTracker.isLocked) {

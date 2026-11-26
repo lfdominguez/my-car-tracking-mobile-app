@@ -1,5 +1,21 @@
 package com.domivega.gps_car.ui.screens
 
+import org.jetbrains.compose.resources.stringResource
+import com.domivega.gps_car.generated.resources.Res
+import com.domivega.gps_car.generated.resources.common_share
+import com.domivega.gps_car.generated.resources.common_status
+import com.domivega.gps_car.generated.resources.common_unknown
+import com.domivega.gps_car.generated.resources.debug_clear
+import com.domivega.gps_car.generated.resources.debug_col_name
+import com.domivega.gps_car.generated.resources.debug_col_value
+import com.domivega.gps_car.generated.resources.debug_event_log
+import com.domivega.gps_car.generated.resources.debug_live_pids
+import com.domivega.gps_car.generated.resources.debug_no_events
+import com.domivega.gps_car.generated.resources.debug_no_trips
+import com.domivega.gps_car.generated.resources.debug_past_trips
+import com.domivega.gps_car.generated.resources.debug_title
+import com.domivega.gps_car.generated.resources.debug_trip_entry
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,7 +66,7 @@ fun DebugConsoleScreen(
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text(
-            text = "OBD Debug",
+            text = stringResource(Res.string.debug_title),
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -63,21 +79,21 @@ fun DebugConsoleScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Status: ${connectionStatus.ifBlank { "Unknown" }}",
+                text = stringResource(Res.string.common_status, connectionStatus.ifBlank { stringResource(Res.string.common_unknown) }),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = onShareLog) {
-                Text("Share")
+                Text(stringResource(Res.string.common_share))
             }
             TextButton(onClick = onClearLog) {
-                Text("Clear log")
+                Text(stringResource(Res.string.debug_clear))
             }
         }
 
         Text(
-            text = "Event log (init + errors)",
+            text = stringResource(Res.string.debug_event_log),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
@@ -95,7 +111,7 @@ fun DebugConsoleScreen(
             if (logEntries.isEmpty()) {
                 item {
                     Text(
-                        text = "No OBD events yet. Connect an adapter to see init steps.",
+                        text = stringResource(Res.string.debug_no_events),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -122,7 +138,7 @@ fun DebugConsoleScreen(
         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
         Text(
-            text = "Past Trip Logs",
+            text = stringResource(Res.string.debug_past_trips),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 4.dp),
@@ -130,7 +146,7 @@ fun DebugConsoleScreen(
 
         if (tripLogs.isEmpty()) {
             Text(
-                text = "No completed trips recorded yet.",
+                text = stringResource(Res.string.debug_no_trips),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp),
@@ -150,13 +166,13 @@ fun DebugConsoleScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Trip @ ${timeLabel} UTC  ($durationLabel)",
+                        text = stringResource(Res.string.debug_trip_entry, timeLabel, durationLabel),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(onClick = { onShareTripLog(record) }) {
-                        Text("Share")
+                        Text(stringResource(Res.string.common_share))
                     }
                 }
             }
@@ -165,7 +181,7 @@ fun DebugConsoleScreen(
         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
         Text(
-            text = "Live PID Values",
+            text = stringResource(Res.string.debug_live_pids),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 8.dp),
@@ -178,13 +194,13 @@ fun DebugConsoleScreen(
                 .padding(8.dp),
         ) {
             Text("PID", modifier = Modifier.weight(0.2f), fontWeight = FontWeight.Bold)
-            Text("Name", modifier = Modifier.weight(0.5f), fontWeight = FontWeight.Bold)
-            Text("Value", modifier = Modifier.weight(0.3f), fontWeight = FontWeight.Bold)
+            Text(stringResource(Res.string.debug_col_name), modifier = Modifier.weight(0.5f), fontWeight = FontWeight.Bold)
+            Text(stringResource(Res.string.debug_col_value), modifier = Modifier.weight(0.3f), fontWeight = FontWeight.Bold)
         }
 
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(pidValues.toList()) { (pid, value) ->
-                val name = pidNames[pid] ?: "Unknown"
+                val name = pidNames[pid] ?: stringResource(Res.string.common_unknown)
                 val roundedValue = round(value * 100) / 100.0
 
                 Row(

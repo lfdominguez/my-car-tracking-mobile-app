@@ -1,5 +1,7 @@
 package com.domivega.gps_car.network
 
+import com.domivega.gps_car.data.ConnectionFailReason
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -35,7 +37,7 @@ object TrackPing {
         code in 200..299 -> {
             val parsed = parseBody(body)
             if (parsed == null || !parsed.ok) {
-                ConnectionTestResult.Failed("Unexpected ping response (HTTP $code)")
+                ConnectionTestResult.Failed("HTTP $code", ConnectionFailReason.UnexpectedResponse)
             } else {
                 ConnectionTestResult.Ok(
                     carName = parsed.carName?.trim()?.takeIf { it.isNotEmpty() },
@@ -49,7 +51,8 @@ object TrackPing {
         else -> {
             val snippet = body.trim().take(120)
             ConnectionTestResult.Failed(
-                if (snippet.isEmpty()) "Ping failed: HTTP $code" else "Ping failed: HTTP $code: $snippet",
+                if (snippet.isEmpty()) "HTTP $code" else "HTTP $code: $snippet",
+                ConnectionFailReason.HttpError,
             )
         }
     }

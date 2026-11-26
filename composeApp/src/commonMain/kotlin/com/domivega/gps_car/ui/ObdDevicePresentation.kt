@@ -1,7 +1,12 @@
 package com.domivega.gps_car.ui
 
 object ObdDevicePresentation {
-    fun deviceLabel(liveLabel: String, deviceName: String, deviceAddress: String): String {
+    fun deviceLabel(
+        liveLabel: String,
+        deviceName: String,
+        deviceAddress: String,
+        noneLabel: String = "None selected",
+    ): String {
         val live = liveLabel.trim()
         if (live.isNotEmpty()) return live
         return when {
@@ -9,7 +14,7 @@ object ObdDevicePresentation {
                 "$deviceName ($deviceAddress)"
             deviceAddress.isNotBlank() -> deviceAddress
             deviceName.isNotBlank() -> deviceName
-            else -> "None selected"
+            else -> noneLabel
         }
     }
 }

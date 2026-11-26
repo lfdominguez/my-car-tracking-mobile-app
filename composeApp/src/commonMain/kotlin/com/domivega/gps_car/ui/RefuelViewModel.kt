@@ -1,5 +1,15 @@
 package com.domivega.gps_car.ui
 
+import com.domivega.gps_car.generated.resources.Res
+import com.domivega.gps_car.generated.resources.msg_refuel_reading
+import com.domivega.gps_car.generated.resources.msg_refuel_check
+import com.domivega.gps_car.generated.resources.msg_refuel_manual
+import com.domivega.gps_car.generated.resources.msg_refuel_read_failed
+import com.domivega.gps_car.generated.resources.msg_refuel_invalid
+import com.domivega.gps_car.generated.resources.common_saving
+import com.domivega.gps_car.generated.resources.msg_refuel_saved
+import com.domivega.gps_car.generated.resources.msg_refuel_not_saved
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.domivega.gps_car.data.FuelLogBackend
@@ -30,27 +40,27 @@ class RefuelViewModel(
     }
 
     fun edit(transform: (RefuelUiState) -> RefuelUiState) {
-        _uiState.update { transform(it).copy(message = "", isError = false) }
+        _uiState.update { transform(it).copy(message = UiText.Empty, isError = false) }
     }
 
     fun readTicket(photoJpeg: ByteArray) {
         viewModelScope.launch {
-            _uiState.update { it.copy(reading = true, message = "Reading receipt…", isError = false) }
+            _uiState.update { it.copy(reading = true, message = UiText.Res(Res.string.msg_refuel_reading), isError = false) }
             val outcome = runCatching { backend.readTicket(photoJpeg) }
                 .getOrElse { TicketReadOutcome.Failed(it.message ?: "read failed") }
             _uiState.update {
                 when (outcome) {
                     is TicketReadOutcome.Suggested -> it.withSuggestion(outcome.suggestion).copy(
                         receiptText = outcome.text,
-                        message = "Check the values against the receipt, then save",
+                        message = UiText.Res(Res.string.msg_refuel_check),
                         isError = false,
                     )
                     is TicketReadOutcome.NotAvailable -> it.copy(
-                        message = "${outcome.message}. Enter the values by hand.",
+                        message = UiText.Res(Res.string.msg_refuel_manual, listOf(outcome.message)),
                         isError = true,
                     )
                     is TicketReadOutcome.Failed -> it.copy(
-                        message = "Could not read the receipt: ${outcome.detail}",
+                        message = UiText.Res(Res.string.msg_refuel_read_failed, listOf(outcome.detail)),
                         isError = true,
                     )
                 }.copy(reading = false)
@@ -59,24 +69,27 @@ class RefuelViewModel(
     }
 
     fun photoFailed(detail: String) {
-        _uiState.update { it.copy(message = detail, isError = true) }
+        _uiState.update { it.copy(message = UiText.Plain(detail), isError = true) }
     }
 
     fun save() {
         val entry = _uiState.value.toEntry().getOrElse { e ->
-            _uiState.update { it.copy(message = e.message ?: "Invalid entry", isError = true) }
+            val text = (e as? RefuelUiState.InvalidEntry)?.text
+                ?: e.message?.let { UiText.Plain(it) }
+                ?: UiText.Res(Res.string.msg_refuel_invalid)
+            _uiState.update { it.copy(message = text, isError = true) }
             return
         }
         viewModelScope.launch {
-            _uiState.update { it.copy(saving = true, message = "Saving…", isError = false) }
+            _uiState.update { it.copy(saving = true, message = UiText.Res(Res.string.common_saving), isError = false) }
             val result = runCatching { backend.save(entry).getOrThrow() }
             _uiState.update {
                 result.fold(
                     onSuccess = { _ ->
-                        RefuelUiState(filledAt = nowLocal(), unit = it.unit, message = "Refuel saved")
+                        RefuelUiState(filledAt = nowLocal(), unit = it.unit, message = UiText.Res(Res.string.msg_refuel_saved))
                     },
                     onFailure = { e ->
-                        it.copy(saving = false, message = "Not saved: ${e.message}", isError = true)
+                        it.copy(saving = false, message = UiText.Res(Res.string.msg_refuel_not_saved, listOf(e.message.orEmpty())), isError = true)
                     },
                 )
             }

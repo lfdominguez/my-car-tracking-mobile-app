@@ -1,5 +1,7 @@
 package com.domivega.gps_car.network
 
+import com.domivega.gps_car.data.ConnectionFailReason
+
 import android.util.Log
 import com.domivega.gps_car.data.FuelLogEntry
 import com.domivega.gps_car.data.TicketReadOutcome
@@ -123,7 +125,7 @@ class ApiClient(private val settings: AppSettings) {
      */
     suspend fun testConnection(): ConnectionTestResult {
         val healthUrl = healthUrlFromTrackUrl(settings.startUrl)
-            ?: return ConnectionTestResult.Failed("Start URL is missing or invalid")
+            ?: return ConnectionTestResult.Failed("Start URL is missing or invalid", ConnectionFailReason.StartUrlInvalid)
 
         val health = getUrl(healthUrl, authorized = false)
         if (health.isFailure) {
@@ -133,11 +135,11 @@ class ApiClient(private val settings: AppSettings) {
         }
 
         if (settings.apiToken.isBlank()) {
-            return ConnectionTestResult.Failed("API token is empty")
+            return ConnectionTestResult.Failed("API token is empty", ConnectionFailReason.TokenEmpty)
         }
 
         val pingUrl = TrackPing.resolveUrl(settings.pingUrl, settings.startUrl)
-            ?: return ConnectionTestResult.Failed("Ping URL is missing or invalid")
+            ?: return ConnectionTestResult.Failed("Ping URL is missing or invalid", ConnectionFailReason.PingUrlInvalid)
 
         return getReply(pingUrl, authorized = true).fold(
             onSuccess = { reply -> TrackPing.classify(reply.code, reply.body) },
@@ -207,7 +209,10 @@ sealed class ConnectionTestResult {
     data class Unauthorized(val detail: String) : ConnectionTestResult()
     /** Server reachable but too old for `/api/track/ping` (404): token not checked. */
     data class TokenNotVerified(val detail: String) : ConnectionTestResult()
-    data class Failed(val detail: String) : ConnectionTestResult()
+    data class Failed(
+        val detail: String,
+        val reason: ConnectionFailReason = ConnectionFailReason.Other,
+    ) : ConnectionTestResult()
 }
 
 @Serializable

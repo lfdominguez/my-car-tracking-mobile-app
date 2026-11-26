@@ -1,5 +1,7 @@
 package com.domivega.gps_car.obd
 
+import com.domivega.gps_car.R
+
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -31,9 +33,9 @@ object ObdLogShare {
                 clipData = ClipData.newRawUri(FILE_NAME, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(send, "Share log"))
+            context.startActivity(Intent.createChooser(send, context.getString(R.string.share_log)))
         } catch (_: Exception) {
-            Toast.makeText(context, "Could not share log", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, R.string.share_log_failed, Toast.LENGTH_SHORT).show()
         }
     }
 }

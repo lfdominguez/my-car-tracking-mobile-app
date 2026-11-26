@@ -1,5 +1,7 @@
 package com.domivega.gps_car.ui.state
 
+import com.domivega.gps_car.ui.UiText
+
 /**
  * One dashboard metric. [isStale] means the reading is real but older than its
  * tier's freshness budget — the tile dims it rather than blanking it, so a
@@ -30,13 +32,13 @@ data class DashboardState(
     val isGpsLocked: Boolean = false,
     val ecuConnected: Boolean = false,
     /** Non-null when sample upload has FAILED/DEAD rows or last flush failed. */
-    val uploadWarning: String? = null,
+    val uploadWarning: UiText? = null,
     /**
      * Non-null while uploading is paused because the server refused this phone
      * (unlinked). Shown instead of [uploadWarning]; Retry
      * cannot help, a new QR / token can.
      */
-    val uploadPausedMessage: String? = null,
+    val uploadPausedMessage: UiText? = null,
     /** OBD adapter / ECU connection status line (was misnamed `serviceVersion`). */
     val obdConnectionStatus: String? = null,
     val pidValues: Map<String, Double> = emptyMap(),

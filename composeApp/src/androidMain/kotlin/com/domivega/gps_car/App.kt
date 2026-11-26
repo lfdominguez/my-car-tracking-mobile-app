@@ -1,5 +1,7 @@
 package com.domivega.gps_car
 
+import com.domivega.gps_car.ui.resolveAsync
+
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.SharedPreferences
@@ -46,10 +48,10 @@ import java.io.File
  * ZXing's default CaptureActivity is sensorLandscape; unlocking orientation
  * forces a landscape barcode UI and makes dense JSON QRs hard to scan.
  */
-private fun provisioningQrScanOptions(): ScanOptions =
+private fun provisioningQrScanOptions(prompt: String): ScanOptions =
     ScanOptions()
         .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-        .setPrompt("Scan the device QR from the web app")
+        .setPrompt(prompt)
         .setOrientationLocked(true)
         .setBeepEnabled(false)
         .setBarcodeImageEnabled(false)
@@ -155,17 +157,19 @@ fun App() {
             }
             settingsViewModel.updateSettingsFromQr(contents)
             val err = settingsViewModel.uiState.value.qrError
-            val msg = if (err.isNotBlank()) err else "Settings updated from QR"
-            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            appScope.launch {
+                val msg = if (!err.isBlank()) err.resolveAsync() else context.getString(R.string.qr_applied)
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
         }
 
         val permissionLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { isGranted ->
             if (isGranted) {
-                scanLauncher.launch(provisioningQrScanOptions())
+                scanLauncher.launch(provisioningQrScanOptions(context.getString(R.string.qr_prompt)))
             } else {
-                Toast.makeText(context, "Camera permission required for scanning", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, R.string.perm_camera_scan, Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -186,7 +190,7 @@ fun App() {
                 }
                 photo.fold(
                     onSuccess = refuelViewModel::readTicket,
-                    onFailure = { refuelViewModel.photoFailed(it.message ?: "The photo could not be read") },
+                    onFailure = { refuelViewModel.photoFailed(it.message ?: context.getString(R.string.photo_unreadable)) },
                 )
             }
         }
@@ -196,7 +200,7 @@ fun App() {
             if (isGranted) {
                 takeReceiptLauncher.launch(receiptUri)
             } else {
-                Toast.makeText(context, "Camera permission required for receipts", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, R.string.perm_camera_receipt, Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -238,7 +242,7 @@ fun App() {
             if (!PermissionsChecker.hasLocationPermission(context)) {
                 Toast.makeText(
                     context,
-                    "Location permission is required to record trips",
+                    R.string.perm_location,
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -250,7 +254,7 @@ fun App() {
             } else {
                 Toast.makeText(
                     context,
-                    "Bluetooth permissions are required for OBD adapters",
+                    R.string.perm_bluetooth,
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -302,14 +306,14 @@ fun App() {
                     val n = runCatching { QueueRetryActions.retryStuck(context) }.getOrDefault(0)
                     Toast.makeText(
                         context,
-                        if (n > 0) "Retrying upload ($n samples)" else "No stuck samples to retry",
+                        if (n > 0) context.resources.getQuantityString(R.plurals.retry_upload, n, n) else context.getString(R.string.retry_none),
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
             },
             onScanQrCode = {
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                    scanLauncher.launch(provisioningQrScanOptions())
+                    scanLauncher.launch(provisioningQrScanOptions(context.getString(R.string.qr_prompt)))
                 } else {
                     permissionLauncher.launch(Manifest.permission.CAMERA)
                 }
@@ -346,7 +350,7 @@ fun App() {
             onClearObdLog = { ObdBleManager.clearDebugLog() },
             onShareObdLog = { ObdLogShare.share(context, obdLogEntries) },
             onShareTripLog = { record ->
-                ObdLogShare.shareText(context, record.logText, "Trip log ${record.trackingId}")
+                ObdLogShare.shareText(context, record.logText, context.getString(R.string.trip_log_subject, record.trackingId))
             },
         )
     }

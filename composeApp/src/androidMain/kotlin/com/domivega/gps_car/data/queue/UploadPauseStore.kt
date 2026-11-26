@@ -1,5 +1,7 @@
 package com.domivega.gps_car.data.queue
 
+import com.domivega.gps_car.R
+
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -138,10 +140,10 @@ object UploadPauseStore {
                 // Idempotent; the service normally created it already.
                 val channel = NotificationChannel(
                     ForegroundTrackingService.ALERTS_CHANNEL_ID,
-                    "GPS Alerts",
+                    app.getString(R.string.channel_alerts),
                     NotificationManager.IMPORTANCE_HIGH,
                 ).apply {
-                    description = "Important alerts from GPSCarTracking"
+                    description = app.getString(R.string.channel_alerts_desc)
                 }
                 nm.createNotificationChannel(channel)
             }
@@ -151,10 +153,12 @@ object UploadPauseStore {
                 Intent(app, MainActivity::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            val text = QueueHealthMessages.pauseMessage(reason).orEmpty()
+            val text = when (reason) {
+                UploadPauseReason.DeviceUnauthorized -> app.getString(R.string.notif_unlinked)
+            }
             val notification = NotificationCompat.Builder(app, ForegroundTrackingService.ALERTS_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
-                .setContentTitle("GPSCarTracking: uploads paused")
+                .setContentTitle(app.getString(R.string.notif_uploads_paused))
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)

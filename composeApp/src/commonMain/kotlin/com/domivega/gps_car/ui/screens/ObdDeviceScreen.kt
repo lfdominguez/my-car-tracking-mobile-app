@@ -1,5 +1,36 @@
 package com.domivega.gps_car.ui.screens
 
+import org.jetbrains.compose.resources.stringResource
+import com.domivega.gps_car.generated.resources.Res
+import com.domivega.gps_car.generated.resources.common_close
+import com.domivega.gps_car.generated.resources.common_status
+import com.domivega.gps_car.generated.resources.common_unknown
+import com.domivega.gps_car.generated.resources.obd_adapter
+import com.domivega.gps_car.generated.resources.obd_adapter_hint
+import com.domivega.gps_car.generated.resources.obd_ble_devices
+import com.domivega.gps_car.generated.resources.obd_connect
+import com.domivega.gps_car.generated.resources.obd_device
+import com.domivega.gps_car.generated.resources.obd_disconnect
+import com.domivega.gps_car.generated.resources.obd_dtc
+import com.domivega.gps_car.generated.resources.obd_dtc_hint
+import com.domivega.gps_car.generated.resources.obd_golf_hint
+import com.domivega.gps_car.generated.resources.obd_none_selected
+import com.domivega.gps_car.generated.resources.obd_pair_hint
+import com.domivega.gps_car.generated.resources.obd_perf
+import com.domivega.gps_car.generated.resources.obd_perf_hint
+import com.domivega.gps_car.generated.resources.obd_profile
+import com.domivega.gps_car.generated.resources.obd_protocol
+import com.domivega.gps_car.generated.resources.obd_rescan
+import com.domivega.gps_car.generated.resources.obd_scan
+import com.domivega.gps_car.generated.resources.obd_scanning
+import com.domivega.gps_car.generated.resources.obd_transport
+import com.domivega.gps_car.generated.resources.obd_vehicle
+import com.domivega.gps_car.generated.resources.obd_vehicle_hint
+import com.domivega.gps_car.generated.resources.obd_vw_did
+import com.domivega.gps_car.generated.resources.obd_vw_did_hint
+import com.domivega.gps_car.generated.resources.obd_wwh
+import com.domivega.gps_car.generated.resources.obd_wwh_hint
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -87,6 +118,7 @@ fun ObdDeviceScreen(
         liveLabel = bleDeviceLabel,
         deviceName = state.bleDeviceName,
         deviceAddress = state.bleDeviceAddress,
+        noneLabel = stringResource(Res.string.obd_none_selected),
     )
 
     Column(
@@ -97,8 +129,8 @@ fun ObdDeviceScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         SettingsSection(
-            title = "Adapter",
-            supporting = connectionStatus.ifBlank { "ELM327 transport, device, and protocol" },
+            title = stringResource(Res.string.obd_adapter),
+            supporting = connectionStatus.ifBlank { stringResource(Res.string.obd_adapter_hint) },
         ) {
             if (transportOptions.isNotEmpty()) {
                 ExposedDropdownMenuBox(
@@ -110,7 +142,7 @@ fun ObdDeviceScreen(
                         value = selectedTransportLabel,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Bluetooth transport") },
+                        label = { Text(stringResource(Res.string.obd_transport)) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = transportExpanded) },
                         modifier = Modifier
                             .menuAnchor()
@@ -137,14 +169,14 @@ fun ObdDeviceScreen(
 
             if (state.bluetoothTransport == BluetoothTransport.ClassicSpp.name) {
                 Text(
-                    text = "Pair in Android Bluetooth settings if needed (PIN often 1234 or 0000). Close Torque/other OBD apps before connecting.",
+                    text = stringResource(Res.string.obd_pair_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
             Text(
-                text = "Device",
+                text = stringResource(Res.string.obd_device),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -155,7 +187,7 @@ fun ObdDeviceScreen(
             )
 
             Text(
-                text = "Status: ${connectionStatus.ifBlank { "Unknown" }}",
+                text = stringResource(Res.string.common_status, connectionStatus.ifBlank { stringResource(Res.string.common_unknown) }),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -170,7 +202,7 @@ fun ObdDeviceScreen(
                         value = selectedProtocolLabel,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("OBD Protocol") },
+                        label = { Text(stringResource(Res.string.obd_protocol)) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = protocolExpanded) },
                         modifier = Modifier
                             .menuAnchor()
@@ -203,7 +235,7 @@ fun ObdDeviceScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
             ) {
-                Text("Scan for BLE devices")
+                Text(stringResource(Res.string.obd_scan))
             }
 
             Row(
@@ -216,21 +248,21 @@ fun ObdDeviceScreen(
                     shape = MaterialTheme.shapes.medium,
                     enabled = state.bleDeviceAddress.isNotBlank() && state.obdEnabled,
                 ) {
-                    Text("Connect")
+                    Text(stringResource(Res.string.obd_connect))
                 }
                 OutlinedButton(
                     onClick = onDisconnectClick,
                     modifier = Modifier.weight(1f),
                     shape = MaterialTheme.shapes.medium,
                 ) {
-                    Text("Disconnect")
+                    Text(stringResource(Res.string.obd_disconnect))
                 }
             }
         }
 
         SettingsSection(
-            title = "Vehicle",
-            supporting = "Generic OBD, VW MQB cluster, or Golf mk4 TDI (ASZ) K-line defaults",
+            title = stringResource(Res.string.obd_vehicle),
+            supporting = stringResource(Res.string.obd_vehicle_hint),
         ) {
             if (vehicleObdProfileOptions.isNotEmpty()) {
                 ExposedDropdownMenuBox(
@@ -242,7 +274,7 @@ fun ObdDeviceScreen(
                         value = selectedVehicleProfileLabel,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Vehicle OBD profile") },
+                        label = { Text(stringResource(Res.string.obd_profile)) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vehicleProfileExpanded) },
                         modifier = Modifier
                             .menuAnchor()
@@ -269,8 +301,7 @@ fun ObdDeviceScreen(
 
             if (state.vehicleObdProfile == VehicleObdProfile.VwGolfMk4Tdi.name) {
                 Text(
-                    text = "Applies ISO 9141-2, Diesel B7, 1.9 L displacement, and 55 L tank capacity. " +
-                        "This ECU has no SAE odometer or tank %. Reconnect OBD after changing profile.",
+                    text = stringResource(Res.string.obd_golf_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -280,10 +311,10 @@ fun ObdDeviceScreen(
                 SettingsTextField(
                     value = state.vwOdometerDid,
                     onValueChange = onVwOdometerDidChange,
-                    label = "VW odometer DID (optional hex)",
+                    label = stringResource(Res.string.obd_vw_did),
                 )
                 Text(
-                    text = "4-hex DID override for cluster odometer (e.g. 22A6). Leave empty to try built-in candidates.",
+                    text = stringResource(Res.string.obd_vw_did_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -295,10 +326,9 @@ fun ObdDeviceScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text("WWH-OBD only (experimental)")
+                    Text(stringResource(Res.string.obd_wwh))
                     Text(
-                        text = "Engine metrics via UDS 22F4xx only (no classic Mode 01). " +
-                            "Applies on next OBD reconnect. May fail if the car has no OBDonUDS.",
+                        text = stringResource(Res.string.obd_wwh_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -315,11 +345,9 @@ fun ObdDeviceScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text("Performance mode")
+                    Text(stringResource(Res.string.obd_perf))
                     Text(
-                        text = "Faster ELM polling (expected response lines + aggressive timing). " +
-                            "Line suffix applies on the next PID query; ATAT2 on next OBD reconnect. " +
-                            "Turn off if PIDs start dropping.",
+                        text = stringResource(Res.string.obd_perf_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -336,11 +364,9 @@ fun ObdDeviceScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text("Read fault codes at trip start")
+                    Text(stringResource(Res.string.obd_dtc))
                     Text(
-                        text = "Reads stored and pending DTCs (Mode 03/07) once when a trip " +
-                            "starts and uploads them with the first sample. Pauses PID polling " +
-                            "for a few seconds; skipped for that trip if the car does not answer.",
+                        text = stringResource(Res.string.obd_dtc_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -356,10 +382,10 @@ fun ObdDeviceScreen(
     if (showDeviceDialog) {
         AlertDialog(
             onDismissRequest = { showDeviceDialog = false },
-            title = { Text("BLE devices") },
+            title = { Text(stringResource(Res.string.obd_ble_devices)) },
             text = {
                 if (scannedDevices.isEmpty()) {
-                    Text("Scanning… no devices found yet.")
+                    Text(stringResource(Res.string.obd_scanning))
                 } else {
                     LazyColumn(
                         modifier = Modifier
@@ -397,12 +423,12 @@ fun ObdDeviceScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showDeviceDialog = false }) {
-                    Text("Close")
+                    Text(stringResource(Res.string.common_close))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { onScanClick() }) {
-                    Text("Rescan")
+                    Text(stringResource(Res.string.obd_rescan))
                 }
             },
         )

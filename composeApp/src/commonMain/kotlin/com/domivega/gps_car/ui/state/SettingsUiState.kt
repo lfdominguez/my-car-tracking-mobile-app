@@ -1,5 +1,8 @@
 package com.domivega.gps_car.ui.state
 
+import com.domivega.gps_car.ui.UiText
+import kotlinx.serialization.Transient
+
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
 import kotlinx.serialization.Serializable
 
@@ -45,9 +48,9 @@ data class SettingsUiState(
     /** Optional Sample metrics to upload (speed/RPM always on; lat/lon whenever a usable fix exists). */
     val sampleUploadFieldFlags: SampleUploadFieldFlags = SampleUploadFieldFlags.ALL_ENABLED,
     /** Last QR parse error (cleared on successful apply). */
-    val qrError: String = "",
+    @Transient val qrError: UiText = UiText.Empty,
     val connectionTestInProgress: Boolean = false,
     /** User-facing result of Test connection. */
-    val connectionTestMessage: String = "",
+    @Transient val connectionTestMessage: UiText = UiText.Empty,
     val connectionTestIsError: Boolean = false,
 )

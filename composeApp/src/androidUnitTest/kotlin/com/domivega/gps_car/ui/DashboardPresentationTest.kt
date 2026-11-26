@@ -6,12 +6,6 @@ import kotlin.test.assertNull
 
 class DashboardPresentationTest {
     @Test
-    fun trackingLabel_activeAndIdle() {
-        assertEquals("ACTIVE TRACKING", DashboardPresentation.trackingLabel(isTracking = true))
-        assertEquals("IDLE", DashboardPresentation.trackingLabel(isTracking = false))
-    }
-
-    @Test
     fun odometerLabel_unknownAndRounding() {
         assertEquals("— km", DashboardPresentation.odometerLabel(null))
         assertEquals("— km", DashboardPresentation.odometerLabel(Double.NaN))

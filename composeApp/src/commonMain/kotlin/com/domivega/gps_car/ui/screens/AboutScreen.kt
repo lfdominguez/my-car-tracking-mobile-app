@@ -1,5 +1,12 @@
 package com.domivega.gps_car.ui.screens
 
+import org.jetbrains.compose.resources.stringResource
+import com.domivega.gps_car.generated.resources.Res
+import com.domivega.gps_car.generated.resources.about_logo
+import com.domivega.gps_car.generated.resources.about_tagline
+import com.domivega.gps_car.generated.resources.about_version
+import com.domivega.gps_car.generated.resources.app_title
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
@@ -25,13 +32,13 @@ fun AboutScreen(
         if (logoPainter != null) {
             Image(
                 painter = logoPainter,
-                contentDescription = "App Logo",
+                contentDescription = stringResource(Res.string.about_logo),
                 modifier = Modifier.size(120.dp).padding(bottom = 24.dp)
             )
         }
         
         Text(
-            text = "GPS Car Tracker",
+            text = stringResource(Res.string.app_title),
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground
         )
@@ -39,7 +46,7 @@ fun AboutScreen(
         Spacer(modifier = Modifier.height(8.dp))
         
         Text(
-            text = "Open-source GPS + OBD-II car telemetry for Android",
+            text = stringResource(Res.string.about_tagline),
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -49,7 +56,7 @@ fun AboutScreen(
         
         if (appVersion.isNotBlank()) {
             Text(
-                text = "Version $appVersion",
+                text = stringResource(Res.string.about_version, appVersion),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.outline
             )

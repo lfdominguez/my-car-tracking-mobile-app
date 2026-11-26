@@ -89,5 +89,13 @@ class TrackPingTest {
         val result = TrackPing.classify(500, "boom")
         assertTrue(result is ConnectionTestResult.Failed)
         assertTrue((result as ConnectionTestResult.Failed).detail.contains("500"))
+        assertEquals(com.domivega.gps_car.data.ConnectionFailReason.HttpError, result.reason)
+    }
+
+    @Test
+    fun invalid_ok_body_is_unexpected_response() {
+        val result = TrackPing.classify(200, "<html></html>") as ConnectionTestResult.Failed
+        assertEquals(com.domivega.gps_car.data.ConnectionFailReason.UnexpectedResponse, result.reason)
+        assertEquals("HTTP 200", result.detail)
     }
 }

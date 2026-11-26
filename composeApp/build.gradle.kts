@@ -66,6 +66,10 @@ kotlin {
     }
 }
 
+compose.resources {
+    packageOfResClass = "com.domivega.gps_car.generated.resources"
+}
+
 android {
     namespace = "com.domivega.gps_car"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -85,6 +89,11 @@ android {
     }
     buildFeatures {
         buildConfig = true
+    }
+    // Android 13+ per-app language picker (Settings → Apps → Language).
+    androidResources {
+        generateLocaleConfig = true
+        localeFilters += listOf("en", "de")
     }
     packaging {
         resources {
