@@ -49,8 +49,17 @@
     <string name="obd_st_transport">Transport: %1$s</string>
     <string name="obd_st_vw_odo">Reading VW odometer…</string>
     <string name="obd_st_wwh_failed">WWH-OBD init failed (no 22F40C)</string>
+    <string name="obd_st_ready_saved">Ready (saved %1$s)</string>
+    <string name="obd_st_ready_none">Ready (no device selected)</string>
+    <string name="obd_st_scan_done_none">Scan done (no devices)</string>
+    <string name="share_log">Share log</string>
+    <string name="share_log_failed">Could not share log</string>
     <plurals name="retry_upload">
         <item quantity="one">Retrying upload (%1$d sample)</item>
         <item quantity="other">Retrying upload (%1$d samples)</item>
+    </plurals>
+    <plurals name="obd_st_scan_done">
+        <item quantity="one">Scan done (%1$d device)</item>
+        <item quantity="other">Scan done (%1$d devices)</item>
     </plurals>
 </resources>

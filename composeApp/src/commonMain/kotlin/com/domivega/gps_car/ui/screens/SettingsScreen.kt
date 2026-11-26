@@ -1,5 +1,7 @@
 package com.domivega.gps_car.ui.screens
 
+import com.domivega.gps_car.generated.resources.set_scan_qr
+
 import org.jetbrains.compose.resources.stringResource
 import com.domivega.gps_car.generated.resources.Res
 import com.domivega.gps_car.generated.resources.set_backend
@@ -139,7 +141,7 @@ fun SettingsScreen(
             shape = MaterialTheme.shapes.medium
         ) {
             Icon(Icons.Default.QrCodeScanner, contentDescription = null)
-            Text(text = " Scan Settings via QR", modifier = Modifier.padding(start = 8.dp))
+            Text(text = stringResource(Res.string.set_scan_qr), modifier = Modifier.padding(start = 8.dp))
         }
 
         if (!state.qrError.isBlank()) {
@@ -475,7 +477,8 @@ private fun SettingsDoubleField(
         value = text,
         onValueChange = { newText ->
             text = newText
-            newText.toDoubleOrNull()?.let(onValueChange)
+            // Accept the decimal comma used in German and other locales.
+            newText.trim().replace(',', '.').toDoubleOrNull()?.let(onValueChange)
         },
         label = { Text(label) },
         modifier = Modifier.fillMaxWidth(),

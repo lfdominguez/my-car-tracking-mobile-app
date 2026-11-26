@@ -1,5 +1,12 @@
 package com.domivega.gps_car.ui
 
+import com.domivega.gps_car.data.ConnectionFailReason
+import com.domivega.gps_car.generated.resources.msg_conn_start_url_invalid
+import com.domivega.gps_car.generated.resources.msg_conn_token_empty
+import com.domivega.gps_car.generated.resources.msg_conn_ping_url_invalid
+import com.domivega.gps_car.generated.resources.msg_conn_unexpected_response
+import com.domivega.gps_car.generated.resources.msg_conn_ping_failed
+
 import com.domivega.gps_car.generated.resources.Res
 import com.domivega.gps_car.generated.resources.msg_conn_unavailable
 import com.domivega.gps_car.generated.resources.msg_testing
@@ -389,16 +396,24 @@ class SettingsViewModel(
                         ) to true
                 is ConnectionTestOutcome.Unauthorized ->
                     UiText.Res(Res.string.msg_conn_unauthorized) to true
+                // The detail repeats this explanation in English; show the localized one.
                 is ConnectionTestOutcome.TokenNotVerified ->
-                    (
-                        outcome.detail.takeIf { it.isNotBlank() }?.let { UiText.Plain(it) }
-                            ?: UiText.Res(Res.string.msg_conn_not_verified)
-                        ) to true
-                is ConnectionTestOutcome.Failed ->
-                    (
-                        outcome.detail.takeIf { it.isNotBlank() }?.let { UiText.Plain(it) }
-                            ?: UiText.Res(Res.string.msg_conn_failed)
-                        ) to true
+                    UiText.Res(Res.string.msg_conn_not_verified) to true
+                is ConnectionTestOutcome.Failed -> failedMessage(outcome) to true
+            }
+
+        private fun failedMessage(outcome: ConnectionTestOutcome.Failed): UiText =
+            when (outcome.reason) {
+                ConnectionFailReason.StartUrlInvalid -> UiText.Res(Res.string.msg_conn_start_url_invalid)
+                ConnectionFailReason.TokenEmpty -> UiText.Res(Res.string.msg_conn_token_empty)
+                ConnectionFailReason.PingUrlInvalid -> UiText.Res(Res.string.msg_conn_ping_url_invalid)
+                ConnectionFailReason.UnexpectedResponse ->
+                    UiText.Res(Res.string.msg_conn_unexpected_response, listOf(outcome.detail))
+                ConnectionFailReason.HttpError ->
+                    UiText.Res(Res.string.msg_conn_ping_failed, listOf(outcome.detail))
+                ConnectionFailReason.Other ->
+                    outcome.detail.takeIf { it.isNotBlank() }?.let { UiText.Plain(it) }
+                        ?: UiText.Res(Res.string.msg_conn_failed)
             }
     }
 }

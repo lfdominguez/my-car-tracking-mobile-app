@@ -49,8 +49,17 @@
     <string name="obd_st_transport">Verbindungsart: %1$s</string>
     <string name="obd_st_vw_odo">Lese VW-Kilometerstand…</string>
     <string name="obd_st_wwh_failed">WWH-OBD-Init fehlgeschlagen (kein 22F40C)</string>
+    <string name="obd_st_ready_saved">Bereit (gespeichert: %1$s)</string>
+    <string name="obd_st_ready_none">Bereit (kein Gerät ausgewählt)</string>
+    <string name="obd_st_scan_done_none">Suche beendet (keine Geräte)</string>
+    <string name="share_log">Log teilen</string>
+    <string name="share_log_failed">Log konnte nicht geteilt werden</string>
     <plurals name="retry_upload">
         <item quantity="one">Upload wird erneut versucht (%1$d Messpunkt)</item>
         <item quantity="other">Upload wird erneut versucht (%1$d Messpunkte)</item>
+    </plurals>
+    <plurals name="obd_st_scan_done">
+        <item quantity="one">Suche beendet (%1$d Gerät)</item>
+        <item quantity="other">Suche beendet (%1$d Geräte)</item>
     </plurals>
 </resources>

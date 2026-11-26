@@ -159,6 +159,12 @@
     <string name="set_upload_fields">Hochzuladende Werte</string>
     <string name="set_upload_fields_hint">Immer gesendet: Geschwindigkeit und Drehzahl (plus Tracking-ID). GPS-Position und Genauigkeit werden gesendet, sobald ein brauchbarer Fix vorliegt.</string>
     <string name="set_ve">Volumetrischer Wirkungsgrad (0–1)</string>
+    <string name="set_scan_qr">Einstellungen per QR-Code scannen</string>
+    <string name="msg_conn_start_url_invalid">Start-URL fehlt oder ist ungültig</string>
+    <string name="msg_conn_token_empty">API-Token ist leer</string>
+    <string name="msg_conn_ping_url_invalid">Ping-URL fehlt oder ist ungültig</string>
+    <string name="msg_conn_unexpected_response">Unerwartete Ping-Antwort (%1$s)</string>
+    <string name="msg_conn_ping_failed">Ping fehlgeschlagen: %1$s</string>
     <plurals name="msg_upload_dead">
         <item quantity="one">Upload für %1$d Messpunkt endgültig fehlgeschlagen%2$s – „Erneut versuchen“ tippen</item>
         <item quantity="other">Upload für %1$d Messpunkte endgültig fehlgeschlagen%2$s – „Erneut versuchen“ tippen</item>

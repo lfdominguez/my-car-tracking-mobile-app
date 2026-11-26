@@ -19,7 +19,7 @@ class ApiBackendConnectionTester(
             is ConnectionTestResult.Unreachable -> ConnectionTestOutcome.Unreachable(result.detail)
             is ConnectionTestResult.Unauthorized -> ConnectionTestOutcome.Unauthorized(result.detail)
             is ConnectionTestResult.TokenNotVerified -> ConnectionTestOutcome.TokenNotVerified(result.detail)
-            is ConnectionTestResult.Failed -> ConnectionTestOutcome.Failed(result.detail)
+            is ConnectionTestResult.Failed -> ConnectionTestOutcome.Failed(result.detail, result.reason)
         }
     }
 }

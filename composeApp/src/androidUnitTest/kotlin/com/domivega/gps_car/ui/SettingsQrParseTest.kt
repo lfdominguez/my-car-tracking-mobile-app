@@ -1,5 +1,6 @@
 package com.domivega.gps_car.ui
 
+import com.domivega.gps_car.data.ConnectionFailReason
 import com.domivega.gps_car.data.ConnectionTestOutcome
 import com.domivega.gps_car.data.SettingsRepository
 import com.domivega.gps_car.settings.SampleUploadFieldFlags
@@ -321,6 +322,18 @@ class SettingsQrParseTest {
             ConnectionTestOutcome.TokenNotVerified(""),
         )
         assertEquals("msg_conn_not_verified", old.key)
+
+        val (http, httpIsError) = SettingsViewModel.connectionTestMessage(
+            ConnectionTestOutcome.Failed("HTTP 500: boom", ConnectionFailReason.HttpError),
+        )
+        assertEquals("msg_conn_ping_failed", http.key)
+        assertTrue(http.argStrings.contains("HTTP 500: boom"))
+        assertTrue(httpIsError)
+
+        val (empty, _) = SettingsViewModel.connectionTestMessage(
+            ConnectionTestOutcome.Failed("API token is empty", ConnectionFailReason.TokenEmpty),
+        )
+        assertEquals("msg_conn_token_empty", empty.key)
         assertTrue(oldIsError)
     }
 

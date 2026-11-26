@@ -492,9 +492,9 @@ object ObdBleManager {
 
             isInitialized = true
             _connectionStatus.value = when {
-                bluetoothAdapter == null -> "Bluetooth not available"
-                selectedAddress != null -> "Ready (saved ${selectedName ?: selectedAddress})"
-                else -> "Ready (no device selected)"
+                bluetoothAdapter == null -> str(R.string.obd_st_bt_unavailable)
+                selectedAddress != null -> str(R.string.obd_st_ready_saved, selectedName ?: selectedAddress!!)
+                else -> str(R.string.obd_st_ready_none)
             }
             logI(
                 "Manager initialized; device=${selectedAddress ?: "none"}, " +
@@ -568,7 +568,10 @@ object ObdBleManager {
         if (!wasScanning) return
         val count = _scannedDevices.value.size
         if (!transport.isLinked && !sessionReady.get()) {
-            setStatus(if (count > 0) "Scan done ($count devices)" else "Scan done (no devices)")
+            setStatus(
+                if (count > 0) appContext.resources.getQuantityString(R.plurals.obd_st_scan_done, count, count)
+                else str(R.string.obd_st_scan_done_none),
+            )
         }
     }
 
