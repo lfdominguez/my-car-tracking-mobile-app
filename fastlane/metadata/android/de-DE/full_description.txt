@@ -1,0 +1,38 @@
+<p>GPS Car Tracking zeichnet GPS-Fahrten mit OBD-II-Livewerten eines ELM327-Adapters auf (Bluetooth LE GATT oder Classic SPP), speichert die Messpunkte auf dem Gerät zwischen und lädt sie gebündelt auf einen Server hoch, den du selbst kontrollierst.</p>
+
+<p><b>Funktionen</b></p>
+<ul>
+<li>Aufzeichnung im Vordergrund mit Systemstandort (Fused Location ab Android 12, GPS auf älteren Geräten)</li>
+<li>Natives OBD über BLE oder klassisches Bluetooth – keine proprietären Google-Play-Standortbibliotheken</li>
+<li>Steuergerät-bewusste Sitzungen: Die Aufzeichnung kann der Adapterverbindung folgen</li>
+<li>Robuste Offline-Warteschlange (Room) mit gebündeltem Upload und Wiederholung</li>
+<li>Kraftstoff- und Fahrzeugeinstellungen für den geschätzten Verbrauch aus OBD-Signalen</li>
+<li>Dashboard-Anzeigen, Einstellungen (inklusive Einrichtung per QR-Code) und OBD-Debug-Log</li>
+<li>Keine Werbung, keine Analyse-SDKs, keine Absturz-Tracker</li>
+</ul>
+
+<p><b>Server (du entscheidest)</b></p>
+<ul>
+<li>Am besten die freie Begleitplattform selbst hosten: <a href="https://github.com/lfdominguez/my-car-tracking-platform">my-car-tracking-platform</a></li>
+<li>Oder jede kompatible HTTP-API (/start, /stop, /samples) mit Geräte-Token nutzen</li>
+<li>Optionale Community-Instanz: <a href="https://mycar.domivega.com">mycar.domivega.com</a> (URLs und Token in den Einstellungen eintragen; beim Build ist nichts fest vorgegeben)</li>
+</ul>
+
+<p><b>Berechtigungen (wofür)</b></p>
+<ul>
+<li>Standort (auch im Hintergrund während der Aufzeichnung) – Fahrtpunkte schreiben</li>
+<li>Bluetooth / Geräte in der Nähe – mit dem ELM327-Adapter sprechen</li>
+<li>Benachrichtigungen &amp; Vordergrunddienst – eine Fahrt zuverlässig am Laufen halten</li>
+<li>Kamera (optional) – Einrichtungs-QR-Codes aus der Weboberfläche scannen</li>
+<li>Internet – zwischengespeicherte Messpunkte hochladen, sobald ein Server eingerichtet ist</li>
+<li>Systemstart – automatisches Verbinden nach einem Neustart wieder aktivieren</li>
+</ul>
+
+<p><b>Datenschutz</b></p>
+<p>Messpunkte und Zugangsdaten bleiben auf deinem Handy, bis du die App auf einen Server deines Vertrauens richtest. Die Voreinstellungen enthalten nur leere bzw. Platzhalter-Hostnamen. BLE-Adressen und API-Tokens werden nur in den App-Einstellungen auf dem Gerät gespeichert.</p>
+
+<p><b>Lizenz</b></p>
+<p>MIT. Quellcode: <a href="https://github.com/lfdominguez/my-car-tracking-mobile-app">my-car-tracking-mobile-app</a></p>
+
+<p><b>Hinweis</b></p>
+<p>Der Kraftstoffverbrauch über OBD ist geschätzt, sofern du die Auswertung nicht erweiterst. Bitte das Handy während der Fahrt nicht bedienen.</p>
